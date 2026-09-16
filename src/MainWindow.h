@@ -141,5 +141,6 @@ private:
     int m_brightness = 0;
     int m_contrast = 0;
     QTimer m_fullscreenHideTimer;
+    QTimer m_cursorHideTimer;
     bool m_playlistWasVisibleBeforeFullscreen = false;
 };
