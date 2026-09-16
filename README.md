@@ -1,22 +1,19 @@
-# REX Player for Linux
+# REX Player
 
-The Linux edition of REX Player is being developed as a native desktop frontend around **libmpv**, using **Qt 6** and **CMake**.
+REX Player is a native desktop media player frontend around **libmpv**, using **Qt 6** and **CMake**. The project currently targets Linux and Windows.
 
 ## Current status
-
-This is the first foundation milestone:
 
 - Native Qt 6 desktop window
 - libmpv embedded into the application window
 - Open a media file from the command line
-- Drag and drop a local media file
+- Drag and drop local media files
 - Basic mpv event pumping
 - CMake-based build
 - HW/SW decoding toggle with live status
 - Video information dialog with file, codec, resolution, audio, subtitle and track details
 - A-B stream-copy cutting through FFmpeg, preserving all mapped streams without re-encoding
-
-The Linux player is intentionally being built alongside the Android project rather than attempting to port the Android UI directly.
+- Windows x64 build through GitHub Actions using MSYS2/MinGW64
 
 ## Build on Ubuntu/Debian
 
@@ -24,17 +21,25 @@ The Linux player is intentionally being built alongside the Android project rath
 sudo apt update
 sudo apt install build-essential cmake pkg-config qt6-base-dev libmpv-dev ffmpeg
 
-cmake -S linux -B linux/build
-cmake --build linux/build -j$(nproc)
+cmake -S . -B build
+cmake --build build -j$(nproc)
 
-./linux/build/rex-player
+./build/rex-player
 ```
 
 Open a file directly:
 
 ```bash
-./linux/build/rex-player /path/to/video.mkv
+./build/rex-player /path/to/video.mkv
 ```
+
+## Windows build
+
+The `windows-port` branch contains the Windows build configuration and GitHub Actions workflow.
+
+The Windows build uses the MSYS2 MinGW64 packages for Qt 6, libmpv and FFmpeg, then produces a portable x64 ZIP containing the application and its runtime dependencies.
+
+The workflow is defined at `.github/workflows/windows.yml` and runs automatically for pushes and pull requests targeting `windows-port`.
 
 ## Roadmap
 
@@ -54,7 +59,7 @@ Open a file directly:
 
 On the video surface:
 
-- Double-click the left or right third to seek backward or forward 10 seconds.
+- Double-click the left or right third to seek backward or forward by the configured seek duration.
 - Double-click the center to pause or resume.
 - Click the **−10s** and **+10s** buttons to seek exactly 10 seconds.
 - Click anywhere on the seek bar to jump directly to that position.
@@ -68,7 +73,7 @@ On the video surface:
 
 - Set A and B with the configured A/B shortcuts, then click **Cut AB**.
 - The cut uses FFmpeg stream copy (`-c copy`) and maps all streams, so video, every audio track and every subtitle track are copied without re-encoding.
-- FFmpeg must be installed and the output container must support the copied streams.
+- FFmpeg must be available. The Windows portable build bundles `ffmpeg.exe`.
 - Stream-copy cutting is keyframe-limited, so the beginning can be slightly before the requested A point. Exact frame-accurate cutting requires re-encoding.
 
 ## Precision playback
