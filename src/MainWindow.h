@@ -47,6 +47,9 @@ private slots:
     void seekForward();
     void seekTo(int value);
     void setVolume(int value);
+    void volumeUp();
+    void volumeDown();
+    void toggleMute();
     void updatePlaybackUi();
     void toggleControls();
     void togglePlaylist();
@@ -127,6 +130,9 @@ private:
     Qt::MouseButton m_doubleClickButton = Qt::LeftButton;
     bool m_doubleClickZones = true;
     int m_seekDurationSeconds = 60;
+    QKeySequence m_volumeUpKey = QKeySequence(Qt::SHIFT | Qt::Key_V);
+    QKeySequence m_volumeDownKey = QKeySequence(Qt::Key_V);
+    QKeySequence m_muteKey = QKeySequence(Qt::Key_M);
     QKeySequence m_seekBackwardKey = QKeySequence(Qt::Key_Left);
     QKeySequence m_seekForwardKey = QKeySequence(Qt::Key_Right);
     QKeySequence m_loopAKey = QKeySequence(Qt::Key_A);

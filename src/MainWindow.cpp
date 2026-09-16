@@ -342,6 +342,9 @@ void MainWindow::loadControlSettings() {
     m_doubleClickButton = static_cast<Qt::MouseButton>(settings.value(QStringLiteral("controls/doubleClickButton"), static_cast<int>(m_doubleClickButton)).toInt());
     const int legacyMinutes = std::clamp(settings.value(QStringLiteral("controls/seekDurationMinutes"), 1).toInt(), 1, 120);
     m_seekDurationSeconds = std::clamp(settings.value(QStringLiteral("controls/seekDurationSeconds"), legacyMinutes * 60).toInt(), 5, 7200);
+    m_volumeUpKey = QKeySequence(settings.value(QStringLiteral("controls/volumeUp"), m_volumeUpKey.toString()).toString());
+    m_volumeDownKey = QKeySequence(settings.value(QStringLiteral("controls/volumeDown"), m_volumeDownKey.toString()).toString());
+    m_muteKey = QKeySequence(settings.value(QStringLiteral("controls/mute"), m_muteKey.toString()).toString());
     m_seekBackwardKey = QKeySequence(settings.value(QStringLiteral("controls/seekBackward"), m_seekBackwardKey.toString()).toString());
     m_seekForwardKey = QKeySequence(settings.value(QStringLiteral("controls/seekForward"), m_seekForwardKey.toString()).toString());
     m_loopAKey = QKeySequence(settings.value(QStringLiteral("controls/loopA"), m_loopAKey.toString()).toString());
@@ -412,6 +415,9 @@ void MainWindow::showControlsDialog() {
     mainLayout->addWidget(new QLabel(QStringLiteral("Keyboard shortcuts"), &dialog));
 
     auto* keyForm = new QFormLayout();
+    auto* volumeUp = new QKeySequenceEdit(m_volumeUpKey, &dialog);
+    auto* volumeDown = new QKeySequenceEdit(m_volumeDownKey, &dialog);
+    auto* mute = new QKeySequenceEdit(m_muteKey, &dialog);
     auto* seekBack = new QKeySequenceEdit(m_seekBackwardKey, &dialog);
     auto* seekForward = new QKeySequenceEdit(m_seekForwardKey, &dialog);
     auto* loopA = new QKeySequenceEdit(m_loopAKey, &dialog);
@@ -422,8 +428,11 @@ void MainWindow::showControlsDialog() {
     auto* zoomReset = new QKeySequenceEdit(m_zoomResetKey, &dialog);
     auto* frameBack = new QKeySequenceEdit(m_frameBackKey, &dialog);
     auto* frameForward = new QKeySequenceEdit(m_frameForwardKey, &dialog);
-    const QList<QKeySequenceEdit*> edits = {seekBack, seekForward, loopA, loopB, loopClear, zoomIn, zoomOut, zoomReset, frameBack, frameForward};
+    const QList<QKeySequenceEdit*> edits = {volumeUp, volumeDown, mute, seekBack, seekForward, loopA, loopB, loopClear, zoomIn, zoomOut, zoomReset, frameBack, frameForward};
     for (auto* edit : edits) edit->setClearButtonEnabled(true);
+    keyForm->addRow(QStringLiteral("Shift + V → Volume +"), volumeUp);
+    keyForm->addRow(QStringLiteral("V → Volume −"), volumeDown);
+    keyForm->addRow(QStringLiteral("M → Mute / unmute"), mute);
     keyForm->addRow(QStringLiteral("Left Arrow → Seek backward"), seekBack);
     keyForm->addRow(QStringLiteral("Right Arrow → Seek forward"), seekForward);
     keyForm->addRow(QStringLiteral("A → Loop start"), loopA);
@@ -451,6 +460,9 @@ void MainWindow::showControlsDialog() {
         selectData(volumeWheel, QStringLiteral("ctrl-wheel"));
         selectData(panButton, static_cast<int>(Qt::MiddleButton));
         selectData(doubleClickButton, static_cast<int>(Qt::LeftButton));
+        volumeUp->setKeySequence(QKeySequence(Qt::SHIFT | Qt::Key_V));
+        volumeDown->setKeySequence(QKeySequence(Qt::Key_V));
+        mute->setKeySequence(QKeySequence(Qt::Key_M));
         seekBack->setKeySequence(QKeySequence(Qt::Key_Left));
         seekForward->setKeySequence(QKeySequence(Qt::Key_Right));
         loopA->setKeySequence(QKeySequence(Qt::Key_A));
@@ -498,6 +510,9 @@ void MainWindow::showControlsDialog() {
         settings.setValue(QStringLiteral("controls/volumeWheel"), m_volumeWheelMode);
         settings.setValue(QStringLiteral("controls/panButton"), static_cast<int>(m_panButton));
         settings.setValue(QStringLiteral("controls/doubleClickButton"), static_cast<int>(m_doubleClickButton));
+        settings.setValue(QStringLiteral("controls/volumeUp"), m_volumeUpKey.toString());
+        settings.setValue(QStringLiteral("controls/volumeDown"), m_volumeDownKey.toString());
+        settings.setValue(QStringLiteral("controls/mute"), m_muteKey.toString());
         settings.setValue(QStringLiteral("controls/seekBackward"), m_seekBackwardKey.toString());
         settings.setValue(QStringLiteral("controls/seekForward"), m_seekForwardKey.toString());
         settings.setValue(QStringLiteral("controls/loopA"), m_loopAKey.toString());
@@ -564,10 +579,11 @@ void MainWindow::addToPlaylist(const QString& path) {
             return;
         }
     }
+    const bool wasEmpty = m_playlist->count() == 0;
     auto* item = new QListWidgetItem(QFileInfo(absolute).fileName(), m_playlist);
     item->setToolTip(absolute);
     item->setData(Qt::UserRole, absolute);
-    m_playlist->setCurrentItem(item);
+    if (wasEmpty) m_playlist->setCurrentItem(item);
 }
 
 void MainWindow::playPlaylistIndex(int index) {
@@ -594,6 +610,9 @@ void MainWindow::seekBackward() { const QByteArray seconds = QByteArray::number(
 void MainWindow::seekForward() { const QByteArray seconds = QByteArray::number(m_seekDurationSeconds); const char* args[] = {"seek", seconds.constData(), "relative", "exact", nullptr}; command(args); }
 void MainWindow::seekTo(int value) { const double duration = getPropertyDouble("duration"); if (duration > 0) setPropertyDouble("time-pos", duration * value / 1000.0); }
 void MainWindow::setVolume(int value) { setPropertyDouble("volume", value); }
+void MainWindow::volumeUp() { m_volumeSlider->setValue(std::clamp(m_volumeSlider->value() + 5, 0, 100)); }
+void MainWindow::volumeDown() { m_volumeSlider->setValue(std::clamp(m_volumeSlider->value() - 5, 0, 100)); }
+void MainWindow::toggleMute() { const char* args[] = {"cycle", "mute", nullptr}; command(args); }
 double MainWindow::getPropertyDouble(const char* name) const { if (!m_mpv) return 0.0; double value = 0.0; return mpv_get_property(m_mpv, name, MPV_FORMAT_DOUBLE, &value) >= 0 ? value : 0.0; }
 QString MainWindow::getPropertyString(const char* name) const { if (!m_mpv) return {}; char* value = nullptr; if (mpv_get_property(m_mpv, name, MPV_FORMAT_STRING, &value) < 0 || !value) return {}; const QString result = QString::fromUtf8(value); mpv_free(value); return result; }
 void MainWindow::setPropertyDouble(const char* name, double value) { if (m_mpv) mpv_set_property_async(m_mpv, 0, name, MPV_FORMAT_DOUBLE, &value); }
@@ -803,6 +822,9 @@ void MainWindow::saveLogReport() {
     out << "Pan button: " << static_cast<int>(m_panButton) << "\n";
     out << "Double-click button: " << static_cast<int>(m_doubleClickButton) << "\n";
     out << "Double-click zones: " << (m_doubleClickZones ? "enabled" : "disabled") << "\n";
+    out << "Volume up shortcut: " << m_volumeUpKey.toString() << "\n";
+    out << "Volume down shortcut: " << m_volumeDownKey.toString() << "\n";
+    out << "Mute shortcut: " << m_muteKey.toString() << "\n";
     out << "Seek backward shortcut: " << m_seekBackwardKey.toString() << "\n";
     out << "Seek forward shortcut: " << m_seekForwardKey.toString() << "\n";
     out << "Loop A shortcut: " << m_loopAKey.toString() << "\n";
@@ -944,14 +966,52 @@ void MainWindow::updatePlaybackUi() {
 void MainWindow::updatePlayButton(bool paused) { m_playButton->setText(paused ? QStringLiteral("▶") : QStringLiteral("Ⅱ")); }
 QString MainWindow::formatTime(double seconds) const { if (!std::isfinite(seconds) || seconds < 0) seconds = 0; const int total = static_cast<int>(seconds); const int h = total / 3600, m = (total % 3600) / 60, s = total % 60; return h > 0 ? QStringLiteral("%1:%2:%3").arg(h).arg(m,2,10,QLatin1Char('0')).arg(s,2,10,QLatin1Char('0')) : QStringLiteral("%1:%2").arg(m).arg(s,2,10,QLatin1Char('0')); }
 void MainWindow::openFile() { const QString path = QFileDialog::getOpenFileName(this, QStringLiteral("Open video")); if (!path.isEmpty()) loadFile(path); }
-void MainWindow::addFiles() { const QStringList paths = QFileDialog::getOpenFileNames(this, QStringLiteral("Add media files")); if (paths.isEmpty()) return; for (const QString& path : paths) addToPlaylist(path); if (m_playlist && m_playlist->currentItem()) playlistActivated(); }
-void MainWindow::addFolder() { const QString path = QFileDialog::getExistingDirectory(this, QStringLiteral("Add media folder")); if (path.isEmpty() || !m_playlist) return; QDir dir(path); const QFileInfoList files = dir.entryInfoList(QDir::Files | QDir::Readable, QDir::Name | QDir::IgnoreCase); for (const QFileInfo& info : files) if (isMediaFile(info)) addToPlaylist(info.absoluteFilePath()); if (m_playlist->currentItem()) playlistActivated(); }
+void MainWindow::addFiles() {
+    const QStringList paths = QFileDialog::getOpenFileNames(this, QStringLiteral("Add media files"));
+    if (paths.isEmpty()) return;
+    const int currentIndex = m_playlist ? m_playlist->currentRow() : -1;
+    const bool wasEmpty = m_playlist && m_playlist->count() == 0;
+    for (const QString& path : paths) addToPlaylist(path);
+    if (!m_playlist) return;
+    if (wasEmpty) {
+        if (m_playlist->count() > 0) { m_playlist->setCurrentRow(0); playlistActivated(); }
+    } else if (currentIndex >= 0 && currentIndex < m_playlist->count()) {
+        m_playlist->setCurrentRow(currentIndex);
+    }
+}
+void MainWindow::addFolder() {
+    const QString path = QFileDialog::getExistingDirectory(this, QStringLiteral("Add media folder"));
+    if (path.isEmpty() || !m_playlist) return;
+    const int currentIndex = m_playlist->currentRow();
+    const bool wasEmpty = m_playlist->count() == 0;
+    QDir dir(path);
+    const QFileInfoList files = dir.entryInfoList(QDir::Files | QDir::Readable, QDir::Name | QDir::IgnoreCase);
+    for (const QFileInfo& info : files) if (isMediaFile(info)) addToPlaylist(info.absoluteFilePath());
+    if (wasEmpty) {
+        if (m_playlist->count() > 0) { m_playlist->setCurrentRow(0); playlistActivated(); }
+    } else if (currentIndex >= 0 && currentIndex < m_playlist->count()) {
+        m_playlist->setCurrentRow(currentIndex);
+    }
+}
 void MainWindow::clearPlaylist() { if (m_playlist) m_playlist->clear(); m_currentPlaylistIndex = -1; }
 void MainWindow::playlistActivated() { if (m_playlist && m_playlist->currentItem()) playPlaylistIndex(m_playlist->currentRow()); }
 void MainWindow::playPrevious() { if (!m_playlist || m_playlist->count() == 0) return; int index = m_currentPlaylistIndex >= 0 ? m_currentPlaylistIndex : m_playlist->currentRow(); if (index > 0) playPlaylistIndex(index - 1); }
 void MainWindow::playNext() { if (!m_playlist || m_playlist->count() == 0) return; int index = m_currentPlaylistIndex >= 0 ? m_currentPlaylistIndex : m_playlist->currentRow(); if (index + 1 < m_playlist->count()) playPlaylistIndex(index + 1); }
 void MainWindow::dragEnterEvent(QDragEnterEvent* event) { if (event->mimeData()->hasUrls()) event->acceptProposedAction(); }
-void MainWindow::dropEvent(QDropEvent* event) { const auto urls = event->mimeData()->urls(); for (const auto& url : urls) if (url.isLocalFile()) addToPlaylist(url.toLocalFile()); if (m_playlist && m_playlist->currentItem()) playlistActivated(); if (!urls.isEmpty()) event->acceptProposedAction(); }
+void MainWindow::dropEvent(QDropEvent* event) {
+    const auto urls = event->mimeData()->urls();
+    const int currentIndex = m_playlist ? m_playlist->currentRow() : -1;
+    const bool wasEmpty = m_playlist && m_playlist->count() == 0;
+    for (const auto& url : urls) if (url.isLocalFile()) addToPlaylist(url.toLocalFile());
+    if (m_playlist) {
+        if (wasEmpty) {
+            if (m_playlist->count() > 0) { m_playlist->setCurrentRow(0); playlistActivated(); }
+        } else if (currentIndex >= 0 && currentIndex < m_playlist->count()) {
+            m_playlist->setCurrentRow(currentIndex);
+        }
+    }
+    if (!urls.isEmpty()) event->acceptProposedAction();
+}
 
 bool MainWindow::keyMatches(QKeyEvent* event, const QKeySequence& sequence) const {
     if (sequence.isEmpty()) return false;
@@ -962,6 +1022,9 @@ bool MainWindow::keyMatches(QKeyEvent* event, const QKeySequence& sequence) cons
 }
 
 void MainWindow::keyPressEvent(QKeyEvent* event) {
+    if (keyMatches(event, m_volumeUpKey)) { volumeUp(); event->accept(); return; }
+    if (keyMatches(event, m_volumeDownKey)) { volumeDown(); event->accept(); return; }
+    if (keyMatches(event, m_muteKey)) { toggleMute(); event->accept(); return; }
     if (keyMatches(event, m_seekBackwardKey)) { seekBackward(); event->accept(); return; }
     if (keyMatches(event, m_seekForwardKey)) { seekForward(); event->accept(); return; }
     if (keyMatches(event, m_loopAKey)) { setAbLoopStart(); event->accept(); return; }
