@@ -1,0 +1,92 @@
+name: Apply subtitle and timer features
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: ${{ !contains(github.event.head_commit.message, '[subtitle-timer]') }}
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Patch source
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          h = Path('src/MainWindow.h')
+          s = h.read_text()
+          old = '    void saveLogReport();\n'
+          new = old + '    void increaseSubtitleSize();\n    void decreaseSubtitleSize();\n'
+          assert old in s and 'increaseSubtitleSize' not in s
+          s = s.replace(old, new, 1)
+          old = '    bool m_autoplayPlaylist = true;\n'
+          new = old + '    bool m_showRemainingTime = false;\n'
+          assert old in s and 'm_showRemainingTime' not in s
+          s = s.replace(old, new, 1)
+          h.write_text(s)
+
+          cpp = Path('src/MainWindow.cpp')
+          s = cpp.read_text()
+
+          old = '    m_timeLabel = new QLabel(QStringLiteral("00:00 / 00:00"), m_controls);\n    row->addWidget(m_timeLabel);\n'
+          new = '    m_timeLabel = new QLabel(QStringLiteral("00:00 / 00:00"), m_controls);\n    m_timeLabel->setToolTip(QStringLiteral("Click to switch between elapsed / total and elapsed / remaining time"));\n    m_timeLabel->setCursor(Qt::PointingHandCursor);\n    m_timeLabel->installEventFilter(this);\n    row->addWidget(m_timeLabel);\n'
+          assert old in s
+          s = s.replace(old, new, 1)
+
+          old = 'void MainWindow::updatePlaybackUi() {\n    if (!m_mpv) return;\n    const double pos = getPropertyDouble("time-pos");\n    const double duration = getPropertyDouble("duration");\n    int paused = 0;\n    if (mpv_get_property(m_mpv, "pause", MPV_FORMAT_FLAG, &paused) < 0) paused = 0;\n    if (!m_seeking) m_seekSlider->setValue(duration > 0 ? static_cast<int>(std::clamp(pos / duration, 0.0, 1.0) * 1000.0) : 0);\n    m_timeLabel->setText(QStringLiteral("%1 / %2").arg(formatTime(pos), formatTime(duration)));\n    updatePlayButton(paused != 0);\n'
+          new = 'void MainWindow::updatePlaybackUi() {\n    if (!m_mpv) return;\n    const double pos = getPropertyDouble("time-pos");\n    const double duration = getPropertyDouble("duration");\n    int paused = 0;\n    if (mpv_get_property(m_mpv, "pause", MPV_FORMAT_FLAG, &paused) < 0) paused = 0;\n    if (!m_seeking) m_seekSlider->setValue(duration > 0 ? static_cast<int>(std::clamp(pos / duration, 0.0, 1.0) * 1000.0) : 0);\n    const double remaining = std::max(0.0, duration - pos);\n    m_timeLabel->setText(QStringLiteral("%1 / %2").arg(formatTime(pos), formatTime(m_showRemainingTime ? remaining : duration)));\n    updatePlayButton(paused != 0);\n'
+          assert old in s
+          s = s.replace(old, new, 1)
+
+          old = 'void MainWindow::updatePlayButton(bool paused) { m_playButton->setText(paused ? QStringLiteral("▶") : QStringLiteral("Ⅱ")); }\n'
+          new = old + 'void MainWindow::increaseSubtitleSize() { const double current = getPropertyDouble("sub-scale"); setPropertyDouble("sub-scale", std::clamp((current > 0.0 ? current : 1.0) + 0.1, 0.1, 100.0)); }\nvoid MainWindow::decreaseSubtitleSize() { const double current = getPropertyDouble("sub-scale"); setPropertyDouble("sub-scale", std::clamp((current > 0.0 ? current : 1.0) - 0.1, 0.1, 100.0)); }\n'
+          assert old in s
+          s = s.replace(old, new, 1)
+
+          old = 'void MainWindow::keyPressEvent(QKeyEvent* event) {\n    if (keyMatches(event, m_volumeUpKey)) { volumeUp(); event->accept(); return; }\n'
+          new = 'void MainWindow::keyPressEvent(QKeyEvent* event) {\n    if (event->key() == Qt::Key_I && event->modifiers() == Qt::ShiftModifier) { increaseSubtitleSize(); event->accept(); return; }\n    if (event->key() == Qt::Key_I && event->modifiers() == Qt::NoModifier) { decreaseSubtitleSize(); event->accept(); return; }\n    if (keyMatches(event, m_volumeUpKey)) { volumeUp(); event->accept(); return; }\n'
+          assert old in s
+          s = s.replace(old, new, 1)
+
+          old = 'bool MainWindow::eventFilter(QObject* watched, QEvent* event) {\n    if (watched == m_videoWidget) {\n'
+          new = 'bool MainWindow::eventFilter(QObject* watched, QEvent* event) {\n    if (watched == m_timeLabel && event->type() == QEvent::MouseButtonPress) {\n        m_showRemainingTime = !m_showRemainingTime;\n        updatePlaybackUi();\n        return true;\n    }\n\n    if (watched == m_videoWidget) {\n'
+          assert old in s
+          s = s.replace(old, new, 1)
+
+          old = '    keyForm->addRow(QStringLiteral(". → Next frame"), frameForward);\n    mainLayout->addLayout(keyForm);\n'
+          new = '    keyForm->addRow(QStringLiteral(". → Next frame"), frameForward);\n    keyForm->addRow(QStringLiteral("Shift + I → Increase subtitle text size"), new QLabel(QStringLiteral("Fixed shortcut"), &dialog));\n    keyForm->addRow(QStringLiteral("I → Decrease subtitle text size"), new QLabel(QStringLiteral("Fixed shortcut"), &dialog));\n    mainLayout->addLayout(keyForm);\n'
+          assert old in s
+          s = s.replace(old, new, 1)
+
+          cpp.write_text(s)
+
+          r = Path('README.md')
+          s = r.read_text()
+          old = '- ⏭️ Frame-by-frame stepping\n- 🔁 Playlist autoplay\n'
+          new = '- ⏭️ Frame-by-frame stepping\n- 🔤 Shift + I increases subtitle text size\n- 🔡 I decreases subtitle text size\n- 🔁 Playlist autoplay\n'
+          assert old in s
+          s = s.replace(old, new, 1)
+          old = '- 🖱️ Mouse pointer automatically hides after 5 seconds over the video\n- 👀 Controls reappear when the mouse moves\n'
+          new = '- 🖱️ Mouse pointer automatically hides after 5 seconds over the video\n- ⏱️ Click the playback timer to switch between elapsed / total and elapsed / remaining time\n- 👀 Controls reappear when the mouse moves\n'
+          assert old in s
+          s = s.replace(old, new, 1)
+          r.write_text(s)
+          PY
+
+      - name: Commit changes and remove temporary workflow
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/MainWindow.h src/MainWindow.cpp README.md .github/workflows/apply-subtitle-timer-features.yml
+          git rm .github/workflows/apply-subtitle-timer-features.yml
+          git commit -m 'Add subtitle size shortcuts and timer toggle [subtitle-timer]'
+          git push
