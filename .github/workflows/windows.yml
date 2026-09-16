@@ -1,0 +1,102 @@
+name: Windows Build
+
+on:
+  push:
+    branches: [windows-port]
+  pull_request:
+    branches: [main, windows-port]
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    defaults:
+      run:
+        shell: msys2 {0}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up MSYS2 MinGW64
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-toolchain
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-ninja
+            mingw-w64-x86_64-qt6-base
+            mingw-w64-x86_64-mpv
+            mingw-w64-x86_64-ffmpeg
+
+      - name: Configure
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="$PWD/dist"
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Install
+        run: cmake --install build
+
+      - name: Deploy Qt and libmpv runtime
+        run: |
+          mkdir -p dist/bin
+          /mingw64/bin/windeployqt6.exe \
+            --release \
+            --no-translations \
+            --no-system-d3d-compiler \
+            dist/bin/rex-player.exe
+
+          # libmpv is not a Qt dependency, so copy it and its MinGW runtime
+          # dependencies beside the application executable.
+          copy_deps() {
+            local target="$1"
+            ldd "$target" | awk '/=>/ && $3 ~ /^\/mingw64\/bin\/.*\.dll$/ {print $3}' | while read -r dll; do
+              [ -f "$dll" ] && cp -n "$dll" dist/bin/
+            done
+          }
+
+          MPV_DLL=""
+          for candidate in /mingw64/bin/libmpv-2.dll /mingw64/bin/mpv-2.dll; do
+            if [ -f "$candidate" ]; then
+              MPV_DLL="$candidate"
+              break
+            fi
+          done
+          if [ -z "$MPV_DLL" ]; then
+            echo "libmpv DLL not found"
+            exit 1
+          fi
+          cp "$MPV_DLL" dist/bin/
+          copy_deps "$MPV_DLL"
+          copy_deps dist/bin/rex-player.exe
+
+          # REX Player uses FFmpeg for A-B cutting. Bundle ffmpeg.exe when
+          # available and include its MinGW DLL dependencies.
+          if [ -f /mingw64/bin/ffmpeg.exe ]; then
+            cp /mingw64/bin/ffmpeg.exe dist/bin/
+            copy_deps /mingw64/bin/ffmpeg.exe
+          fi
+
+      - name: Create portable ZIP
+        run: |
+          mkdir -p release
+          powershell.exe -NoProfile -Command "Compress-Archive -Path 'dist/bin/*' -DestinationPath 'release/REX-Player-Windows-x64.zip' -Force"
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: REX-Player-Windows-x64
+          path: release/REX-Player-Windows-x64.zip
+
+      - name: Upload portable folder
+        uses: actions/upload-artifact@v4
+        with:
+          name: REX-Player-Windows-x64-folder
+          path: dist/bin/
