@@ -65,6 +65,10 @@ MPV-Linux is a lightweight native Linux desktop media player built around **libm
 - 📊 Playback/media information
 - 🐞 Shortcut and configuration information in logs
 
+## ⏱️ Playback timer
+
+The timer normally shows **elapsed / total** time. Click the timer to switch to **elapsed / remaining** time, and click it again to return to elapsed / total.
+
 ## 📦 Installation on Ubuntu/Debian
 
 ### Recommended: install the `.deb` package
