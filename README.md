@@ -12,6 +12,8 @@ MPV-Linux is a lightweight native Linux desktop media player built around **libm
 - 🖱️ Mouse-wheel seeking
 - ⌨️ Configurable keyboard seeking
 - ⏭️ Frame-by-frame stepping
+- 🔤 Shift + I increases subtitle text size
+- 🔡 I decreases subtitle text size
 - 🔁 Playlist autoplay
 
 ### 📂 Playlist
@@ -44,6 +46,7 @@ MPV-Linux is a lightweight native Linux desktop media player built around **libm
 ### 🖥️ Display
 - ⛶ Fullscreen mode
 - 🖱️ Mouse pointer automatically hides after 5 seconds over the video
+- ⏱️ Click the playback timer to switch between elapsed / total and elapsed / remaining time
 - 👀 Controls reappear when the mouse moves
 - ⌨️ F11 / Enter / Numpad Enter fullscreen
 - 🚪 Escape exits fullscreen

@@ -240,6 +240,9 @@ void MainWindow::buildUi() {
     connect(m_nextButton, &QPushButton::clicked, this, &MainWindow::playNext);
     row->addWidget(m_nextButton);
     m_timeLabel = new QLabel(QStringLiteral("00:00 / 00:00"), m_controls);
+    m_timeLabel->setToolTip(QStringLiteral("Click to switch between elapsed / total and elapsed / remaining time"));
+    m_timeLabel->setCursor(Qt::PointingHandCursor);
+    m_timeLabel->installEventFilter(this);
     row->addWidget(m_timeLabel);
     m_abLoopLabel = new QLabel(QStringLiteral("A-B: Off"), m_controls);
     m_abLoopLabel->setToolTip(QStringLiteral("A: set loop start, B: set loop end, L: clear loop"));
@@ -453,6 +456,8 @@ void MainWindow::showControlsDialog() {
     keyForm->addRow(QStringLiteral("Z → Reset zoom / pan"), zoomReset);
     keyForm->addRow(QStringLiteral(", → Previous frame"), frameBack);
     keyForm->addRow(QStringLiteral(". → Next frame"), frameForward);
+    keyForm->addRow(QStringLiteral("Shift + I → Increase subtitle text size"), new QLabel(QStringLiteral("Fixed shortcut"), &dialog));
+    keyForm->addRow(QStringLiteral("I → Decrease subtitle text size"), new QLabel(QStringLiteral("Fixed shortcut"), &dialog));
     mainLayout->addLayout(keyForm);
 
     auto* note = new QLabel(QStringLiteral("Seek duration applies to the arrow keys, wheel seek and double-click seek zones. Choose 5, 10 or 30 seconds, or a value from 1 to 120 minutes. The −10s and +10s buttons always seek exactly 10 seconds. Changes are saved for the next launch. Clear a shortcut to disable it."), &dialog);
@@ -967,13 +972,16 @@ void MainWindow::updatePlaybackUi() {
     int paused = 0;
     if (mpv_get_property(m_mpv, "pause", MPV_FORMAT_FLAG, &paused) < 0) paused = 0;
     if (!m_seeking) m_seekSlider->setValue(duration > 0 ? static_cast<int>(std::clamp(pos / duration, 0.0, 1.0) * 1000.0) : 0);
-    m_timeLabel->setText(QStringLiteral("%1 / %2").arg(formatTime(pos), formatTime(duration)));
+    const double remaining = std::max(0.0, duration - pos);
+    m_timeLabel->setText(QStringLiteral("%1 / %2").arg(formatTime(pos), formatTime(m_showRemainingTime ? remaining : duration)));
     updatePlayButton(paused != 0);
     updateHardwareButton();
     syncPlaylistSelection();
 }
 
 void MainWindow::updatePlayButton(bool paused) { m_playButton->setText(paused ? QStringLiteral("▶") : QStringLiteral("Ⅱ")); }
+void MainWindow::increaseSubtitleSize() { const double current = getPropertyDouble("sub-scale"); setPropertyDouble("sub-scale", std::clamp((current > 0.0 ? current : 1.0) + 0.1, 0.1, 100.0)); }
+void MainWindow::decreaseSubtitleSize() { const double current = getPropertyDouble("sub-scale"); setPropertyDouble("sub-scale", std::clamp((current > 0.0 ? current : 1.0) - 0.1, 0.1, 100.0)); }
 QString MainWindow::formatTime(double seconds) const { if (!std::isfinite(seconds) || seconds < 0) seconds = 0; const int total = static_cast<int>(seconds); const int h = total / 3600, m = (total % 3600) / 60, s = total % 60; return h > 0 ? QStringLiteral("%1:%2:%3").arg(h).arg(m,2,10,QLatin1Char('0')).arg(s,2,10,QLatin1Char('0')) : QStringLiteral("%1:%2").arg(m).arg(s,2,10,QLatin1Char('0')); }
 void MainWindow::openFile() { const QString path = QFileDialog::getOpenFileName(this, QStringLiteral("Open video")); if (!path.isEmpty()) loadFile(path); }
 void MainWindow::addFiles() {
@@ -1032,6 +1040,8 @@ bool MainWindow::keyMatches(QKeyEvent* event, const QKeySequence& sequence) cons
 }
 
 void MainWindow::keyPressEvent(QKeyEvent* event) {
+    if (event->key() == Qt::Key_I && event->modifiers() == Qt::ShiftModifier) { increaseSubtitleSize(); event->accept(); return; }
+    if (event->key() == Qt::Key_I && event->modifiers() == Qt::NoModifier) { decreaseSubtitleSize(); event->accept(); return; }
     if (keyMatches(event, m_volumeUpKey)) { volumeUp(); event->accept(); return; }
     if (keyMatches(event, m_volumeDownKey)) { volumeDown(); event->accept(); return; }
     if (keyMatches(event, m_muteKey)) { toggleMute(); event->accept(); return; }
@@ -1059,6 +1069,12 @@ void MainWindow::keyPressEvent(QKeyEvent* event) {
 }
 
 bool MainWindow::eventFilter(QObject* watched, QEvent* event) {
+    if (watched == m_timeLabel && event->type() == QEvent::MouseButtonPress) {
+        m_showRemainingTime = !m_showRemainingTime;
+        updatePlaybackUi();
+        return true;
+    }
+
     if (watched == m_videoWidget) {
         if (event->type() == QEvent::Enter || event->type() == QEvent::MouseMove) {
             m_videoWidget->setCursor(Qt::ArrowCursor);
