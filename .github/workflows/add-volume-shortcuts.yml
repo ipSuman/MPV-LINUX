@@ -1,0 +1,198 @@
+name: Add volume shortcuts and fix playlist selection
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update-and-build:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake pkg-config qt6-base-dev libmpv-dev ffmpeg
+
+      - name: Apply changes
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          h = Path("src/MainWindow.h")
+          s = h.read_text()
+
+          s = s.replace(
+              "    void setVolume(int value);\n",
+              "    void setVolume(int value);\n    void volumeUp();\n    void volumeDown();\n    void toggleMute();\n",
+              1,
+          )
+          s = s.replace(
+              "    QKeySequence m_seekBackwardKey = QKeySequence(Qt::Key_Left);\n",
+              "    QKeySequence m_volumeUpKey = QKeySequence(Qt::SHIFT | Qt::Key_V);\n    QKeySequence m_volumeDownKey = QKeySequence(Qt::Key_V);\n    QKeySequence m_muteKey = QKeySequence(Qt::Key_M);\n    QKeySequence m_seekBackwardKey = QKeySequence(Qt::Key_Left);\n",
+              1,
+          )
+          h.write_text(s)
+
+          cpp = Path("src/MainWindow.cpp")
+          s = cpp.read_text()
+
+          # Load/save the three new shortcut settings.
+          old = '    m_seekBackwardKey = QKeySequence(settings.value(QStringLiteral("controls/seekBackward"), m_seekBackwardKey.toString()).toString());\n'
+          new = (
+              '    m_volumeUpKey = QKeySequence(settings.value(QStringLiteral("controls/volumeUp"), m_volumeUpKey.toString()).toString());\n'
+              '    m_volumeDownKey = QKeySequence(settings.value(QStringLiteral("controls/volumeDown"), m_volumeDownKey.toString()).toString());\n'
+              '    m_muteKey = QKeySequence(settings.value(QStringLiteral("controls/mute"), m_muteKey.toString()).toString());\n'
+              + old
+          )
+          assert old in s
+          s = s.replace(old, new, 1)
+
+          # Add the editable shortcut fields.
+          old = '    auto* seekBack = new QKeySequenceEdit(m_seekBackwardKey, &dialog);\n'
+          new = (
+              '    auto* volumeUp = new QKeySequenceEdit(m_volumeUpKey, &dialog);\n'
+              '    auto* volumeDown = new QKeySequenceEdit(m_volumeDownKey, &dialog);\n'
+              '    auto* mute = new QKeySequenceEdit(m_muteKey, &dialog);\n'
+              + old
+          )
+          assert old in s
+          s = s.replace(old, new, 1)
+
+          old = '    const QList<QKeySequenceEdit*> edits = {seekBack, seekForward, loopA, loopB, loopClear, zoomIn, zoomOut, zoomReset, frameBack, frameForward};\n'
+          new = '    const QList<QKeySequenceEdit*> edits = {volumeUp, volumeDown, mute, seekBack, seekForward, loopA, loopB, loopClear, zoomIn, zoomOut, zoomReset, frameBack, frameForward};\n'
+          assert old in s
+          s = s.replace(old, new, 1)
+
+          old = '    keyForm->addRow(QStringLiteral("Left Arrow → Seek backward"), seekBack);\n'
+          new = (
+              '    keyForm->addRow(QStringLiteral("Shift + V → Volume +"), volumeUp);\n'
+              '    keyForm->addRow(QStringLiteral("V → Volume −"), volumeDown);\n'
+              '    keyForm->addRow(QStringLiteral("M → Mute / unmute"), mute);\n'
+              + old
+          )
+          assert old in s
+          s = s.replace(old, new, 1)
+
+          # Reset defaults.
+          old = '        seekBack->setKeySequence(QKeySequence(Qt::Key_Left));\n'
+          new = (
+              '        volumeUp->setKeySequence(QKeySequence(Qt::SHIFT | Qt::Key_V));\n'
+              '        volumeDown->setKeySequence(QKeySequence(Qt::Key_V));\n'
+              '        mute->setKeySequence(QKeySequence(Qt::Key_M));\n'
+              + old
+          )
+          assert old in s
+          s = s.replace(old, new, 1)
+
+          # Save the new shortcuts.
+          old = '        settings.setValue(QStringLiteral("controls/seekBackward"), m_seekBackwardKey.toString());\n'
+          new = (
+              '        settings.setValue(QStringLiteral("controls/volumeUp"), m_volumeUpKey.toString());\n'
+              '        settings.setValue(QStringLiteral("controls/volumeDown"), m_volumeDownKey.toString());\n'
+              '        settings.setValue(QStringLiteral("controls/mute"), m_muteKey.toString());\n'
+              + old
+          )
+          assert old in s
+          s = s.replace(old, new, 1)
+
+          # Add runtime handling before seek shortcuts.
+          old = 'void MainWindow::keyPressEvent(QKeyEvent* event) {\n    if (keyMatches(event, m_seekBackwardKey)) { seekBackward(); event->accept(); return; }\n'
+          new = (
+              'void MainWindow::keyPressEvent(QKeyEvent* event) {\n'
+              '    if (keyMatches(event, m_volumeUpKey)) { volumeUp(); event->accept(); return; }\n'
+              '    if (keyMatches(event, m_volumeDownKey)) { volumeDown(); event->accept(); return; }\n'
+              '    if (keyMatches(event, m_muteKey)) { toggleMute(); event->accept(); return; }\n'
+              '    if (keyMatches(event, m_seekBackwardKey)) { seekBackward(); event->accept(); return; }\n'
+          )
+          assert old in s
+          s = s.replace(old, new, 1)
+
+          # Implement volume actions immediately after setVolume().
+          old = 'void MainWindow::setVolume(int value) { setPropertyDouble("volume", value); }\n'
+          new = (
+              'void MainWindow::setVolume(int value) { setPropertyDouble("volume", value); }\n'
+              'void MainWindow::volumeUp() { m_volumeSlider->setValue(std::clamp(m_volumeSlider->value() + 5, 0, 100)); }\n'
+              'void MainWindow::volumeDown() { m_volumeSlider->setValue(std::clamp(m_volumeSlider->value() - 5, 0, 100)); }\n'
+              'void MainWindow::toggleMute() { const char* args[] = {"cycle", "mute", nullptr}; command(args); }\n'
+          )
+          assert old in s
+          s = s.replace(old, new, 1)
+
+          # Keep the selection where it was while appending playlist items.
+          old = '''    auto* item = new QListWidgetItem(QFileInfo(absolute).fileName(), m_playlist);\n    item->setToolTip(absolute);\n    item->setData(Qt::UserRole, absolute);\n    m_playlist->setCurrentItem(item);\n'''
+          new = '''    const bool wasEmpty = m_playlist->count() == 0;\n    auto* item = new QListWidgetItem(QFileInfo(absolute).fileName(), m_playlist);\n    item->setToolTip(absolute);\n    item->setData(Qt::UserRole, absolute);\n    if (wasEmpty) m_playlist->setCurrentItem(item);\n'''
+          assert old in s
+          s = s.replace(old, new, 1)
+
+          # Do not reselect/play the last appended item. If the playlist was empty,\n          # the first appended item remains selected and is started as before.\n          old = 'void MainWindow::addFiles() { const QStringList paths = QFileDialog::getOpenFileNames(this, QStringLiteral("Add media files")); if (paths.isEmpty()) return; for (const QString& path : paths) addToPlaylist(path); if (m_playlist && m_playlist->currentItem()) playlistActivated(); }\n'
+          new = '''void MainWindow::addFiles() {\n    const QStringList paths = QFileDialog::getOpenFileNames(this, QStringLiteral("Add media files"));\n    if (paths.isEmpty()) return;\n    const int currentIndex = m_playlist ? m_playlist->currentRow() : -1;\n    const bool wasEmpty = m_playlist && m_playlist->count() == 0;\n    for (const QString& path : paths) addToPlaylist(path);\n    if (!m_playlist) return;\n    if (wasEmpty) {\n        if (m_playlist->count() > 0) {\n            m_playlist->setCurrentRow(0);\n            playlistActivated();\n        }\n    } else if (currentIndex >= 0 && currentIndex < m_playlist->count()) {\n        m_playlist->setCurrentRow(currentIndex);\n    }\n}\n'''
+          assert old in s
+          s = s.replace(old, new, 1)
+
+          old = 'void MainWindow::addFolder() { const QString path = QFileDialog::getExistingDirectory(this, QStringLiteral("Add media folder")); if (path.isEmpty() || !m_playlist) return; QDir dir(path); const QFileInfoList files = dir.entryInfoList(QDir::Files | QDir::Readable, QDir::Name | QDir::IgnoreCase); for (const QFileInfo& info : files) if (isMediaFile(info)) addToPlaylist(info.absoluteFilePath()); if (m_playlist->currentItem()) playlistActivated(); }\n'
+          new = '''void MainWindow::addFolder() {\n    const QString path = QFileDialog::getExistingDirectory(this, QStringLiteral("Add media folder"));\n    if (path.isEmpty() || !m_playlist) return;\n    const int currentIndex = m_playlist->currentRow();\n    const bool wasEmpty = m_playlist->count() == 0;\n    QDir dir(path);\n    const QFileInfoList files = dir.entryInfoList(QDir::Files | QDir::Readable, QDir::Name | QDir::IgnoreCase);\n    for (const QFileInfo& info : files) if (isMediaFile(info)) addToPlaylist(info.absoluteFilePath());\n    if (wasEmpty) {\n        if (m_playlist->count() > 0) {\n            m_playlist->setCurrentRow(0);\n            playlistActivated();\n        }\n    } else if (currentIndex >= 0 && currentIndex < m_playlist->count()) {\n        m_playlist->setCurrentRow(currentIndex);\n    }\n}\n'''
+          assert old in s
+          s = s.replace(old, new, 1)
+
+          old = 'void MainWindow::dropEvent(QDropEvent* event) { const auto urls = event->mimeData()->urls(); for (const auto& url : urls) if (url.isLocalFile()) addToPlaylist(url.toLocalFile()); if (m_playlist && m_playlist->currentItem()) playlistActivated(); if (!urls.isEmpty()) event->acceptProposedAction(); }\n'
+          new = '''void MainWindow::dropEvent(QDropEvent* event) {\n    const auto urls = event->mimeData()->urls();\n    const int currentIndex = m_playlist ? m_playlist->currentRow() : -1;\n    const bool wasEmpty = m_playlist && m_playlist->count() == 0;\n    for (const auto& url : urls) if (url.isLocalFile()) addToPlaylist(url.toLocalFile());\n    if (m_playlist) {\n        if (wasEmpty) {\n            if (m_playlist->count() > 0) {\n                m_playlist->setCurrentRow(0);\n                playlistActivated();\n            }\n        } else if (currentIndex >= 0 && currentIndex < m_playlist->count()) {\n            m_playlist->setCurrentRow(currentIndex);\n        }\n    }\n    if (!urls.isEmpty()) event->acceptProposedAction();\n}\n'''
+          assert old in s
+          s = s.replace(old, new, 1)
+
+          # Include the new shortcuts in the diagnostic log.
+          old = '    out << "Seek backward shortcut: " << m_seekBackwardKey.toString() << "\\n";\n'
+          new = (
+              '    out << "Volume up shortcut: " << m_volumeUpKey.toString() << "\\n";\n'
+              '    out << "Volume down shortcut: " << m_volumeDownKey.toString() << "\\n";\n'
+              '    out << "Mute shortcut: " << m_muteKey.toString() << "\\n";\n'
+              + old
+          )
+          assert old in s
+          s = s.replace(old, new, 1)
+
+          cpp.write_text(s)
+          PY
+
+      - name: Configure
+        run: cmake -S . -B build-linux -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build-linux --parallel
+
+      - name: Package
+        run: |
+          mkdir -p dist/mpv-linux
+          cp build-linux/rex-player dist/mpv-linux/rex-player-bin
+          cp rex-player-launcher.sh dist/mpv-linux/rex-player
+          chmod +x dist/mpv-linux/rex-player
+          cp README.md dist/mpv-linux/
+          tar -C dist -czf mpv-linux.tar.gz mpv-linux
+
+      - name: Commit changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/MainWindow.h src/MainWindow.cpp
+          git commit -m "Add customizable volume shortcuts and fix playlist selection"
+          git push
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mpv-linux
+          path: mpv-linux.tar.gz
+          retention-days: 30
+
+      - name: Remove temporary workflow
+        if: ${{ success() }}
+        run: |
+          git rm .github/workflows/add-volume-shortcuts.yml
+          git commit -m "Remove temporary feature workflow [skip ci]"
+          git push
