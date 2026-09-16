@@ -1,0 +1,31 @@
+name: Import Linux Player
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout MPV-Linux
+        uses: actions/checkout@v4
+
+      - name: Import Linux source
+        run: |
+          git clone --depth 1 --branch New-features https://github.com/ipSuman/mpvRex.git source
+          rm -rf CMakeLists.txt README.md rex-player-launcher.sh src
+          cp -a source/linux/CMakeLists.txt .
+          cp -a source/linux/README.md .
+          cp -a source/linux/rex-player-launcher.sh .
+          cp -a source/linux/src .
+          rm -rf source
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'Publish REX Player for Linux [skip ci]' || echo 'No changes to commit.'
+          git push
