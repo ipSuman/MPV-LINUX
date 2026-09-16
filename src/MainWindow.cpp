@@ -5,6 +5,7 @@
 #include <QCloseEvent>
 #include <QCheckBox>
 #include <QCoreApplication>
+#include <QCursor>
 #include <QComboBox>
 #include <QDir>
 #include <QDateTime>
@@ -132,6 +133,15 @@ MainWindow::MainWindow(const QString& mediaPath, QWidget* parent)
     m_fullscreenHideTimer.setInterval(2500);
     connect(&m_fullscreenHideTimer, &QTimer::timeout, this, [this] {
         if (isFullScreen()) setControlsVisible(false);
+    });
+
+    m_cursorHideTimer.setSingleShot(true);
+    m_cursorHideTimer.setInterval(5000);
+    connect(&m_cursorHideTimer, &QTimer::timeout, this, [this] {
+        if (!m_videoWidget) return;
+        const QPoint cursorPos = QCursor::pos();
+        const QRect videoRect(m_videoWidget->mapToGlobal(QPoint(0, 0)), m_videoWidget->size());
+        if (videoRect.contains(cursorPos)) m_videoWidget->setCursor(Qt::BlankCursor);
     });
 
     if (!initializeMpv()) return;
@@ -1049,9 +1059,18 @@ void MainWindow::keyPressEvent(QKeyEvent* event) {
 }
 
 bool MainWindow::eventFilter(QObject* watched, QEvent* event) {
-    if (watched == m_videoWidget && event->type() == QEvent::MouseMove && isFullScreen()) {
-        setControlsVisible(true);
-        m_fullscreenHideTimer.start();
+    if (watched == m_videoWidget) {
+        if (event->type() == QEvent::Enter || event->type() == QEvent::MouseMove) {
+            m_videoWidget->setCursor(Qt::ArrowCursor);
+            m_cursorHideTimer.start();
+        } else if (event->type() == QEvent::Leave) {
+            m_cursorHideTimer.stop();
+            m_videoWidget->setCursor(Qt::ArrowCursor);
+        }
+        if (event->type() == QEvent::MouseMove && isFullScreen()) {
+            setControlsVisible(true);
+            m_fullscreenHideTimer.start();
+        }
     }
 
     if (watched == m_seekSlider && event->type() == QEvent::MouseButtonPress) {
