@@ -1,0 +1,43 @@
+name: Build MPV-Linux
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake pkg-config qt6-base-dev libmpv-dev ffmpeg
+
+      - name: Configure
+        run: cmake -S linux -B build-linux -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build-linux --parallel
+
+      - name: Package
+        run: |
+          mkdir -p dist/mpv-linux
+          cp build-linux/rex-player dist/mpv-linux/rex-player-bin
+          cp linux/rex-player-launcher.sh dist/mpv-linux/rex-player
+          chmod +x dist/mpv-linux/rex-player
+          cp linux/README.md dist/mpv-linux/
+          tar -C dist -czf mpv-linux.tar.gz mpv-linux
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mpv-linux
+          path: mpv-linux.tar.gz
+          retention-days: 30
