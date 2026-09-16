@@ -4,7 +4,7 @@ on:
   push:
     branches: [windows-port]
   pull_request:
-    branches: [windows-port]
+    branches: [main, windows-port]
   workflow_dispatch:
 
 jobs:
@@ -62,7 +62,13 @@ jobs:
             done
           }
 
-          MPV_DLL=$(find /mingw64/bin -maxdepth 1 -type f -iname '*mpv*.dll' | head -n 1)
+          MPV_DLL=""
+          for candidate in /mingw64/bin/libmpv-2.dll /mingw64/bin/mpv-2.dll; do
+            if [ -f "$candidate" ]; then
+              MPV_DLL="$candidate"
+              break
+            fi
+          done
           if [ -z "$MPV_DLL" ]; then
             echo "libmpv DLL not found"
             exit 1
@@ -81,7 +87,7 @@ jobs:
       - name: Create portable ZIP
         run: |
           mkdir -p release
-          7z a "release/REX-Player-Windows-x64.zip" ./dist/bin/*
+          powershell.exe -NoProfile -Command "Compress-Archive -Path 'dist/bin/*' -DestinationPath 'release/REX-Player-Windows-x64.zip' -Force"
 
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
