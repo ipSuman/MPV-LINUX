@@ -18,16 +18,23 @@ if(WIN32)
         PATH_SUFFIXES include
         REQUIRED
     )
-    find_library(MPV_LIBRARY
+    find_library(MPV_IMPLIB
         NAMES mpv-2 mpv
         PATHS ENV MINGW_PREFIX
         PATH_SUFFIXES lib
         REQUIRED
     )
+    find_file(MPV_DLL
+        NAMES libmpv-2.dll mpv-2.dll
+        PATHS ENV MINGW_PREFIX
+        PATH_SUFFIXES bin
+        REQUIRED
+    )
 
-    add_library(MPV::MPV UNKNOWN IMPORTED)
+    add_library(MPV::MPV SHARED IMPORTED)
     set_target_properties(MPV::MPV PROPERTIES
-        IMPORTED_LOCATION "${MPV_LIBRARY}"
+        IMPORTED_IMPLIB "${MPV_IMPLIB}"
+        IMPORTED_LOCATION "${MPV_DLL}"
         INTERFACE_INCLUDE_DIRECTORIES "${MPV_INCLUDE_DIR}"
     )
 else()
