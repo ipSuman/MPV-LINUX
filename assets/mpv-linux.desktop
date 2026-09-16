@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=MPV-L!nux
+GenericName=Media Player
+Comment=Lightweight Qt6/libmpv media player
+Exec=rex-player %U
+Icon=mpv-linux
+Terminal=false
+Categories=AudioVideo;Player;Video;
+MimeType=video/mp4;video/x-matroska;video/webm;video/quicktime;audio/mpeg;audio/ogg;audio/flac;
+StartupNotify=true
