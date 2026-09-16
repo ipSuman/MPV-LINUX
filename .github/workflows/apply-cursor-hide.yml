@@ -1,0 +1,34 @@
+name: Apply cursor hide
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: write
+jobs:
+  apply:
+    if: ${{ !contains(github.event.head_commit.message, '[cursor-hide]') }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Patch source
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          h=Path('src/MainWindow.h'); s=h.read_text(); s=s.replace('    QTimer m_fullscreenHideTimer;\n','    QTimer m_fullscreenHideTimer;\n    QTimer m_cursorHideTimer;\n'); h.write_text(s)
+          p=Path('src/MainWindow.cpp'); s=p.read_text(); s=s.replace('#include <QCoreApplication>\n','#include <QCoreApplication>\n#include <QCursor>\n')
+          old='''    m_fullscreenHideTimer.setSingleShot(true);\n    m_fullscreenHideTimer.setInterval(2500);\n    connect(&m_fullscreenHideTimer, &QTimer::timeout, this, [this] {\n        if (isFullScreen()) setControlsVisible(false);\n    });\n'''
+          new='''    m_fullscreenHideTimer.setSingleShot(true);\n    m_fullscreenHideTimer.setInterval(2500);\n    connect(&m_fullscreenHideTimer, &QTimer::timeout, this, [this] {\n        if (isFullScreen()) setControlsVisible(false);\n    });\n\n    m_cursorHideTimer.setSingleShot(true);\n    m_cursorHideTimer.setInterval(5000);\n    connect(&m_cursorHideTimer, &QTimer::timeout, this, [this] {\n        if (!m_videoWidget) return;\n        const QPoint cursorPos = QCursor::pos();\n        const QRect videoRect(m_videoWidget->mapToGlobal(QPoint(0, 0)), m_videoWidget->size());\n        if (videoRect.contains(cursorPos)) m_videoWidget->setCursor(Qt::BlankCursor);\n    });\n'''
+          if old not in s: raise SystemExit('timer block not found')
+          s=s.replace(old,new,1)
+          old='''bool MainWindow::eventFilter(QObject* watched, QEvent* event) {\n    if (watched == m_videoWidget && event->type() == QEvent::MouseMove && isFullScreen()) {\n        setControlsVisible(true);\n        m_fullscreenHideTimer.start();\n    }\n'''
+          new='''bool MainWindow::eventFilter(QObject* watched, QEvent* event) {\n    if (watched == m_videoWidget) {\n        if (event->type() == QEvent::Enter || event->type() == QEvent::MouseMove) {\n            m_videoWidget->setCursor(Qt::ArrowCursor);\n            m_cursorHideTimer.start();\n        } else if (event->type() == QEvent::Leave) {\n            m_cursorHideTimer.stop();\n            m_videoWidget->setCursor(Qt::ArrowCursor);\n        }\n        if (event->type() == QEvent::MouseMove && isFullScreen()) {\n            setControlsVisible(true);\n            m_fullscreenHideTimer.start();\n        }\n    }\n'''
+          if old not in s: raise SystemExit('event filter block not found')
+          s=s.replace(old,new,1); p.write_text(s)
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/MainWindow.h src/MainWindow.cpp
+          git commit -m 'Add 5-second video cursor auto-hide [cursor-hide]'
+          git push
