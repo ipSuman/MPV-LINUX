@@ -61,3 +61,14 @@ if(WIN32)
 endif()
 
 install(TARGETS rex-player RUNTIME DESTINATION bin)
+
+if(UNIX AND NOT APPLE)
+    install(FILES
+        assets/mpv-linux.desktop
+        DESTINATION share/applications
+    )
+    install(FILES
+        assets/mpv-linux.svg
+        DESTINATION share/icons/hicolor/scalable/apps
+    )
+endif()
