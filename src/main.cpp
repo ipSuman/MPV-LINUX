@@ -11,7 +11,7 @@ int main(int argc, char* argv[]) {
     QCoreApplication::setApplicationVersion(QStringLiteral("0.1.0"));
 
     QCommandLineParser parser;
-    parser.setApplicationDescription(QStringLiteral("REX Player for Linux"));
+    parser.setApplicationDescription(QStringLiteral("REX Player desktop media player"));
     parser.addHelpOption();
     parser.addVersionOption();
     parser.addPositionalArgument(QStringLiteral("file"), QStringLiteral("Video or audio file to open"));
