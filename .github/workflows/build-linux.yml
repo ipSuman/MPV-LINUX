@@ -33,7 +33,7 @@ jobs:
           cp rex-player-launcher.sh dist/mpv-linux/rex-player
           chmod +x dist/mpv-linux/rex-player
           cp README.md dist/mpv-linux/
-          cp assets/mpv-linux.svg dist/mpv-linux/
+          cp assets/rex-player.svg dist/mpv-linux/
           tar -C dist -czf mpv-linux.tar.gz mpv-linux
 
       - name: Build Debian package
@@ -42,7 +42,7 @@ jobs:
           mkdir -p "$PKGROOT/DEBIAN" "$PKGROOT/usr/bin" "$PKGROOT/usr/share/applications" "$PKGROOT/usr/share/icons/hicolor/scalable/apps"
           cp build-linux/rex-player "$PKGROOT/usr/bin/rex-player-bin"
           cp rex-player-launcher.sh "$PKGROOT/usr/bin/rex-player"
-          cp assets/mpv-linux.svg "$PKGROOT/usr/share/icons/hicolor/scalable/apps/mpv-linux.svg"
+          cp assets/rex-player.svg "$PKGROOT/usr/share/icons/hicolor/scalable/apps/rex-player.svg"
           chmod 755 "$PKGROOT/usr/bin/rex-player" "$PKGROOT/usr/bin/rex-player-bin"
           cat > "$PKGROOT/DEBIAN/control" <<'EOF'
           Package: mpv-linux
@@ -58,10 +58,10 @@ jobs:
           cat > "$PKGROOT/usr/share/applications/mpv-linux.desktop" <<'EOF'
           [Desktop Entry]
           Type=Application
-          Name=MPV-L!nux
+          Name=REX Player
           Comment=Lightweight libmpv media player
           Exec=rex-player %U
-          Icon=mpv-linux
+          Icon=rex-player
           Terminal=false
           Categories=AudioVideo;Player;Video;
           MimeType=video/mp4;video/x-matroska;video/webm;video/quicktime;audio/mpeg;audio/ogg;audio/flac;
