@@ -1,0 +1,5 @@
+<RCC>
+  <qresource prefix="/icons">
+    <file>rex-player.svg</file>
+  </qresource>
+</RCC>
