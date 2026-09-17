@@ -3,10 +3,18 @@
 
 #include <QApplication>
 #include <QCommandLineParser>
+#include <QFile>
+#include <QFileDialog>
+#include <QFileInfo>
 #include <QIcon>
 #include <QKeyEvent>
 #include <QLayout>
+#include <QListWidget>
+#include <QListWidgetItem>
+#include <QMessageBox>
 #include <QPushButton>
+#include <QStringConverter>
+#include <QTextStream>
 #include <QVBoxLayout>
 #include <QWidget>
 
@@ -22,6 +30,119 @@ void toggleFullscreenFromButton(MainWindow& window) {
         window.setWindowState(window.windowState() | Qt::WindowFullScreen | Qt::WindowMaximized);
         window.show();
     }
+}
+
+void setupPlaylistFileButtons(MainWindow& window) {
+    const auto playlistLists = window.findChildren<QListWidget*>();
+    if (playlistLists.isEmpty()) return;
+    QListWidget* playlist = playlistLists.constFirst();
+
+    QPushButton* addFilesButton = nullptr;
+    const auto buttons = playlist->parentWidget()->findChildren<QPushButton*>();
+    for (QPushButton* button : buttons) {
+        if (button->text() == QStringLiteral("+ Files")) {
+            addFilesButton = button;
+            break;
+        }
+    }
+    if (!addFilesButton) return;
+
+    auto* buttonRow = qobject_cast<QBoxLayout*>(addFilesButton->parentWidget()->layout());
+    if (!buttonRow) return;
+
+    auto* saveButton = new QPushButton(QStringLiteral("💾"), addFilesButton->parentWidget());
+    saveButton->setFixedWidth(42);
+    saveButton->setToolTip(QStringLiteral("Save playlist"));
+    QObject::connect(saveButton, &QPushButton::clicked, &window, [&window, playlist] {
+        if (playlist->count() == 0) {
+            QMessageBox::information(&window, QStringLiteral("Save playlist"),
+                                     QStringLiteral("The playlist is empty."));
+            return;
+        }
+
+        const QString path = QFileDialog::getSaveFileName(
+            &window, QStringLiteral("Save playlist"), QString(),
+            QStringLiteral("M3U8 Playlist (*.m3u8);;M3U Playlist (*.m3u);;All files (*.*)"));
+        if (path.isEmpty()) return;
+
+        QString savePath = path;
+        if (QFileInfo(savePath).suffix().isEmpty()) savePath += QStringLiteral(".m3u8");
+
+        QFile file(savePath);
+        if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+            QMessageBox::warning(&window, QStringLiteral("Save playlist"),
+                                 QStringLiteral("Could not save the playlist:\n%1").arg(file.errorString()));
+            return;
+        }
+
+        QTextStream stream(&file);
+        stream.setEncoding(QStringConverter::Utf8);
+        stream << QStringLiteral("#EXTM3U\n");
+        for (int i = 0; i < playlist->count(); ++i) {
+            const QString mediaPath = playlist->item(i)->data(Qt::UserRole).toString();
+            if (!mediaPath.isEmpty()) stream << mediaPath << QLatin1Char('\n');
+        }
+        file.close();
+    });
+
+    auto* openButton = new QPushButton(QStringLiteral("📖"), addFilesButton->parentWidget());
+    openButton->setFixedWidth(42);
+    openButton->setToolTip(QStringLiteral("Open playlist"));
+    QObject::connect(openButton, &QPushButton::clicked, &window, [&window, playlist] {
+        const QString path = QFileDialog::getOpenFileName(
+            &window, QStringLiteral("Open playlist"), QString(),
+            QStringLiteral("Playlist files (*.m3u8 *.m3u);;All files (*.*)"));
+        if (path.isEmpty()) return;
+
+        QFile file(path);
+        if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            QMessageBox::warning(&window, QStringLiteral("Open playlist"),
+                                 QStringLiteral("Could not open the playlist:\n%1").arg(file.errorString()));
+            return;
+        }
+
+        QStringList paths;
+        QTextStream stream(&file);
+        stream.setEncoding(QStringConverter::Utf8);
+        while (!stream.atEnd()) {
+            const QString line = stream.readLine().trimmed();
+            if (line.isEmpty() || line.startsWith(QLatin1Char('#'))) continue;
+            paths.append(line);
+        }
+        file.close();
+
+        if (paths.isEmpty()) {
+            playlist->clear();
+            return;
+        }
+
+        playlist->clear();
+        int missingCount = 0;
+        for (const QString& mediaPath : paths) {
+            const QFileInfo info(mediaPath);
+            if (!info.exists() || !info.isFile()) {
+                ++missingCount;
+                continue;
+            }
+            auto* item = new QListWidgetItem(info.fileName(), playlist);
+            item->setData(Qt::UserRole, info.absoluteFilePath());
+        }
+
+        if (playlist->count() > 0) {
+            playlist->setCurrentRow(0);
+            QMetaObject::invokeMethod(&window, "playlistActivated", Qt::DirectConnection);
+        }
+
+        if (missingCount > 0) {
+            QMessageBox::information(
+                &window, QStringLiteral("Open playlist"),
+                QStringLiteral("%1 playlist item(s) could not be found and were skipped.").arg(missingCount));
+        }
+    });
+
+    const int addIndex = buttonRow->indexOf(addFilesButton);
+    buttonRow->insertWidget(addIndex >= 0 ? addIndex : 0, saveButton);
+    buttonRow->insertWidget(addIndex >= 0 ? addIndex + 1 : 1, openButton);
 }
 }
 
@@ -65,6 +186,8 @@ int main(int argc, char* argv[]) {
             }
         }
     }
+
+    setupPlaylistFileButtons(window);
 
     window.show();
     return app.exec();
