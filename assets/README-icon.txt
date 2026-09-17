@@ -1,0 +1,1 @@
+REX Player branding assets: rex-player.svg is the shared Qt/Linux icon. rex-player.ico.b64 contains the uploaded Windows multi-resolution ICO in text form so the source tree remains UTF-8-safe; the Windows CMake build materializes it before resource compilation.

@@ -47,7 +47,35 @@ add_executable(rex-player
     src/main.cpp
     src/MainWindow.cpp
     src/MainWindow.h
+    assets/rex-player.qrc
 )
+
+if(WIN32)
+    # Generate a native multi-resolution Windows icon from the shared REX
+    # Player SVG. ImageMagick is supplied by the MSYS2 CI environment.
+    set(REX_ICON_SVG "${CMAKE_CURRENT_SOURCE_DIR}/assets/rex-player.svg")
+    set(REX_ICON_BINARY "${CMAKE_CURRENT_BINARY_DIR}/rex-player.ico")
+    add_custom_command(
+        OUTPUT "${REX_ICON_BINARY}"
+        COMMAND magick "${REX_ICON_SVG}" -background none
+                -define icon:auto-resize=256,128,64,48,32,16
+                "${REX_ICON_BINARY}"
+        DEPENDS "${REX_ICON_SVG}"
+        VERBATIM
+    )
+    add_custom_target(rex-player-icon DEPENDS "${REX_ICON_BINARY}")
+    add_dependencies(rex-player rex-player-icon)
+
+    file(TO_CMAKE_PATH "${REX_ICON_BINARY}" REX_ICON_RC_PATH)
+    configure_file(
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets/rex-player.rc.in"
+        "${CMAKE_CURRENT_BINARY_DIR}/rex-player.rc"
+        @ONLY
+    )
+    target_sources(rex-player PRIVATE
+        "${CMAKE_CURRENT_BINARY_DIR}/rex-player.rc"
+    )
+endif()
 
 target_link_libraries(rex-player PRIVATE
     Qt6::Widgets
@@ -68,7 +96,7 @@ if(UNIX AND NOT APPLE)
         DESTINATION share/applications
     )
     install(FILES
-        assets/mpv-linux.svg
+        assets/rex-player.svg
         DESTINATION share/icons/hicolor/scalable/apps
     )
 endif()

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+  <title id="title">REX Player</title>
+  <desc id="desc">REX Player application icon: a white play symbol and REX Player.PC lettering on a black circular background.</desc>
+  <rect width="256" height="256" fill="#000"/>
+  <circle cx="128" cy="128" r="124" fill="none" stroke="#fff" stroke-width="4"/>
+  <path fill="#fff" d="M79 66h17l20 12 25 13 0 5 4-3 63 34v17l-63 35-4-3v5l-25 13-20 12H79v-48h8v-40h-8z"/>
+  <text x="75" y="220" fill="#fff" font-family="cursive" font-size="24" font-style="italic">Rex Player.PC</text>
+</svg>
