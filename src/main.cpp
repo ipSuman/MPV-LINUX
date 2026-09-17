@@ -50,8 +50,7 @@ void setupPlaylistFileButtons(MainWindow& window) {
     auto* buttonRow = qobject_cast<QBoxLayout*>(addFilesButton->parentWidget()->layout());
     if (!buttonRow) return;
 
-    auto* saveButton = new QPushButton(QStringLiteral("💾"), addFilesButton->parentWidget());
-    saveButton->setFixedWidth(42);
+    auto* saveButton = new QPushButton(QStringLiteral("Save Playlist"), addFilesButton->parentWidget());
     saveButton->setToolTip(QStringLiteral("Save playlist"));
     QObject::connect(saveButton, &QPushButton::clicked, &window, [&window, playlist] {
         if (playlist->count() == 0) {
@@ -85,8 +84,7 @@ void setupPlaylistFileButtons(MainWindow& window) {
         file.close();
     });
 
-    auto* openButton = new QPushButton(QStringLiteral("📖"), addFilesButton->parentWidget());
-    openButton->setFixedWidth(42);
+    auto* openButton = new QPushButton(QStringLiteral("Open Playlist"), addFilesButton->parentWidget());
     openButton->setToolTip(QStringLiteral("Open playlist"));
     QObject::connect(openButton, &QPushButton::clicked, &window, [&window, playlist] {
         const QString path = QFileDialog::getOpenFileName(
