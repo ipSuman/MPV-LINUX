@@ -4,6 +4,25 @@
 #include <QApplication>
 #include <QCommandLineParser>
 #include <QIcon>
+#include <QKeyEvent>
+#include <QLayout>
+#include <QPushButton>
+#include <QWidget>
+
+namespace {
+void toggleFullscreenFromButton(MainWindow& window) {
+    QKeyEvent event(QEvent::KeyPress, Qt::Key_F11, Qt::NoModifier);
+    QApplication::sendEvent(&window, &event);
+
+    // Windows can leave the native top-level window one frame short of the
+    // screen edge when entering Qt fullscreen. Keep both states asserted so
+    // the fullscreen window is always maximized and no thin edge is exposed.
+    if (window.isFullScreen()) {
+        window.setWindowState(window.windowState() | Qt::WindowFullScreen | Qt::WindowMaximized);
+        window.show();
+    }
+}
+}
 
 int main(int argc, char* argv[]) {
     std::setlocale(LC_NUMERIC, "C");
@@ -21,6 +40,28 @@ int main(int argc, char* argv[]) {
 
     const QString mediaPath = parser.positionalArguments().value(0);
     MainWindow window(mediaPath);
+
+    // Add the fullscreen button immediately to the left of the existing Open
+    // button without disturbing the existing MainWindow layout or controls.
+    if (QWidget* controls = window.findChild<QWidget*>(QStringLiteral("controls"))) {
+        if (QLayout* rowLayout = controls->layout()->itemAt(1)
+                ? controls->layout()->itemAt(1)->layout() : nullptr) {
+            const auto buttons = controls->findChildren<QPushButton*>();
+            for (QPushButton* button : buttons) {
+                if (button->text() == QStringLiteral("Open")) {
+                    auto* fullscreenButton = new QPushButton(QStringLiteral("[  ]"), controls);
+                    fullscreenButton->setFixedWidth(48);
+                    fullscreenButton->setToolTip(QStringLiteral("Fullscreen"));
+                    QObject::connect(fullscreenButton, &QPushButton::clicked, &window,
+                                     [&window] { toggleFullscreenFromButton(window); });
+                    const int openIndex = rowLayout->indexOf(button);
+                    rowLayout->insertWidget(openIndex >= 0 ? openIndex : 0, fullscreenButton);
+                    break;
+                }
+            }
+        }
+    }
+
     window.show();
     return app.exec();
 }
