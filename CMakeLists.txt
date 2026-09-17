@@ -37,10 +37,6 @@ if(WIN32)
         IMPORTED_LOCATION "${MPV_DLL}"
         INTERFACE_INCLUDE_DIRECTORIES "${MPV_INCLUDE_DIR}"
     )
-else()
-    find_package(PkgConfig REQUIRED)
-    pkg_check_modules(LIBMPV REQUIRED IMPORTED_TARGET mpv)
-    add_library(MPV::MPV ALIAS PkgConfig::LIBMPV)
 endif()
 
 add_executable(rex-player
@@ -51,9 +47,33 @@ add_executable(rex-player
 )
 
 if(WIN32)
-    target_sources(rex-player PRIVATE
-        assets/rex-player.rc
+    # Materialize the uploaded multi-size ICO from its base64 source before
+    # MinGW's resource compiler processes the Windows executable resource.
+    set(REX_ICON_B64 "${CMAKE_CURRENT_SOURCE_DIR}/assets/rex-player.ico.b64")
+    set(REX_ICON_BINARY "${CMAKE_CURRENT_BINARY_DIR}/rex-player.ico")
+    add_custom_command(
+        OUTPUT "${REX_ICON_BINARY}"
+        COMMAND powershell.exe -NoProfile -ExecutionPolicy Bypass -Command
+            "$b64 = Get-Content -Raw -LiteralPath '${REX_ICON_B64}'; [IO.File]::WriteAllBytes('${REX_ICON_BINARY}', [Convert]::FromBase64String($b64))"
+        DEPENDS "${REX_ICON_B64}"
+        VERBATIM
     )
+    add_custom_target(rex-player-icon DEPENDS "${REX_ICON_BINARY}")
+    add_dependencies(rex-player rex-player-icon)
+
+    file(TO_CMAKE_PATH "${REX_ICON_BINARY}" REX_ICON_RC_PATH)
+    configure_file(
+        "${CMAKE_CURRENT_SOURCE_DIR}/assets/rex-player.rc.in"
+        "${CMAKE_CURRENT_BINARY_DIR}/rex-player.rc"
+        @ONLY
+    )
+    target_sources(rex-player PRIVATE
+        "${CMAKE_CURRENT_BINARY_DIR}/rex-player.rc"
+    )
+else()
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(LIBMPV REQUIRED IMPORTED_TARGET mpv)
+    add_library(MPV::MPV ALIAS PkgConfig::LIBMPV)
 endif()
 
 target_link_libraries(rex-player PRIVATE
