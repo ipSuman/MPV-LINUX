@@ -47,7 +47,14 @@ add_executable(rex-player
     src/main.cpp
     src/MainWindow.cpp
     src/MainWindow.h
+    assets/rex-player.qrc
 )
+
+if(WIN32)
+    target_sources(rex-player PRIVATE
+        assets/rex-player.rc
+    )
+endif()
 
 target_link_libraries(rex-player PRIVATE
     Qt6::Widgets
@@ -68,7 +75,7 @@ if(UNIX AND NOT APPLE)
         DESTINATION share/applications
     )
     install(FILES
-        assets/mpv-linux.svg
+        assets/rex-player.svg
         DESTINATION share/icons/hicolor/scalable/apps
     )
 endif()
