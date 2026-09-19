@@ -23,13 +23,10 @@ void toggleFullscreenFromButton(MainWindow& window) {
     QKeyEvent event(QEvent::KeyPress, Qt::Key_F11, Qt::NoModifier);
     QApplication::sendEvent(&window, &event);
 
-    // Windows can leave the native top-level window one frame short of the
-    // screen edge when entering Qt fullscreen. Keep both states asserted so
-    // the fullscreen window is always maximized and no thin edge is exposed.
-    if (window.isFullScreen()) {
-        window.setWindowState(window.windowState() | Qt::WindowFullScreen | Qt::WindowMaximized);
-        window.show();
-    }
+    // Qt fullscreen already requests a borderless, screen-sized window.
+    // Do not combine WindowFullScreen with WindowMaximized here: on Windows 11
+    // that can make DWM retain a one-pixel accent-colored non-client border.
+    // showFullScreen() is the correct native fullscreen state for this mode.
 }
 
 void setupPlaylistFileButtons(MainWindow& window) {
