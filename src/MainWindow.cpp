@@ -887,43 +887,65 @@ void MainWindow::saveLogReport() {
 }
 
 void MainWindow::updatePlaybackInhibit(bool active) {
-    if (active == m_playbackInhibited) return;
-
 #ifdef Q_OS_WIN
+    if (active == m_playbackInhibited) return;
     if (active) {
         SetThreadExecutionState(ES_CONTINUOUS | ES_DISPLAY_REQUIRED);
     } else {
         SetThreadExecutionState(ES_CONTINUOUS);
     }
+    m_playbackInhibited = active;
 #elif defined(Q_OS_LINUX)
     if (active) {
-        if (!m_powerInhibitProcess) {
-            m_powerInhibitProcess = new QProcess(this);
-            m_powerInhibitProcess->setProgram(QStringLiteral("systemd-inhibit"));
-            m_powerInhibitProcess->setArguments({
-                QStringLiteral("--what=idle"),
-                QStringLiteral("--who=REX Player"),
-                QStringLiteral("--why=Video playback"),
-                QStringLiteral("--mode=block"),
-                QStringLiteral("sleep"),
-                QStringLiteral("infinity")
-            });
-            m_powerInhibitProcess->start();
-        }
-        if (m_powerInhibitProcess->state() == QProcess::NotRunning) {
-            m_powerInhibitProcess->start();
-        }
-    } else if (m_powerInhibitProcess) {
-        m_powerInhibitProcess->terminate();
-        if (!m_powerInhibitProcess->waitForFinished(500)) {
-            m_powerInhibitProcess->kill();
-        }
-        m_powerInhibitProcess->deleteLater();
-        m_powerInhibitProcess = nullptr;
-    }
-#endif
+        // Do not trust the cached flag alone: an inhibitor helper can exit or
+        // fail after it was started. Re-create it whenever it is not running.
+        if (!m_powerInhibitProcess || m_powerInhibitProcess->state() == QProcess::NotRunning) {
+            if (m_powerInhibitProcess) {
+                m_powerInhibitProcess->deleteLater();
+                m_powerInhibitProcess = nullptr;
+            }
 
+            m_powerInhibitProcess = new QProcess(this);
+            const QString gnomeInhibit = QStandardPaths::findExecutable(QStringLiteral("gnome-session-inhibit"));
+            if (!gnomeInhibit.isEmpty()) {
+                // GNOME's own idle inhibitor covers screen dimming/blanking.
+                m_powerInhibitProcess->setProgram(gnomeInhibit);
+                m_powerInhibitProcess->setArguments({
+                    QStringLiteral("--app-id=rex-player"),
+                    QStringLiteral("--reason=Video playback"),
+                    QStringLiteral("--inhibit=idle"),
+                    QStringLiteral("--inhibit-only")
+                });
+            } else {
+                // Fallback for non-GNOME Linux desktops using logind.
+                m_powerInhibitProcess->setProgram(QStringLiteral("systemd-inhibit"));
+                m_powerInhibitProcess->setArguments({
+                    QStringLiteral("--what=idle"),
+                    QStringLiteral("--who=REX Player"),
+                    QStringLiteral("--why=Video playback"),
+                    QStringLiteral("--mode=block"),
+                    QStringLiteral("sleep"),
+                    QStringLiteral("infinity")
+                });
+            }
+            m_powerInhibitProcess->start();
+        }
+        m_playbackInhibited = m_powerInhibitProcess &&
+                              m_powerInhibitProcess->state() != QProcess::NotRunning;
+    } else {
+        if (m_powerInhibitProcess) {
+            m_powerInhibitProcess->terminate();
+            if (!m_powerInhibitProcess->waitForFinished(500)) {
+                m_powerInhibitProcess->kill();
+            }
+            m_powerInhibitProcess->deleteLater();
+            m_powerInhibitProcess = nullptr;
+        }
+        m_playbackInhibited = false;
+    }
+#else
     m_playbackInhibited = active;
+#endif
 }
 
 void MainWindow::updateHardwareButton() {
@@ -1018,7 +1040,20 @@ void MainWindow::pumpMpvEvents() {
         if (!event || event->event_id == MPV_EVENT_NONE) break;
         if (event->event_id == MPV_EVENT_END_FILE) {
             auto* end = static_cast<mpv_event_end_file*>(event->data);
-            if (end && end->reason == MPV_END_FILE_REASON_EOF && m_autoplayPlaylist) playNext();
+            if (end && end->reason == MPV_END_FILE_REASON_EOF) {
+                // Release the display inhibitor immediately at EOF.
+                updatePlaybackInhibit(false);
+
+                const bool hasNext = m_playlist &&
+                                     m_currentPlaylistIndex >= 0 &&
+                                     m_currentPlaylistIndex + 1 < m_playlist->count();
+                if (m_autoplayPlaylist && hasNext) {
+                    playNext();
+                } else if (isFullScreen()) {
+                    // Return to the normal window when playback really ends.
+                    toggleFullscreen();
+                }
+            }
         } else if (event->event_id == MPV_EVENT_SHUTDOWN) {
             close();
             break;
