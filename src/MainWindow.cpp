@@ -132,7 +132,15 @@ MainWindow::MainWindow(const QString& mediaPath, QWidget* parent)
     m_fullscreenHideTimer.setSingleShot(true);
     m_fullscreenHideTimer.setInterval(2500);
     connect(&m_fullscreenHideTimer, &QTimer::timeout, this, [this] {
-        if (isFullScreen()) setControlsVisible(false);
+        if (!isFullScreen() || !m_videoWidget) return;
+
+        // Keep the fullscreen control panel visible while the mouse pointer
+        // is still visible. It may hide only after the cursor is hidden.
+        if (m_videoWidget->cursor().shape() == Qt::BlankCursor) {
+            setControlsVisible(false);
+        } else {
+            m_fullscreenHideTimer.start(500);
+        }
     });
 
     m_cursorHideTimer.setSingleShot(true);
@@ -368,6 +376,7 @@ void MainWindow::loadControlSettings() {
     m_zoomResetKey = QKeySequence(settings.value(QStringLiteral("controls/zoomReset"), m_zoomResetKey.toString()).toString());
     m_frameBackKey = QKeySequence(settings.value(QStringLiteral("controls/frameBack"), m_frameBackKey.toString()).toString());
     m_frameForwardKey = QKeySequence(settings.value(QStringLiteral("controls/frameForward"), m_frameForwardKey.toString()).toString());
+    m_switchSubtitlesKey = QKeySequence(settings.value(QStringLiteral("controls/switchSubtitles"), m_switchSubtitlesKey.toString()).toString());
     m_saturation = std::clamp(settings.value(QStringLiteral("display/saturation"), m_saturation).toInt(), -100, 100);
     m_brightness = std::clamp(settings.value(QStringLiteral("display/brightness"), m_brightness).toInt(), -100, 100);
     m_contrast = std::clamp(settings.value(QStringLiteral("display/contrast"), m_contrast).toInt(), -100, 100);
@@ -441,7 +450,8 @@ void MainWindow::showControlsDialog() {
     auto* zoomReset = new QKeySequenceEdit(m_zoomResetKey, &dialog);
     auto* frameBack = new QKeySequenceEdit(m_frameBackKey, &dialog);
     auto* frameForward = new QKeySequenceEdit(m_frameForwardKey, &dialog);
-    const QList<QKeySequenceEdit*> edits = {volumeUp, volumeDown, mute, seekBack, seekForward, loopA, loopB, loopClear, zoomIn, zoomOut, zoomReset, frameBack, frameForward};
+    auto* switchSubtitles = new QKeySequenceEdit(m_switchSubtitlesKey, &dialog);
+    const QList<QKeySequenceEdit*> edits = {volumeUp, volumeDown, mute, seekBack, seekForward, loopA, loopB, loopClear, zoomIn, zoomOut, zoomReset, frameBack, frameForward, switchSubtitles};
     for (auto* edit : edits) edit->setClearButtonEnabled(true);
     keyForm->addRow(QStringLiteral("Shift + V → Volume +"), volumeUp);
     keyForm->addRow(QStringLiteral("V → Volume −"), volumeDown);
@@ -456,6 +466,7 @@ void MainWindow::showControlsDialog() {
     keyForm->addRow(QStringLiteral("Z → Reset zoom / pan"), zoomReset);
     keyForm->addRow(QStringLiteral(", → Previous frame"), frameBack);
     keyForm->addRow(QStringLiteral(". → Next frame"), frameForward);
+    keyForm->addRow(QStringLiteral("S → Switch subtitles"), switchSubtitles);
     keyForm->addRow(QStringLiteral("Shift + I → Increase subtitle text size"), new QLabel(QStringLiteral("Fixed shortcut"), &dialog));
     keyForm->addRow(QStringLiteral("I → Decrease subtitle text size"), new QLabel(QStringLiteral("Fixed shortcut"), &dialog));
     mainLayout->addLayout(keyForm);
@@ -488,6 +499,7 @@ void MainWindow::showControlsDialog() {
         zoomReset->setKeySequence(QKeySequence(Qt::Key_Z));
         frameBack->setKeySequence(QKeySequence(Qt::Key_Comma));
         frameForward->setKeySequence(QKeySequence(Qt::Key_Period));
+        switchSubtitles->setKeySequence(QKeySequence(Qt::Key_S));
     });
 
     connect(buttons, &QDialogButtonBox::accepted, &dialog, [&] {
@@ -517,6 +529,7 @@ void MainWindow::showControlsDialog() {
         m_zoomResetKey = zoomReset->keySequence();
         m_frameBackKey = frameBack->keySequence();
         m_frameForwardKey = frameForward->keySequence();
+        m_switchSubtitlesKey = switchSubtitles->keySequence();
 
         QSettings settings(QStringLiteral("REX Player"), QStringLiteral("REX Player"));
         settings.setValue(QStringLiteral("controls/seekDurationSeconds"), m_seekDurationSeconds);
@@ -538,6 +551,7 @@ void MainWindow::showControlsDialog() {
         settings.setValue(QStringLiteral("controls/zoomReset"), m_zoomResetKey.toString());
         settings.setValue(QStringLiteral("controls/frameBack"), m_frameBackKey.toString());
         settings.setValue(QStringLiteral("controls/frameForward"), m_frameForwardKey.toString());
+        settings.setValue(QStringLiteral("controls/switchSubtitles"), m_switchSubtitlesKey.toString());
         settings.sync();
         updateSeekButtonLabels();
         dialog.accept();
@@ -980,6 +994,55 @@ void MainWindow::updatePlaybackUi() {
 }
 
 void MainWindow::updatePlayButton(bool paused) { m_playButton->setText(paused ? QStringLiteral("▶") : QStringLiteral("Ⅱ")); }
+void MainWindow::cycleSubtitles() {
+    if (!m_mpv) return;
+
+    QList<int> subtitleIds;
+    mpv_node tracks{};
+    if (mpv_get_property(m_mpv, "track-list", MPV_FORMAT_NODE, &tracks) >= 0 &&
+        tracks.format == MPV_FORMAT_NODE_ARRAY && tracks.u.list) {
+        for (int i = 0; i < tracks.u.list->num; ++i) {
+            const mpv_node& track = tracks.u.list->values[i];
+            if (track.format != MPV_FORMAT_NODE_MAP || !track.u.list) continue;
+            const QString type = nodeString(mapValue(track.u.list, "type"));
+            if (type != QStringLiteral("sub")) continue;
+            const int id = nodeInt(mapValue(track.u.list, "id"));
+            if (id >= 0) subtitleIds.append(id);
+        }
+    }
+    mpv_free_node_contents(&tracks);
+
+    char* sidValue = nullptr;
+    QString currentSid = QStringLiteral("no");
+    if (mpv_get_property(m_mpv, "sid", MPV_FORMAT_STRING, &sidValue) >= 0) {
+        if (sidValue) currentSid = QString::fromUtf8(sidValue);
+        mpv_free(sidValue);
+    }
+
+    QString nextSid;
+    if (currentSid == QStringLiteral("no")) {
+        nextSid = QStringLiteral("auto");
+    } else if (currentSid == QStringLiteral("auto")) {
+        nextSid = subtitleIds.isEmpty() ? QStringLiteral("no") : QString::number(subtitleIds.first());
+    } else {
+        bool ok = false;
+        const int currentId = currentSid.toInt(&ok);
+        int nextIndex = -1;
+        if (ok) {
+            nextIndex = subtitleIds.indexOf(currentId) + 1;
+        }
+        if (nextIndex >= 0 && nextIndex < subtitleIds.size()) {
+            nextSid = QString::number(subtitleIds.at(nextIndex));
+        } else {
+            nextSid = QStringLiteral("no");
+        }
+    }
+
+    const QByteArray encoded = nextSid.toUtf8();
+    const char* args[] = {"set", "sid", encoded.constData(), nullptr};
+    command(args);
+}
+
 void MainWindow::increaseSubtitleSize() { const double current = getPropertyDouble("sub-scale"); setPropertyDouble("sub-scale", std::clamp((current > 0.0 ? current : 1.0) + 0.1, 0.1, 100.0)); }
 void MainWindow::decreaseSubtitleSize() { const double current = getPropertyDouble("sub-scale"); setPropertyDouble("sub-scale", std::clamp((current > 0.0 ? current : 1.0) - 0.1, 0.1, 100.0)); }
 QString MainWindow::formatTime(double seconds) const { if (!std::isfinite(seconds) || seconds < 0) seconds = 0; const int total = static_cast<int>(seconds); const int h = total / 3600, m = (total % 3600) / 60, s = total % 60; return h > 0 ? QStringLiteral("%1:%2:%3").arg(h).arg(m,2,10,QLatin1Char('0')).arg(s,2,10,QLatin1Char('0')) : QStringLiteral("%1:%2").arg(m).arg(s,2,10,QLatin1Char('0')); }
@@ -1055,6 +1118,7 @@ void MainWindow::keyPressEvent(QKeyEvent* event) {
     if (keyMatches(event, m_zoomResetKey)) { resetVideoTransform(); event->accept(); return; }
     if (keyMatches(event, m_frameBackKey)) { stepFrame(false); event->accept(); return; }
     if (keyMatches(event, m_frameForwardKey)) { stepFrame(true); event->accept(); return; }
+    if (keyMatches(event, m_switchSubtitlesKey)) { cycleSubtitles(); event->accept(); return; }
 
     switch (event->key()) {
     case Qt::Key_Space: togglePause(); break;

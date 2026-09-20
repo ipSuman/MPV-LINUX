@@ -62,6 +62,7 @@ private slots:
     void saveLogReport();
     void increaseSubtitleSize();
     void decreaseSubtitleSize();
+    void cycleSubtitles();
 
 private:
     bool initializeMpv();
@@ -146,6 +147,7 @@ private:
     QKeySequence m_zoomResetKey = QKeySequence(Qt::Key_Z);
     QKeySequence m_frameBackKey = QKeySequence(Qt::Key_Comma);
     QKeySequence m_frameForwardKey = QKeySequence(Qt::Key_Period);
+    QKeySequence m_switchSubtitlesKey = QKeySequence(Qt::Key_S);
     int m_saturation = 0;
     int m_brightness = 0;
     int m_contrast = 0;
