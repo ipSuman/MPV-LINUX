@@ -19,6 +19,7 @@
 #include <QPushButton>
 #include <QStringConverter>
 #include <QTextStream>
+#include <QTimer>
 #include <QVBoxLayout>
 #include <QWidget>
 
