@@ -425,13 +425,7 @@ void MainWindow::showControlsDialog() {
     selectData(volumeWheel, m_volumeWheelMode);
     form->addRow(QStringLiteral("Wheel → Volume"), volumeWheel);
 
-    auto* panButton = new QComboBox(&dialog);
-    panButton->addItem(QStringLiteral("Left button"), static_cast<int>(Qt::LeftButton));
-    panButton->addItem(QStringLiteral("Middle button"), static_cast<int>(Qt::MiddleButton));
-    panButton->addItem(QStringLiteral("Right button"), static_cast<int>(Qt::RightButton));
-    panButton->addItem(QStringLiteral("Disabled"), static_cast<int>(Qt::NoButton));
-    selectData(panButton, static_cast<int>(m_panButton));
-    form->addRow(QStringLiteral("Drag → Pan"), panButton);
+    form->addRow(QStringLiteral("Alt + Ctrl + drag → Pan"), new QLabel(QStringLiteral("Hold Alt + Ctrl and drag with the left mouse button"), &dialog));
 
     auto* doubleClickButton = new QComboBox(&dialog);
     doubleClickButton->addItem(QStringLiteral("Left button"), static_cast<int>(Qt::LeftButton));
@@ -878,7 +872,7 @@ void MainWindow::saveLogReport() {
     out << "Seek wheel: " << m_seekWheelMode << "\n";
     out << "Zoom wheel: " << m_zoomWheelMode << "\n";
     out << "Volume wheel: " << m_volumeWheelMode << "\n";
-    out << "Pan button: " << static_cast<int>(m_panButton) << "\n";
+    out << "Pan gesture: Alt + Ctrl + left-drag\n";
     out << "Double-click button: " << static_cast<int>(m_doubleClickButton) << "\n";
     out << "Double-click zones: " << (m_doubleClickZones ? "enabled" : "disabled") << "\n";
     out << "Volume up shortcut: " << m_volumeUpKey.toString() << "\n";
@@ -1304,7 +1298,9 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* event) {
 
     if (event->type() == QEvent::MouseButtonPress) {
         const auto* e = static_cast<QMouseEvent*>(event);
-        if (m_panButton != Qt::NoButton && e->button() == m_panButton) {
+        const Qt::KeyboardModifiers modifiers = e->modifiers() & (Qt::ShiftModifier | Qt::ControlModifier | Qt::AltModifier | Qt::MetaModifier);
+        if (e->button() == Qt::LeftButton &&
+            modifiers == (Qt::AltModifier | Qt::ControlModifier)) {
             m_panningVideo = true;
             m_panStart = e->position();
             m_videoPanX = getPropertyDouble("video-pan-x");
@@ -1328,7 +1324,7 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* event) {
 
     if (event->type() == QEvent::MouseButtonRelease) {
         const auto* e = static_cast<QMouseEvent*>(event);
-        if (e->button() == m_panButton && m_panningVideo) {
+        if (e->button() == Qt::LeftButton && m_panningVideo) {
             m_panningVideo = false;
             return true;
         }
