@@ -46,7 +46,7 @@ jobs:
           chmod 755 "$PKGROOT/usr/bin/rex-player" "$PKGROOT/usr/bin/rex-player-bin"
           cat > "$PKGROOT/DEBIAN/control" <<'EOF'
           Package: mpv-linux
-          Version: 0.1.0
+          Version: 1.0.0
           Section: video
           Priority: optional
           Architecture: amd64
