@@ -83,6 +83,10 @@ target_link_libraries(rex-player PRIVATE
 )
 
 if(WIN32)
+    target_link_libraries(rex-player PRIVATE dwmapi)
+endif()
+
+if(WIN32)
     set_target_properties(rex-player PROPERTIES
         WIN32_EXECUTABLE TRUE
     )
