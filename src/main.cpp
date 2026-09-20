@@ -199,7 +199,7 @@ int main(int argc, char* argv[]) {
                 const auto buttons = controls->findChildren<QPushButton*>();
                 for (QPushButton* button : buttons) {
                     if (button->text() == QStringLiteral("Open")) {
-                        auto* fullscreenButton = new QPushButton(QStringLiteral("[  ]"), controls);
+                        auto* fullscreenButton = new QPushButton(QStringLiteral("⛶"), controls);
                         fullscreenButton->setFixedWidth(48);
                         fullscreenButton->setToolTip(QStringLiteral("Fullscreen"));
                         QObject::connect(fullscreenButton, &QPushButton::clicked, &window,
