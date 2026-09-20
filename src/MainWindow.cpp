@@ -156,11 +156,9 @@ MainWindow::MainWindow(const QString& mediaPath, QWidget* parent)
         if (videoRect.contains(cursorPos)) m_videoWidget->setCursor(Qt::BlankCursor);
     });
 
-    if (!initializeMpv()) return;
+    connect(this, &MainWindow::mpvWakeup, this, &MainWindow::pumpMpvEvents, Qt::QueuedConnection);
 
-    m_eventTimer.setInterval(10);
-    connect(&m_eventTimer, &QTimer::timeout, this, &MainWindow::pumpMpvEvents);
-    m_eventTimer.start();
+    if (!initializeMpv()) return;
 
     m_uiTimer.setInterval(250);
     connect(&m_uiTimer, &QTimer::timeout, this, &MainWindow::updatePlaybackUi);
@@ -170,10 +168,16 @@ MainWindow::MainWindow(const QString& mediaPath, QWidget* parent)
 }
 
 MainWindow::~MainWindow() {
-    m_eventTimer.stop();
     m_uiTimer.stop();
     updatePlaybackInhibit(false);
-    if (m_mpv) mpv_terminate_destroy(m_mpv);
+    if (m_mpv) {
+        // The wakeup callback may originate from an mpv worker thread. Unregister
+        // it before destroying the client handle so no callback can target this
+        // QObject after its lifetime ends.
+        mpv_set_wakeup_callback(m_mpv, nullptr, nullptr);
+        mpv_terminate_destroy(m_mpv);
+        m_mpv = nullptr;
+    }
 }
 
 void MainWindow::buildUi() {
@@ -566,10 +570,30 @@ void MainWindow::showControlsDialog() {
     dialog.exec();
 }
 
+void MainWindow::mpvWakeupCallback(void* context) {
+    auto* window = static_cast<MainWindow*>(context);
+    if (!window) return;
+
+    // mpv may call this from arbitrary threads. The callback must only notify
+    // the GUI thread; all libmpv API work remains in pumpMpvEvents().
+    //
+    // Coalesce wakeups so a burst of mpv events results in one Qt event rather
+    // than an unbounded queue of identical wakeup notifications.
+    if (!window->m_mpvWakeQueued.exchange(true)) {
+        emit window->mpvWakeup();
+    }
+}
+
 bool MainWindow::initializeMpv() {
     std::setlocale(LC_NUMERIC, "C");
     m_mpv = mpv_create();
     if (!m_mpv) { showError(QStringLiteral("Could not create libmpv instance.")); return false; }
+
+    // libmpv's wakeup callback integrates its event queue with Qt's event loop.
+    // Unlike the old fixed 10 ms timer, the GUI thread sleeps normally and is
+    // woken only when libmpv has client events to deliver.
+    mpv_set_wakeup_callback(m_mpv, &MainWindow::mpvWakeupCallback, this);
+
     const QByteArray wid = QByteArray::number(static_cast<qulonglong>(m_videoWidget->winId()));
     if (mpv_set_option_string(m_mpv, "wid", wid.constData()) < 0 ||
         mpv_set_option_string(m_mpv, "terminal", "no") < 0 ||
@@ -1034,6 +1058,8 @@ void MainWindow::showTracksMenu() {
 }
 
 void MainWindow::pumpMpvEvents() {
+    // This slot runs on the Qt GUI thread through the queued wakeup signal.
+    m_mpvWakeQueued.store(false);
     if (!m_mpv) return;
     while (true) {
         mpv_event* event = mpv_wait_event(m_mpv, 0);
