@@ -2,6 +2,10 @@
 #include <clocale>
 
 #include <QApplication>
+#ifdef Q_OS_WIN
+#include <windows.h>
+#include <dwmapi.h>
+#endif
 #include <QCommandLineParser>
 #include <QFile>
 #include <QFileDialog>
@@ -19,6 +23,21 @@
 #include <QWidget>
 
 namespace {
+#ifdef Q_OS_WIN
+void setWindowsFullscreenBorder(MainWindow& window, bool fullscreen) {
+    const HWND hwnd = reinterpret_cast<HWND>(window.winId());
+    if (!hwnd) return;
+
+    // Windows 11 draws a thin DWM border around top-level windows. In
+    // fullscreen mode it can remain visible in the user's accent colour.
+    // DWMWA_COLOR_NONE explicitly suppresses that border.
+    constexpr COLORREF kColorNone = static_cast<COLORREF>(0xFFFFFFFEu);
+    constexpr COLORREF kColorDefault = static_cast<COLORREF>(0xFFFFFFFFu);
+    const COLORREF color = fullscreen ? kColorNone : kColorDefault;
+    DwmSetWindowAttribute(hwnd, DWMWA_BORDER_COLOR, &color, sizeof(color));
+}
+#endif
+
 void toggleFullscreenFromButton(MainWindow& window) {
     QKeyEvent event(QEvent::KeyPress, Qt::Key_F11, Qt::NoModifier);
     QApplication::sendEvent(&window, &event);
@@ -157,6 +176,18 @@ int main(int argc, char* argv[]) {
 
     const QString mediaPath = parser.positionalArguments().value(0);
     MainWindow window(mediaPath);
+
+#ifdef Q_OS_WIN
+    QObject::connect(&window, &QWidget::windowStateChanged, &window,
+                     [&window](Qt::WindowStates state) {
+        const bool fullscreen = state.testFlag(Qt::WindowFullScreen);
+        // Let Windows finish applying the fullscreen frame state before
+        // changing the DWM border attribute.
+        QTimer::singleShot(0, &window, [&window, fullscreen] {
+            setWindowsFullscreenBorder(window, fullscreen);
+        });
+    });
+#endif
 
     // Add the fullscreen button immediately to the left of the existing Open
     // button without disturbing the existing MainWindow layout or controls.
