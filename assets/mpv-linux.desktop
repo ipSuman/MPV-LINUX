@@ -9,3 +9,4 @@ Terminal=false
 Categories=AudioVideo;Player;Video;
 MimeType=video/mp4;video/x-matroska;video/webm;video/quicktime;audio/mpeg;audio/ogg;audio/flac;
 StartupNotify=true
+StartupWMClass=rex-player
