@@ -165,7 +165,7 @@ int main(int argc, char* argv[]) {
     std::setlocale(LC_NUMERIC, "C");
     QApplication app(argc, argv);
     QCoreApplication::setApplicationName(QStringLiteral("REX Player"));
-    QCoreApplication::setApplicationVersion(QStringLiteral("0.1.0"));
+    QCoreApplication::setApplicationVersion(QStringLiteral("1.0.0"));
     app.setWindowIcon(QIcon(QStringLiteral(":/icons/rex-player.svg")));
 
     QCommandLineParser parser;
