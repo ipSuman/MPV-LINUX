@@ -66,6 +66,7 @@ jobs:
           Categories=AudioVideo;Player;Video;
           MimeType=video/mp4;video/x-matroska;video/webm;video/quicktime;audio/mpeg;audio/ogg;audio/flac;
           StartupNotify=true
+          StartupWMClass=rex-player
           EOF
           dpkg-deb --build --root-owner-group "$PKGROOT" dist/mpv-linux_0.1.0_amd64.deb
 
