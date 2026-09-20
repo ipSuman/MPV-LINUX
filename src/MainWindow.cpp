@@ -487,7 +487,6 @@ void MainWindow::showControlsDialog() {
         selectData(seekWheel, QStringLiteral("wheel"));
         selectData(zoomWheel, QStringLiteral("alt-wheel"));
         selectData(volumeWheel, QStringLiteral("ctrl-wheel"));
-        selectData(panButton, static_cast<int>(Qt::MiddleButton));
         selectData(doubleClickButton, static_cast<int>(Qt::LeftButton));
         volumeUp->setKeySequence(QKeySequence(Qt::SHIFT | Qt::Key_V));
         volumeDown->setKeySequence(QKeySequence(Qt::Key_V));
@@ -520,7 +519,6 @@ void MainWindow::showControlsDialog() {
         m_seekWheelMode = seekWheel->currentData().toString();
         m_zoomWheelMode = zoomWheel->currentData().toString();
         m_volumeWheelMode = volumeWheel->currentData().toString();
-        m_panButton = static_cast<Qt::MouseButton>(panButton->currentData().toInt());
         m_doubleClickButton = static_cast<Qt::MouseButton>(doubleClickButton->currentData().toInt());
         m_seekBackwardKey = seekBack->keySequence();
         m_seekForwardKey = seekForward->keySequence();
