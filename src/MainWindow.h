@@ -91,6 +91,7 @@ private:
     void toggleFullscreen();
     void showDisplayDialog();
     void loadControlSettings();
+    void updatePlaybackInhibit(bool active);
     bool keyMatches(QKeyEvent* event, const QKeySequence& sequence) const;
 
     mpv_handle* m_mpv = nullptr;
@@ -115,6 +116,8 @@ private:
     QPushButton* m_logButton = nullptr;
     QCheckBox* m_autoplayCheck = nullptr;
     QProcess* m_cutProcess = nullptr;
+    QProcess* m_powerInhibitProcess = nullptr;
+    bool m_playbackInhibited = false;
     QString m_cutOutputPath;
     bool m_seeking = false;
     bool m_panningVideo = false;

@@ -51,6 +51,10 @@
 
 #include <mpv/client.h>
 
+#ifdef Q_OS_WIN
+#include <windows.h>
+#endif
+
 namespace {
 const QStringList kMediaExtensions = {
     QStringLiteral("mp4"), QStringLiteral("mkv"), QStringLiteral("webm"),
@@ -168,6 +172,7 @@ MainWindow::MainWindow(const QString& mediaPath, QWidget* parent)
 MainWindow::~MainWindow() {
     m_eventTimer.stop();
     m_uiTimer.stop();
+    updatePlaybackInhibit(false);
     if (m_mpv) mpv_terminate_destroy(m_mpv);
 }
 
@@ -573,7 +578,8 @@ bool MainWindow::initializeMpv() {
         mpv_set_option_string(m_mpv, "keep-open", "no") < 0 ||
         mpv_set_option_string(m_mpv, "hwdec", "auto") < 0 ||
         mpv_set_option_string(m_mpv, "input-vo-keyboard", "no") < 0 ||
-        mpv_set_option_string(m_mpv, "input-cursor-passthrough", "yes") < 0) {
+        mpv_set_option_string(m_mpv, "input-cursor-passthrough", "yes") < 0 ||
+        mpv_set_option_string(m_mpv, "stop-screensaver", "yes") < 0 < 0) {
         showError(QStringLiteral("Could not configure libmpv.")); return false;
     }
     if (mpv_initialize(m_mpv) < 0) {
@@ -864,6 +870,7 @@ void MainWindow::saveLogReport() {
     out << "Zoom reset shortcut: " << m_zoomResetKey.toString() << "\n";
     out << "Frame back shortcut: " << m_frameBackKey.toString() << "\n";
     out << "Frame forward shortcut: " << m_frameForwardKey.toString() << "\n";
+    out << "Switch subtitles shortcut: " << m_switchSubtitlesKey.toString() << "\n";
     out << "Autoplay next item: " << (m_autoplayPlaylist ? "enabled" : "disabled") << "\n";
 
     out << "\nPlaylist\n--------\n";
@@ -877,6 +884,46 @@ void MainWindow::saveLogReport() {
     out << "\nEnd of report\n";
     file.close();
     QMessageBox::information(this, QStringLiteral("Log saved"), QStringLiteral("Diagnostic report saved to:\n%1").arg(path));
+}
+
+void MainWindow::updatePlaybackInhibit(bool active) {
+    if (active == m_playbackInhibited) return;
+
+#ifdef Q_OS_WIN
+    if (active) {
+        SetThreadExecutionState(ES_CONTINUOUS | ES_DISPLAY_REQUIRED);
+    } else {
+        SetThreadExecutionState(ES_CONTINUOUS);
+    }
+#elif defined(Q_OS_LINUX)
+    if (active) {
+        if (!m_powerInhibitProcess) {
+            m_powerInhibitProcess = new QProcess(this);
+            m_powerInhibitProcess->setProgram(QStringLiteral("systemd-inhibit"));
+            m_powerInhibitProcess->setArguments({
+                QStringLiteral("--what=idle"),
+                QStringLiteral("--who=REX Player"),
+                QStringLiteral("--why=Video playback"),
+                QStringLiteral("--mode=block"),
+                QStringLiteral("sleep"),
+                QStringLiteral("infinity")
+            });
+            m_powerInhibitProcess->start();
+        }
+        if (m_powerInhibitProcess->state() == QProcess::NotRunning) {
+            m_powerInhibitProcess->start();
+        }
+    } else if (m_powerInhibitProcess) {
+        m_powerInhibitProcess->terminate();
+        if (!m_powerInhibitProcess->waitForFinished(500)) {
+            m_powerInhibitProcess->kill();
+        }
+        m_powerInhibitProcess->deleteLater();
+        m_powerInhibitProcess = nullptr;
+    }
+#endif
+
+    m_playbackInhibited = active;
 }
 
 void MainWindow::updateHardwareButton() {
@@ -990,6 +1037,7 @@ void MainWindow::updatePlaybackUi() {
     m_timeLabel->setText(QStringLiteral("%1 / %2").arg(formatTime(pos), formatTime(m_showRemainingTime ? remaining : duration)));
     updatePlayButton(paused != 0);
     updateHardwareButton();
+    updatePlaybackInhibit(paused == 0 && !getPropertyString("path").isEmpty());
     syncPlaylistSelection();
 }
 
@@ -1021,8 +1069,6 @@ void MainWindow::cycleSubtitles() {
 
     QString nextSid;
     if (currentSid == QStringLiteral("no")) {
-        nextSid = QStringLiteral("auto");
-    } else if (currentSid == QStringLiteral("auto")) {
         nextSid = subtitleIds.isEmpty() ? QStringLiteral("no") : QString::number(subtitleIds.first());
     } else {
         bool ok = false;
