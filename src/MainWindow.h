@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QMainWindow>
+#include <atomic>
 #include <QPointF>
 #include <QKeySequence>
 #include <QTimer>
@@ -64,8 +65,12 @@ private slots:
     void decreaseSubtitleSize();
     void cycleSubtitles();
 
+signals:
+    void mpvWakeup();
+
 private:
     bool initializeMpv();
+    static void mpvWakeupCallback(void* context);
     void buildUi();
     void loadFile(const QString& path);
     void addToPlaylist(const QString& path);
@@ -95,7 +100,6 @@ private:
     bool keyMatches(QKeyEvent* event, const QKeySequence& sequence) const;
 
     mpv_handle* m_mpv = nullptr;
-    QTimer m_eventTimer;
     QTimer m_uiTimer;
     QWidget* m_videoWidget = nullptr;
     QWidget* m_controls = nullptr;
@@ -118,6 +122,7 @@ private:
     QProcess* m_cutProcess = nullptr;
     QProcess* m_powerInhibitProcess = nullptr;
     bool m_playbackInhibited = false;
+    std::atomic_bool m_mpvWakeQueued{false};
     QString m_cutOutputPath;
     bool m_seeking = false;
     bool m_panningVideo = false;
