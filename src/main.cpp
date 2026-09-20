@@ -179,15 +179,14 @@ int main(int argc, char* argv[]) {
     MainWindow window(mediaPath);
 
 #ifdef Q_OS_WIN
-    QObject::connect(&window, &QWidget::windowStateChanged, &window,
-                     [&window](Qt::WindowStates state) {
-        const bool fullscreen = state.testFlag(Qt::WindowFullScreen);
-        // Let Windows finish applying the fullscreen frame state before
-        // changing the DWM border attribute.
-        QTimer::singleShot(0, &window, [&window, fullscreen] {
-            setWindowsFullscreenBorder(window, fullscreen);
-        });
+    // Poll the top-level state because QWidget does not expose the
+    // windowStateChanged signal used by QWindow. This also covers fullscreen
+    // entered through F11/Enter as well as the fullscreen button.
+    auto* fullscreenBorderTimer = new QTimer(&window);
+    QObject::connect(fullscreenBorderTimer, &QTimer::timeout, &window, [&window] {
+        setWindowsFullscreenBorder(window, window.isFullScreen());
     });
+    fullscreenBorderTimer->start(100);
 #endif
 
     // Add the fullscreen button immediately to the left of the existing Open
