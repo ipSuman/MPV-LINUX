@@ -520,6 +520,9 @@ void MainWindow::showControlsDialog() {
         m_zoomWheelMode = zoomWheel->currentData().toString();
         m_volumeWheelMode = volumeWheel->currentData().toString();
         m_doubleClickButton = static_cast<Qt::MouseButton>(doubleClickButton->currentData().toInt());
+        m_volumeUpKey = volumeUp->keySequence();
+        m_volumeDownKey = volumeDown->keySequence();
+        m_muteKey = mute->keySequence();
         m_seekBackwardKey = seekBack->keySequence();
         m_seekForwardKey = seekForward->keySequence();
         m_loopAKey = loopA->keySequence();
