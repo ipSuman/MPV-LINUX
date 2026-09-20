@@ -1068,7 +1068,7 @@ void MainWindow::cycleSubtitles() {
     }
 
     QString nextSid;
-    if (currentSid == QStringLiteral("no")) {
+    if (currentSid == QStringLiteral("no") || currentSid == QStringLiteral("auto")) {
         nextSid = subtitleIds.isEmpty() ? QStringLiteral("no") : QString::number(subtitleIds.first());
     } else {
         bool ok = false;
