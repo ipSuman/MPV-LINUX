@@ -119,6 +119,7 @@ private:
     QPushButton* m_cutAbButton = nullptr;
     QPushButton* m_logButton = nullptr;
     QCheckBox* m_autoplayCheck = nullptr;
+    QPushButton* m_loopPlaylistButton = nullptr;
     QProcess* m_cutProcess = nullptr;
     QProcess* m_powerInhibitProcess = nullptr;
     bool m_playbackInhibited = false;
@@ -133,6 +134,7 @@ private:
     double m_abLoopEnd = -1.0;
     int m_currentPlaylistIndex = -1;
     bool m_autoplayPlaylist = true;
+    bool m_loopPlaylist = false;
     bool m_showRemainingTime = false;
 
     QString m_seekWheelMode = QStringLiteral("wheel");
