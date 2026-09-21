@@ -357,7 +357,10 @@ void MainWindow::buildUi() {
         settings.setValue(QStringLiteral("playlist/autoplay"), checked);
         settings.sync();
     });
-    playlistLayout->addWidget(m_autoplayCheck);
+    auto* playbackOptions = new QHBoxLayout();
+    playbackOptions->setContentsMargins(0, 0, 0, 0);
+    playbackOptions->setSpacing(8);
+    playbackOptions->addWidget(m_autoplayCheck);
     m_loopPlaylistButton = new QPushButton(m_loopPlaylist ? QStringLiteral("Loop: On") : QStringLiteral("Loop: Off"), playlistPanel);
     m_loopPlaylistButton->setCheckable(true);
     m_loopPlaylistButton->setChecked(m_loopPlaylist);
@@ -369,7 +372,9 @@ void MainWindow::buildUi() {
         settings.setValue(QStringLiteral("playlist/loop"), checked);
         settings.sync();
     });
-    playlistLayout->addWidget(m_loopPlaylistButton);
+    playbackOptions->addWidget(m_loopPlaylistButton);
+    playbackOptions->addStretch();
+    playlistLayout->addLayout(playbackOptions);
     m_playlistDock->setWidget(playlistPanel);
     addDockWidget(Qt::RightDockWidgetArea, m_playlistDock);
     m_playlistDock->hide();
