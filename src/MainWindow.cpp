@@ -358,6 +358,18 @@ void MainWindow::buildUi() {
         settings.sync();
     });
     playlistLayout->addWidget(m_autoplayCheck);
+    m_loopPlaylistButton = new QPushButton(m_loopPlaylist ? QStringLiteral("Loop: On") : QStringLiteral("Loop: Off"), playlistPanel);
+    m_loopPlaylistButton->setCheckable(true);
+    m_loopPlaylistButton->setChecked(m_loopPlaylist);
+    m_loopPlaylistButton->setToolTip(QStringLiteral("Loop the playlist: after the last item, continue again from the first item."));
+    connect(m_loopPlaylistButton, &QPushButton::toggled, this, [this](bool checked) {
+        m_loopPlaylist = checked;
+        m_loopPlaylistButton->setText(checked ? QStringLiteral("Loop: On") : QStringLiteral("Loop: Off"));
+        QSettings settings(QStringLiteral("REX Player"), QStringLiteral("REX Player"));
+        settings.setValue(QStringLiteral("playlist/loop"), checked);
+        settings.sync();
+    });
+    playlistLayout->addWidget(m_loopPlaylistButton);
     m_playlistDock->setWidget(playlistPanel);
     addDockWidget(Qt::RightDockWidgetArea, m_playlistDock);
     m_playlistDock->hide();
@@ -390,6 +402,7 @@ void MainWindow::loadControlSettings() {
     m_brightness = std::clamp(settings.value(QStringLiteral("display/brightness"), m_brightness).toInt(), -100, 100);
     m_contrast = std::clamp(settings.value(QStringLiteral("display/contrast"), m_contrast).toInt(), -100, 100);
     m_autoplayPlaylist = settings.value(QStringLiteral("playlist/autoplay"), m_autoplayPlaylist).toBool();
+    m_loopPlaylist = settings.value(QStringLiteral("playlist/loop"), m_loopPlaylist).toBool();
 }
 
 void MainWindow::showControlsDialog() {
@@ -1068,8 +1081,11 @@ void MainWindow::pumpMpvEvents() {
                 const bool hasNext = m_playlist &&
                                      m_currentPlaylistIndex >= 0 &&
                                      m_currentPlaylistIndex + 1 < m_playlist->count();
+                const bool hasPlaylist = m_playlist && m_playlist->count() > 0;
                 if (m_autoplayPlaylist && hasNext) {
                     playNext();
+                } else if (m_autoplayPlaylist && m_loopPlaylist && hasPlaylist) {
+                    playPlaylistIndex(0);
                 } else if (isFullScreen()) {
                     // Return to the normal window when playback really ends.
                     toggleFullscreen();
