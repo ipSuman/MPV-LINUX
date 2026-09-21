@@ -56,7 +56,6 @@ jobs:
            A native desktop media player frontend around libmpv.
           Depends: libqt6widgets6, libmpv2, ffmpeg
           EOF
-          EOF
           dpkg-deb --build --root-owner-group "$PKGROOT" dist/mpv-linux_1.0.0_amd64.deb
 
       - name: Upload artifacts
@@ -65,5 +64,5 @@ jobs:
           name: mpv-linux-installers
           path: |
             mpv-linux.tar.gz
-            dist/mpv-linux_0.1.0_amd64.deb
+            dist/mpv-linux_1.0.0_amd64.deb
           retention-days: 30
