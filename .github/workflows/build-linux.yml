@@ -43,6 +43,7 @@ jobs:
           cp build-linux/rex-player "$PKGROOT/usr/bin/rex-player-bin"
           cp rex-player-launcher.sh "$PKGROOT/usr/bin/rex-player"
           cp assets/rex-player.svg "$PKGROOT/usr/share/icons/hicolor/scalable/apps/rex-player.svg"
+          cp assets/rex-player.desktop "$PKGROOT/usr/share/applications/rex-player.desktop"
           chmod 755 "$PKGROOT/usr/bin/rex-player" "$PKGROOT/usr/bin/rex-player-bin"
           cat > "$PKGROOT/DEBIAN/control" <<'EOF'
           Package: mpv-linux
@@ -55,20 +56,8 @@ jobs:
            A native desktop media player frontend around libmpv.
           Depends: libqt6widgets6, libmpv2, ffmpeg
           EOF
-          cat > "$PKGROOT/usr/share/applications/mpv-linux.desktop" <<'EOF'
-          [Desktop Entry]
-          Type=Application
-          Name=REX Player
-          Comment=Lightweight libmpv media player
-          Exec=rex-player %U
-          Icon=rex-player
-          Terminal=false
-          Categories=AudioVideo;Player;Video;
-          MimeType=video/mp4;video/x-matroska;video/webm;video/quicktime;audio/mpeg;audio/ogg;audio/flac;
-          StartupNotify=true
-          StartupWMClass=rex-player
           EOF
-          dpkg-deb --build --root-owner-group "$PKGROOT" dist/mpv-linux_0.1.0_amd64.deb
+          dpkg-deb --build --root-owner-group "$PKGROOT" dist/mpv-linux_1.0.0_amd64.deb
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
