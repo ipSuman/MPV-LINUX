@@ -169,7 +169,7 @@ int main(int argc, char* argv[]) {
     // Tell GNOME and other freedesktop desktops exactly which .desktop entry
     // represents this window, so the running app uses the REX Player icon
     // instead of being grouped under a generic application icon.
-    app.setDesktopFileName(QStringLiteral("mpv-linux"));
+    app.setDesktopFileName(QStringLiteral("rex-player"));
     app.setWindowIcon(QIcon(QStringLiteral(":/icons/rex-player.svg")));
 
     QCommandLineParser parser;
