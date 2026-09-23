@@ -63,6 +63,8 @@ private slots:
     void saveLogReport();
     void increaseSubtitleSize();
     void decreaseSubtitleSize();
+    void increaseSubtitlePosition();
+    void decreaseSubtitlePosition();
     void cycleSubtitles();
 
 signals:
@@ -158,6 +160,8 @@ private:
     QKeySequence m_frameBackKey = QKeySequence(Qt::Key_Comma);
     QKeySequence m_frameForwardKey = QKeySequence(Qt::Key_Period);
     QKeySequence m_switchSubtitlesKey = QKeySequence(Qt::Key_S);
+    QKeySequence m_subtitlePosUpKey = QKeySequence(Qt::ControlModifier | Qt::Key_Up);
+    QKeySequence m_subtitlePosDownKey = QKeySequence(Qt::ControlModifier | Qt::Key_Down);
     int m_saturation = 0;
     int m_brightness = 0;
     int m_contrast = 0;
