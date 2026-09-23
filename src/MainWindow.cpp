@@ -34,6 +34,7 @@
 #include <QSysInfo>
 #include <QStyle>
 #include <QTextStream>
+#include <QToolButton>
 #include <QStyleOptionSlider>
 #include <QUrl>
 #include <QSettings>
@@ -488,23 +489,41 @@ void MainWindow::showControlsDialog() {
     auto* subtitlePosUp = new QKeySequenceEdit(m_subtitlePosUpKey, &dialog);
     auto* subtitlePosDown = new QKeySequenceEdit(m_subtitlePosDownKey, &dialog);
     const QList<QKeySequenceEdit*> edits = {volumeUp, volumeDown, mute, seekBack, seekForward, loopA, loopB, loopClear, zoomIn, zoomOut, zoomReset, frameBack, frameForward, switchSubtitles, subtitlePosUp, subtitlePosDown};
-    for (auto* edit : edits) edit->setClearButtonEnabled(true);
-    keyForm->addRow(QStringLiteral("Shift + V → Volume +"), volumeUp);
-    keyForm->addRow(QStringLiteral("V → Volume −"), volumeDown);
-    keyForm->addRow(QStringLiteral("M → Mute / unmute"), mute);
-    keyForm->addRow(QStringLiteral("Left Arrow → Seek backward"), seekBack);
-    keyForm->addRow(QStringLiteral("Right Arrow → Seek forward"), seekForward);
-    keyForm->addRow(QStringLiteral("A → Loop start"), loopA);
-    keyForm->addRow(QStringLiteral("B → Loop end"), loopB);
-    keyForm->addRow(QStringLiteral("L → Clear loop"), loopClear);
-    keyForm->addRow(QStringLiteral("+ → Zoom in"), zoomIn);
-    keyForm->addRow(QStringLiteral("− → Zoom out"), zoomOut);
-    keyForm->addRow(QStringLiteral("Z → Reset zoom / pan"), zoomReset);
-    keyForm->addRow(QStringLiteral(", → Previous frame"), frameBack);
-    keyForm->addRow(QStringLiteral(". → Next frame"), frameForward);
-    keyForm->addRow(QStringLiteral("S → Switch subtitles"), switchSubtitles);
-    keyForm->addRow(QStringLiteral("Ctrl + Up → Lift subtitles upward"), subtitlePosUp);
-    keyForm->addRow(QStringLiteral("Ctrl + Down → Lift subtitles downward"), subtitlePosDown);
+    for (auto* edit : edits) edit->setClearButtonEnabled(false);
+
+    auto addShortcut = [&keyForm, &dialog](const QString& label, QKeySequenceEdit* edit) {
+        auto* row = new QWidget(&dialog);
+        auto* rowLayout = new QHBoxLayout(row);
+        rowLayout->setContentsMargins(0, 0, 0, 0);
+        rowLayout->setSpacing(4);
+        rowLayout->addWidget(edit, 1);
+        auto* clearButton = new QToolButton(row);
+        clearButton->setText(QStringLiteral("×"));
+        clearButton->setToolTip(QStringLiteral("Clear shortcut"));
+        clearButton->setFixedSize(28, 28);
+        clearButton->setAutoRaise(true);
+        clearButton->setStyleSheet(QStringLiteral("QToolButton{font-size:18px;font-weight:600;color:#ddd;border:0;}QToolButton:hover{background:#3a3a3a;border-radius:4px;}"));
+        QObject::connect(clearButton, &QToolButton::clicked, edit, &QKeySequenceEdit::clear);
+        rowLayout->addWidget(clearButton);
+        keyForm->addRow(label, row);
+    };
+
+    addShortcut(QStringLiteral("Shift + V → Volume +"), volumeUp);
+    addShortcut(QStringLiteral("V → Volume −"), volumeDown);
+    addShortcut(QStringLiteral("M → Mute / unmute"), mute);
+    addShortcut(QStringLiteral("Left Arrow → Seek backward"), seekBack);
+    addShortcut(QStringLiteral("Right Arrow → Seek forward"), seekForward);
+    addShortcut(QStringLiteral("A → Loop start"), loopA);
+    addShortcut(QStringLiteral("B → Loop end"), loopB);
+    addShortcut(QStringLiteral("L → Clear loop"), loopClear);
+    addShortcut(QStringLiteral("+ → Zoom in"), zoomIn);
+    addShortcut(QStringLiteral("− → Zoom out"), zoomOut);
+    addShortcut(QStringLiteral("Z → Reset zoom / pan"), zoomReset);
+    addShortcut(QStringLiteral(", → Previous frame"), frameBack);
+    addShortcut(QStringLiteral(". → Next frame"), frameForward);
+    addShortcut(QStringLiteral("S → Switch subtitles"), switchSubtitles);
+    addShortcut(QStringLiteral("Ctrl + Up → Lift subtitles upward"), subtitlePosUp);
+    addShortcut(QStringLiteral("Ctrl + Down → Lift subtitles downward"), subtitlePosDown);
     keyForm->addRow(QStringLiteral("Shift + I → Increase subtitle text size"), new QLabel(QStringLiteral("Fixed shortcut"), &dialog));
     keyForm->addRow(QStringLiteral("I → Decrease subtitle text size"), new QLabel(QStringLiteral("Fixed shortcut"), &dialog));
     contentLayout->addLayout(keyForm);
