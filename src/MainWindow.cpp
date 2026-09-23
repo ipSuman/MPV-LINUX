@@ -264,7 +264,8 @@ void MainWindow::buildUi() {
     m_timeLabel->setCursor(Qt::PointingHandCursor);
     m_timeLabel->installEventFilter(this);
     row->addWidget(m_timeLabel);
-    m_timeLabel->setMinimumWidth(92);
+    m_timeLabel->setFixedWidth(170);
+    m_timeLabel->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
     m_abLoopLabel = new QLabel(QStringLiteral("A-B: Off"), m_controls);
     m_abLoopLabel->setToolTip(QStringLiteral("A: set loop start, B: set loop end, L: clear loop"));
     row->addWidget(m_abLoopLabel);
@@ -274,12 +275,6 @@ void MainWindow::buildUi() {
     m_cutAbButton->setToolTip(QStringLiteral("Cut the current A-B selection with FFmpeg without re-encoding"));
     connect(m_cutAbButton, &QPushButton::clicked, this, &MainWindow::cutAbSelection);
     row->addWidget(m_cutAbButton);
-    m_logButton = new QPushButton(QStringLiteral("Save Log"), m_controls);
-    m_logButton->setMinimumWidth(84);
-    m_logButton->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
-    m_logButton->setToolTip(QStringLiteral("Save a diagnostic log report"));
-    connect(m_logButton, &QPushButton::clicked, this, &MainWindow::saveLogReport);
-    row->addWidget(m_logButton);
     m_hwButton = new QPushButton(QStringLiteral("SW"), m_controls);
     m_hwButton->setFixedWidth(48);
     m_hwButton->setToolTip(QStringLiteral("Software decoding. Click to enable hardware decoding when supported."));
@@ -536,6 +531,9 @@ void MainWindow::showControlsDialog() {
     mainLayout->addWidget(scrollArea, 1);
 
     auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+    auto* saveLog = buttons->addButton(QStringLiteral("Save Log"), QDialogButtonBox::ActionRole);
+    saveLog->setToolTip(QStringLiteral("Save a diagnostic log report"));
+    connect(saveLog, &QPushButton::clicked, &dialog, [this] { saveLogReport(); });
     auto* reset = buttons->addButton(QStringLiteral("Reset defaults"), QDialogButtonBox::ResetRole);
     mainLayout->addWidget(buttons);
 
@@ -1154,7 +1152,8 @@ void MainWindow::updatePlaybackUi() {
     if (mpv_get_property(m_mpv, "pause", MPV_FORMAT_FLAG, &paused) < 0) paused = 0;
     if (!m_seeking) m_seekSlider->setValue(duration > 0 ? static_cast<int>(std::clamp(pos / duration, 0.0, 1.0) * 1000.0) : 0);
     const double remaining = std::max(0.0, duration - pos);
-    m_timeLabel->setText(QStringLiteral("%1 / %2").arg(formatTime(pos), formatTime(m_showRemainingTime ? remaining : duration)));
+    const QString rightTime = m_showRemainingTime ? QStringLiteral("- %1").arg(formatTime(remaining)) : formatTime(duration);
+    m_timeLabel->setText(QStringLiteral("%1 / %2").arg(formatTime(pos), rightTime));
     updatePlayButton(paused != 0);
     updateHardwareButton();
     updatePlaybackInhibit(paused == 0 && !getPropertyString("path").isEmpty());
