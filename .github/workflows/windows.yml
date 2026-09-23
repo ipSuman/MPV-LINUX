@@ -19,19 +19,19 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up MSYS2 MinGW64
+      - name: Set up MSYS2 UCRT64
         uses: msys2/setup-msys2@v2
         with:
-          msystem: MINGW64
+          msystem: UCRT64
           update: true
           install: >-
-            mingw-w64-x86_64-toolchain
-            mingw-w64-x86_64-cmake
-            mingw-w64-x86_64-ninja
-            mingw-w64-x86_64-qt6-base
-            mingw-w64-x86_64-mpv
-            mingw-w64-x86_64-ffmpeg
-            mingw-w64-x86_64-imagemagick
+            mingw-w64-ucrt-x86_64-toolchain
+            mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-ninja
+            mingw-w64-ucrt-x86_64-qt6-base
+            mingw-w64-ucrt-x86_64-mpv
+            mingw-w64-ucrt-x86_64-ffmpeg
+            mingw-w64-ucrt-x86_64-imagemagick
 
       - name: Configure
         run: |
@@ -48,7 +48,7 @@ jobs:
       - name: Deploy Qt and libmpv runtime
         run: |
           mkdir -p dist/bin
-          /mingw64/bin/windeployqt6.exe \
+          /ucrt64/bin/windeployqt6.exe \
             --release \
             --no-translations \
             --no-system-d3d-compiler \
@@ -62,7 +62,7 @@ jobs:
           }
 
           MPV_DLL=""
-          for candidate in /mingw64/bin/libmpv-2.dll /mingw64/bin/mpv-2.dll; do
+          for candidate in /ucrt64/bin/libmpv-2.dll /ucrt64/bin/mpv-2.dll; do
             if [ -f "$candidate" ]; then
               MPV_DLL="$candidate"
               break
@@ -76,9 +76,9 @@ jobs:
           copy_deps "$MPV_DLL"
           copy_deps dist/bin/rex-player.exe
 
-          if [ -f /mingw64/bin/ffmpeg.exe ]; then
-            cp /mingw64/bin/ffmpeg.exe dist/bin/
-            copy_deps /mingw64/bin/ffmpeg.exe
+          if [ -f /ucrt64/bin/ffmpeg.exe ]; then
+            cp /ucrt64/bin/ffmpeg.exe dist/bin/
+            copy_deps /ucrt64/bin/ffmpeg.exe
           fi
 
       - name: Create portable ZIP
