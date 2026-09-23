@@ -1279,6 +1279,18 @@ bool MainWindow::keyMatches(QKeyEvent* event, const QKeySequence& sequence) cons
 }
 
 void MainWindow::keyPressEvent(QKeyEvent* event) {
+    if (event->key() == Qt::Key_Escape && event->modifiers() == Qt::NoModifier) {
+        const qint64 now = QDateTime::currentMSecsSinceEpoch();
+        if (m_lastEscapePressMs > 0 && now - m_lastEscapePressMs <= 1000) {
+            m_lastEscapePressMs = 0;
+            close();
+        } else {
+            m_lastEscapePressMs = now;
+            if (isFullScreen()) toggleFullscreen();
+        }
+        event->accept();
+        return;
+    }
     if (event->key() == Qt::Key_I && event->modifiers() == Qt::ShiftModifier) { increaseSubtitleSize(); event->accept(); return; }
     if (event->key() == Qt::Key_I && event->modifiers() == Qt::NoModifier) { decreaseSubtitleSize(); event->accept(); return; }
     if (keyMatches(event, m_volumeUpKey)) { volumeUp(); event->accept(); return; }
