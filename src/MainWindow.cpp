@@ -416,9 +416,17 @@ void MainWindow::showControlsDialog() {
     QDialog dialog(this);
     dialog.setWindowTitle(QStringLiteral("Controls"));
     dialog.setModal(true);
-    dialog.resize(520, 650);
+    dialog.resize(460, 560);
+    dialog.setMinimumSize(380, 420);
+    dialog.setSizeGripEnabled(true);
 
     auto* mainLayout = new QVBoxLayout(&dialog);
+    auto* scrollArea = new QScrollArea(&dialog);
+    scrollArea->setWidgetResizable(true);
+    scrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    auto* content = new QWidget(scrollArea);
+    auto* contentLayout = new QVBoxLayout(content);
+    contentLayout->setContentsMargins(8, 8, 8, 8);
     auto* form = new QFormLayout();
     form->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
 
@@ -455,9 +463,9 @@ void MainWindow::showControlsDialog() {
     selectData(doubleClickButton, static_cast<int>(m_doubleClickButton));
     form->addRow(QStringLiteral("Double-click zones"), doubleClickButton);
 
-    mainLayout->addWidget(new QLabel(QStringLiteral("Mouse / touchpad"), &dialog));
-    mainLayout->addLayout(form);
-    mainLayout->addWidget(new QLabel(QStringLiteral("Keyboard shortcuts"), &dialog));
+    contentLayout->addWidget(new QLabel(QStringLiteral("Mouse / touchpad"), content));
+    contentLayout->addLayout(form);
+    contentLayout->addWidget(new QLabel(QStringLiteral("Keyboard shortcuts"), content));
 
     auto* keyForm = new QFormLayout();
     auto* volumeUp = new QKeySequenceEdit(m_volumeUpKey, &dialog);
@@ -496,11 +504,14 @@ void MainWindow::showControlsDialog() {
     keyForm->addRow(QStringLiteral("Ctrl + Down → Lift subtitles downward"), subtitlePosDown);
     keyForm->addRow(QStringLiteral("Shift + I → Increase subtitle text size"), new QLabel(QStringLiteral("Fixed shortcut"), &dialog));
     keyForm->addRow(QStringLiteral("I → Decrease subtitle text size"), new QLabel(QStringLiteral("Fixed shortcut"), &dialog));
-    mainLayout->addLayout(keyForm);
+    contentLayout->addLayout(keyForm);
 
     auto* note = new QLabel(QStringLiteral("Seek duration applies to the arrow keys, wheel seek and double-click seek zones. Choose 5, 10 or 30 seconds, or a value from 1 to 120 minutes. The −10s and +10s buttons always seek exactly 10 seconds. Changes are saved for the next launch. Clear a shortcut to disable it."), &dialog);
     note->setWordWrap(true);
-    mainLayout->addWidget(note);
+    contentLayout->addWidget(note);
+    content->setLayout(contentLayout);
+    scrollArea->setWidget(content);
+    mainLayout->addWidget(scrollArea, 1);
 
     auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
     auto* reset = buttons->addButton(QStringLiteral("Reset defaults"), QDialogButtonBox::ResetRole);
