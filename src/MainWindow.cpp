@@ -403,6 +403,8 @@ void MainWindow::loadControlSettings() {
     m_frameBackKey = QKeySequence(settings.value(QStringLiteral("controls/frameBack"), m_frameBackKey.toString()).toString());
     m_frameForwardKey = QKeySequence(settings.value(QStringLiteral("controls/frameForward"), m_frameForwardKey.toString()).toString());
     m_switchSubtitlesKey = QKeySequence(settings.value(QStringLiteral("controls/switchSubtitles"), m_switchSubtitlesKey.toString()).toString());
+    m_subtitlePosUpKey = QKeySequence(settings.value(QStringLiteral("controls/subtitlePosUp"), m_subtitlePosUpKey.toString()).toString());
+    m_subtitlePosDownKey = QKeySequence(settings.value(QStringLiteral("controls/subtitlePosDown"), m_subtitlePosDownKey.toString()).toString());
     m_saturation = std::clamp(settings.value(QStringLiteral("display/saturation"), m_saturation).toInt(), -100, 100);
     m_brightness = std::clamp(settings.value(QStringLiteral("display/brightness"), m_brightness).toInt(), -100, 100);
     m_contrast = std::clamp(settings.value(QStringLiteral("display/contrast"), m_contrast).toInt(), -100, 100);
@@ -472,7 +474,9 @@ void MainWindow::showControlsDialog() {
     auto* frameBack = new QKeySequenceEdit(m_frameBackKey, &dialog);
     auto* frameForward = new QKeySequenceEdit(m_frameForwardKey, &dialog);
     auto* switchSubtitles = new QKeySequenceEdit(m_switchSubtitlesKey, &dialog);
-    const QList<QKeySequenceEdit*> edits = {volumeUp, volumeDown, mute, seekBack, seekForward, loopA, loopB, loopClear, zoomIn, zoomOut, zoomReset, frameBack, frameForward, switchSubtitles};
+    auto* subtitlePosUp = new QKeySequenceEdit(m_subtitlePosUpKey, &dialog);
+    auto* subtitlePosDown = new QKeySequenceEdit(m_subtitlePosDownKey, &dialog);
+    const QList<QKeySequenceEdit*> edits = {volumeUp, volumeDown, mute, seekBack, seekForward, loopA, loopB, loopClear, zoomIn, zoomOut, zoomReset, frameBack, frameForward, switchSubtitles, subtitlePosUp, subtitlePosDown};
     for (auto* edit : edits) edit->setClearButtonEnabled(true);
     keyForm->addRow(QStringLiteral("Shift + V → Volume +"), volumeUp);
     keyForm->addRow(QStringLiteral("V → Volume −"), volumeDown);
@@ -488,6 +492,8 @@ void MainWindow::showControlsDialog() {
     keyForm->addRow(QStringLiteral(", → Previous frame"), frameBack);
     keyForm->addRow(QStringLiteral(". → Next frame"), frameForward);
     keyForm->addRow(QStringLiteral("S → Switch subtitles"), switchSubtitles);
+    keyForm->addRow(QStringLiteral("Ctrl + Up → Lift subtitles upward"), subtitlePosUp);
+    keyForm->addRow(QStringLiteral("Ctrl + Down → Lift subtitles downward"), subtitlePosDown);
     keyForm->addRow(QStringLiteral("Shift + I → Increase subtitle text size"), new QLabel(QStringLiteral("Fixed shortcut"), &dialog));
     keyForm->addRow(QStringLiteral("I → Decrease subtitle text size"), new QLabel(QStringLiteral("Fixed shortcut"), &dialog));
     mainLayout->addLayout(keyForm);
@@ -552,6 +558,8 @@ void MainWindow::showControlsDialog() {
         m_frameBackKey = frameBack->keySequence();
         m_frameForwardKey = frameForward->keySequence();
         m_switchSubtitlesKey = switchSubtitles->keySequence();
+        m_subtitlePosUpKey = subtitlePosUp->keySequence();
+        m_subtitlePosDownKey = subtitlePosDown->keySequence();
 
         QSettings settings(QStringLiteral("REX Player"), QStringLiteral("REX Player"));
         settings.setValue(QStringLiteral("controls/seekDurationSeconds"), m_seekDurationSeconds);
@@ -574,6 +582,8 @@ void MainWindow::showControlsDialog() {
         settings.setValue(QStringLiteral("controls/frameBack"), m_frameBackKey.toString());
         settings.setValue(QStringLiteral("controls/frameForward"), m_frameForwardKey.toString());
         settings.setValue(QStringLiteral("controls/switchSubtitles"), m_switchSubtitlesKey.toString());
+        settings.setValue(QStringLiteral("controls/subtitlePosUp"), m_subtitlePosUpKey.toString());
+        settings.setValue(QStringLiteral("controls/subtitlePosDown"), m_subtitlePosDownKey.toString());
         settings.sync();
         updateSeekButtonLabels();
         dialog.accept();
@@ -1119,6 +1129,16 @@ void MainWindow::updatePlaybackUi() {
 }
 
 void MainWindow::updatePlayButton(bool paused) { m_playButton->setText(paused ? QStringLiteral("▶") : QStringLiteral("Ⅱ")); }
+void MainWindow::increaseSubtitlePosition() {
+    const double current = std::clamp(getPropertyDouble("sub-pos"), 0.0, 150.0);
+    setPropertyDouble("sub-pos", std::max(0.0, current - 1.0));
+}
+
+void MainWindow::decreaseSubtitlePosition() {
+    const double current = std::clamp(getPropertyDouble("sub-pos"), 0.0, 150.0);
+    setPropertyDouble("sub-pos", std::min(150.0, current + 1.0));
+}
+
 void MainWindow::cycleSubtitles() {
     if (!m_mpv) return;
 
@@ -1241,6 +1261,8 @@ void MainWindow::keyPressEvent(QKeyEvent* event) {
     if (keyMatches(event, m_zoomResetKey)) { resetVideoTransform(); event->accept(); return; }
     if (keyMatches(event, m_frameBackKey)) { stepFrame(false); event->accept(); return; }
     if (keyMatches(event, m_frameForwardKey)) { stepFrame(true); event->accept(); return; }
+    if (keyMatches(event, m_subtitlePosUpKey)) { increaseSubtitlePosition(); event->accept(); return; }
+    if (keyMatches(event, m_subtitlePosDownKey)) { decreaseSubtitlePosition(); event->accept(); return; }
     if (keyMatches(event, m_switchSubtitlesKey)) { cycleSubtitles(); event->accept(); return; }
 
     switch (event->key()) {
