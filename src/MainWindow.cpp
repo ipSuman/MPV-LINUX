@@ -223,6 +223,8 @@ void MainWindow::buildUi() {
     controlsLayout->addWidget(m_seekSlider);
 
     auto* row = new QHBoxLayout();
+    row->setContentsMargins(0, 0, 0, 0);
+    row->setSpacing(4);
     auto* open = new QPushButton(QStringLiteral("Open"), m_controls);
     connect(open, &QPushButton::clicked, this, &MainWindow::openFile);
     row->addWidget(open);
@@ -261,6 +263,7 @@ void MainWindow::buildUi() {
     m_timeLabel->setCursor(Qt::PointingHandCursor);
     m_timeLabel->installEventFilter(this);
     row->addWidget(m_timeLabel);
+    m_timeLabel->setMinimumWidth(92);
     m_abLoopLabel = new QLabel(QStringLiteral("A-B: Off"), m_controls);
     m_abLoopLabel->setToolTip(QStringLiteral("A: set loop start, B: set loop end, L: clear loop"));
     row->addWidget(m_abLoopLabel);
