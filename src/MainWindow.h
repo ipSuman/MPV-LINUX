@@ -5,6 +5,7 @@
 #include <QPointF>
 #include <QKeySequence>
 #include <QTimer>
+#include <QDateTime>
 
 class QLabel;
 class QListWidget;
@@ -138,6 +139,7 @@ private:
     bool m_autoplayPlaylist = true;
     bool m_loopPlaylist = false;
     bool m_showRemainingTime = false;
+    qint64 m_lastEscapePressMs = 0;
 
     QString m_seekWheelMode = QStringLiteral("wheel");
     QString m_zoomWheelMode = QStringLiteral("alt-wheel");
