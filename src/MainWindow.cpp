@@ -50,6 +50,7 @@
 #include <algorithm>
 #include <cmath>
 #include <clocale>
+#include <cstdint>
 
 #include <mpv/client.h>
 
@@ -926,11 +927,17 @@ void MainWindow::cutAbSelection() {
 
         const QString crop = QStringLiteral("crop=%1:%2:%3:%4")
             .arg(cropWidth).arg(cropHeight).arg(cropX).arg(cropY);
+        const bool webmOutput = suffix.compare(QStringLiteral("webm"), Qt::CaseInsensitive) == 0;
         args << QStringLiteral("-vf") << crop
-             << QStringLiteral("-c:v") << QStringLiteral("libx264")
-             << QStringLiteral("-preset") << QStringLiteral("medium")
-             << QStringLiteral("-crf") << QStringLiteral("18")
-             << QStringLiteral("-c:a") << QStringLiteral("copy")
+             << QStringLiteral("-c:v") << (webmOutput ? QStringLiteral("libvpx-vp9") : QStringLiteral("libx264"));
+        if (webmOutput) {
+            args << QStringLiteral("-crf") << QStringLiteral("30")
+                 << QStringLiteral("-b:v") << QStringLiteral("0");
+        } else {
+            args << QStringLiteral("-preset") << QStringLiteral("medium")
+                 << QStringLiteral("-crf") << QStringLiteral("18");
+        }
+        args << QStringLiteral("-c:a") << QStringLiteral("copy")
              << QStringLiteral("-c:s") << QStringLiteral("copy")
              << QStringLiteral("-c:d") << QStringLiteral("copy");
     } else {
