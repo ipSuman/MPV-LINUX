@@ -106,6 +106,7 @@ private:
 
     mpv_handle* m_mpv = nullptr;
     QTimer m_uiTimer;
+    QWidget* m_rootWidget = nullptr;
     QWidget* m_videoWidget = nullptr;
     QWidget* m_controls = nullptr;
     QDockWidget* m_playlistDock = nullptr;
