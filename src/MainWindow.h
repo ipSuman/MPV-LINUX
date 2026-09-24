@@ -147,6 +147,7 @@ private:
     bool m_loopPlaylist = false;
     bool m_showRemainingTime = false;
     bool m_timerBesideProgress = false;
+    bool m_cutWithZoom = false;
     bool m_promptResumeNextLoad = false;
     QString m_pendingResumePath;
     double m_pendingResumePosition = 0.0;
@@ -176,6 +177,8 @@ private:
     QKeySequence m_switchSubtitlesKey = QKeySequence(Qt::Key_S);
     QKeySequence m_subtitlePosUpKey = QKeySequence(Qt::ControlModifier | Qt::Key_Up);
     QKeySequence m_subtitlePosDownKey = QKeySequence(Qt::ControlModifier | Qt::Key_Down);
+    QKeySequence m_subtitleSizeUpKey = QKeySequence(Qt::SHIFT | Qt::Key_I);
+    QKeySequence m_subtitleSizeDownKey = QKeySequence(Qt::Key_I);
     int m_saturation = 0;
     int m_brightness = 0;
     int m_contrast = 0;
