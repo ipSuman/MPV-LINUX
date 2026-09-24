@@ -920,8 +920,11 @@ void MainWindow::cutAbSelection() {
             static_cast<int>(std::floor(sourceHeight / zoomFactor / 2.0) * 2.0)));
         const int maxX = sourceWidth - cropWidth;
         const int maxY = sourceHeight - cropHeight;
-        const int centerX = static_cast<int>(std::lround((sourceWidth - cropWidth) / 2.0 + panX * sourceWidth));
-        const int centerY = static_cast<int>(std::lround((sourceHeight - cropHeight) / 2.0 + panY * sourceHeight));
+        // mpv's positive pan moves the displayed video rectangle right/down,
+        // which means the visible source window moves left/up. Therefore the
+        // source crop offset uses the opposite sign of video-pan-x/y.
+        const int centerX = static_cast<int>(std::lround((sourceWidth - cropWidth) / 2.0 - panX * sourceWidth));
+        const int centerY = static_cast<int>(std::lround((sourceHeight - cropHeight) / 2.0 - panY * sourceHeight));
         const int cropX = std::clamp(centerX, 0, maxX);
         const int cropY = std::clamp(centerY, 0, maxY);
 
