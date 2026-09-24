@@ -894,9 +894,15 @@ void MainWindow::cutAbSelection() {
     const double zoom = getPropertyDouble("video-zoom");
     const double panX = getPropertyDouble("video-pan-x");
     const double panY = getPropertyDouble("video-pan-y");
-    const int sourceWidth = std::max(0, static_cast<int>(std::lround(getPropertyDouble("video-params/w"))));
-    const int sourceHeight = std::max(0, static_cast<int>(std::lround(getPropertyDouble("video-params/h"))));
-    const int rotation = static_cast<int>(std::lround(getPropertyDouble("video-params/rotate")));
+    int64_t sourceWidth64 = 0;
+    int64_t sourceHeight64 = 0;
+    int64_t rotation64 = 0;
+    const bool haveSourceWidth = mpv_get_property(m_mpv, "video-params/w", MPV_FORMAT_INT64, &sourceWidth64) >= 0;
+    const bool haveSourceHeight = mpv_get_property(m_mpv, "video-params/h", MPV_FORMAT_INT64, &sourceHeight64) >= 0;
+    mpv_get_property(m_mpv, "video-params/rotate", MPV_FORMAT_INT64, &rotation64);
+    const int sourceWidth = haveSourceWidth ? std::max(0, static_cast<int>(sourceWidth64)) : 0;
+    const int sourceHeight = haveSourceHeight ? std::max(0, static_cast<int>(sourceHeight64)) : 0;
+    const int rotation = static_cast<int>(rotation64);
 
     // mpv's video-zoom is logarithmic base 2. A positive zoom means the
     // visible area is a smaller crop of the source. Bake that crop into the
