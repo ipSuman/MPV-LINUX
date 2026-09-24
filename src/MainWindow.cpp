@@ -742,7 +742,6 @@ void MainWindow::playPlaylistIndex(int index, bool promptResume) {
     if (m_mpv) mpv_command_async(m_mpv, 0, args);
     m_promptResumeNextLoad = promptResume;
     m_pendingResumePath = path;
-    m_pendingResumePosition = 0.0;
     m_titleLabel->setText(QFileInfo(path).fileName());
     setWindowTitle(QStringLiteral("%1 — REX Player").arg(QFileInfo(path).fileName()));
 }
@@ -1174,16 +1173,19 @@ void MainWindow::pumpMpvEvents() {
                 const double duration = getPropertyDouble("duration");
                 m_promptResumeNextLoad = false;
                 if (saved >= 5.0 && duration > 0.0 && saved < duration - 5.0) {
-                    const QMessageBox::StandardButton answer = QMessageBox::question(
-                        this,
-                        QStringLiteral("Resume playback?"),
-                        QStringLiteral("This video was previously played at %1.\n\nStart from the beginning or continue from the last played position?")
-                            .arg(formatTime(saved)),
-                        QMessageBox::Yes | QMessageBox::No,
-                        QMessageBox::Yes);
-                    if (answer == QMessageBox::Yes) {
+                    QMessageBox box(QMessageBox::Question,
+                                    QStringLiteral("Resume playback?"),
+                                    QStringLiteral("This video was previously played at %1.\n\nChoose whether to start over or continue from the last played position.")
+                                        .arg(formatTime(saved)),
+                                    QMessageBox::NoButton,
+                                    this);
+                    auto* startOver = box.addButton(QStringLiteral("Start from beginning"), QMessageBox::NoRole);
+                    auto* resume = box.addButton(QStringLiteral("Resume from last position"), QMessageBox::YesRole);
+                    box.setDefaultButton(static_cast<QPushButton*>(resume));
+                    box.exec();
+                    if (box.clickedButton() == resume) {
                         setPropertyDouble("time-pos", saved);
-                    } else {
+                    } else if (box.clickedButton() == startOver) {
                         setPropertyDouble("time-pos", 0.0);
                     }
                 }
