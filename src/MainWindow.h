@@ -101,6 +101,8 @@ private:
     void loadControlSettings();
     void updatePlaybackInhibit(bool active);
     bool keyMatches(QKeyEvent* event, const QKeySequence& sequence) const;
+    QString playbackPositionKey(const QString& path) const;
+    void saveCurrentPlaybackPosition();
 
     mpv_handle* m_mpv = nullptr;
     QTimer m_uiTimer;
