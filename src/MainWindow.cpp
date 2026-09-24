@@ -1139,6 +1139,21 @@ void MainWindow::showTracksMenu() {
     mpv_free_node_contents(&tracks);
 }
 
+QString MainWindow::playbackPositionKey(const QString& path) const {
+    const QByteArray digest = QCryptographicHash::hash(path.toUtf8(), QCryptographicHash::Sha256).toHex();
+    return QStringLiteral("playback/positions/%1").arg(QString::fromLatin1(digest));
+}
+
+void MainWindow::saveCurrentPlaybackPosition() {
+    if (!m_mpv || m_pendingResumePath.isEmpty()) return;
+    const double pos = getPropertyDouble("time-pos");
+    const double duration = getPropertyDouble("duration");
+    if (!std::isfinite(pos) || pos <= 0.5 || duration <= 0.0) return;
+    QSettings settings(QStringLiteral("REX Player"), QStringLiteral("REX Player"));
+    settings.setValue(playbackPositionKey(m_pendingResumePath), pos);
+    settings.sync();
+}
+
 void MainWindow::pumpMpvEvents() {
     // This slot runs on the Qt GUI thread through the queued wakeup signal.
     m_mpvWakeQueued.store(false);
@@ -1146,7 +1161,28 @@ void MainWindow::pumpMpvEvents() {
     while (true) {
         mpv_event* event = mpv_wait_event(m_mpv, 0);
         if (!event || event->event_id == MPV_EVENT_NONE) break;
-        if (event->event_id == MPV_EVENT_END_FILE) {
+        if (event->event_id == MPV_EVENT_FILE_LOADED) {
+            if (m_promptResumeNextLoad && !m_pendingResumePath.isEmpty()) {
+                QSettings settings(QStringLiteral("REX Player"), QStringLiteral("REX Player"));
+                const double saved = settings.value(playbackPositionKey(m_pendingResumePath), 0.0).toDouble();
+                const double duration = getPropertyDouble("duration");
+                m_promptResumeNextLoad = false;
+                if (saved >= 5.0 && duration > 0.0 && saved < duration - 5.0) {
+                    const QMessageBox::StandardButton answer = QMessageBox::question(
+                        this,
+                        QStringLiteral("Resume playback?"),
+                        QStringLiteral("This video was previously played at %1.\n\nStart from the beginning or continue from the last played position?")
+                            .arg(formatTime(saved)),
+                        QMessageBox::Yes | QMessageBox::No,
+                        QMessageBox::Yes);
+                    if (answer == QMessageBox::Yes) {
+                        setPropertyDouble("time-pos", saved);
+                    } else {
+                        setPropertyDouble("time-pos", 0.0);
+                    }
+                }
+            }
+        } else if (event->event_id == MPV_EVENT_END_FILE) {
             auto* end = static_cast<mpv_event_end_file*>(event->data);
             if (end && end->reason == MPV_END_FILE_REASON_EOF) {
                 // Release the display inhibitor immediately at EOF.
@@ -1191,6 +1227,10 @@ void MainWindow::updatePlaybackUi() {
     updatePlayButton(paused != 0);
     updateHardwareButton();
     updatePlaybackInhibit(paused == 0 && !getPropertyString("path").isEmpty());
+    if (m_pendingResumePath == getPropertyString("path") && (QDateTime::currentMSecsSinceEpoch() - m_lastPositionSaveMs) >= 1000) {
+        saveCurrentPlaybackPosition();
+        m_lastPositionSaveMs = QDateTime::currentMSecsSinceEpoch();
+    }
     syncPlaylistSelection();
 }
 
@@ -1684,5 +1724,5 @@ void MainWindow::showDisplayDialog() {
 }
 void MainWindow::setControlsVisible(bool visible) { if (m_controls) m_controls->setVisible(visible); }
 void MainWindow::togglePlaylist() { if (m_playlistDock) m_playlistDock->setVisible(!m_playlistDock->isVisible()); }
-void MainWindow::closeEvent(QCloseEvent* event) { if (m_mpv) { const char* args[] = {"quit", nullptr}; mpv_command(m_mpv, args); } QMainWindow::closeEvent(event); }
+void MainWindow::closeEvent(QCloseEvent* event) { saveCurrentPlaybackPosition(); if (m_mpv) { const char* args[] = {"quit", nullptr}; mpv_command(m_mpv, args); } QMainWindow::closeEvent(event); }
 void MainWindow::showError(const QString& message) { setWindowTitle(QStringLiteral("REX Player — %1").arg(message)); }
