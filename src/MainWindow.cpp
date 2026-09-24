@@ -424,6 +424,9 @@ void MainWindow::loadControlSettings() {
     m_switchSubtitlesKey = QKeySequence(settings.value(QStringLiteral("controls/switchSubtitles"), m_switchSubtitlesKey.toString()).toString());
     m_subtitlePosUpKey = QKeySequence(settings.value(QStringLiteral("controls/subtitlePosUp"), m_subtitlePosUpKey.toString()).toString());
     m_subtitlePosDownKey = QKeySequence(settings.value(QStringLiteral("controls/subtitlePosDown"), m_subtitlePosDownKey.toString()).toString());
+    m_subtitleSizeUpKey = QKeySequence(settings.value(QStringLiteral("controls/subtitleSizeUp"), m_subtitleSizeUpKey.toString()).toString());
+    m_subtitleSizeDownKey = QKeySequence(settings.value(QStringLiteral("controls/subtitleSizeDown"), m_subtitleSizeDownKey.toString()).toString());
+    m_cutWithZoom = settings.value(QStringLiteral("controls/cutWithZoom"), false).toBool();
     m_saturation = std::clamp(settings.value(QStringLiteral("display/saturation"), m_saturation).toInt(), -100, 100);
     m_brightness = std::clamp(settings.value(QStringLiteral("display/brightness"), m_brightness).toInt(), -100, 100);
     m_contrast = std::clamp(settings.value(QStringLiteral("display/contrast"), m_contrast).toInt(), -100, 100);
@@ -485,6 +488,17 @@ void MainWindow::showControlsDialog() {
     });
     form->addRow(QStringLiteral("Timer position"), timerPositionButton);
 
+    auto* cutWithZoomButton = new QPushButton(
+        m_cutWithZoom ? QStringLiteral("Cut with zoom: On") : QStringLiteral("Cut with zoom: Off"),
+        &dialog);
+    cutWithZoomButton->setCheckable(true);
+    cutWithZoomButton->setChecked(m_cutWithZoom);
+    cutWithZoomButton->setToolTip(QStringLiteral("When enabled, Cut AB bakes the current video zoom and pan into the exported video. This requires video re-encoding; audio and subtitles are copied when possible."));
+    connect(cutWithZoomButton, &QPushButton::toggled, &dialog, [cutWithZoomButton](bool checked) {
+        cutWithZoomButton->setText(checked ? QStringLiteral("Cut with zoom: On") : QStringLiteral("Cut with zoom: Off"));
+    });
+    form->addRow(QStringLiteral("A-B cutting"), cutWithZoomButton);
+
     auto* doubleClickButton = new QComboBox(&dialog);
     doubleClickButton->addItem(QStringLiteral("Left button"), static_cast<int>(Qt::LeftButton));
     doubleClickButton->addItem(QStringLiteral("Middle button"), static_cast<int>(Qt::MiddleButton));
@@ -514,7 +528,9 @@ void MainWindow::showControlsDialog() {
     auto* switchSubtitles = new QKeySequenceEdit(m_switchSubtitlesKey, &dialog);
     auto* subtitlePosUp = new QKeySequenceEdit(m_subtitlePosUpKey, &dialog);
     auto* subtitlePosDown = new QKeySequenceEdit(m_subtitlePosDownKey, &dialog);
-    const QList<QKeySequenceEdit*> edits = {volumeUp, volumeDown, mute, seekBack, seekForward, loopA, loopB, loopClear, zoomIn, zoomOut, zoomReset, frameBack, frameForward, switchSubtitles, subtitlePosUp, subtitlePosDown};
+    auto* subtitleSizeUp = new QKeySequenceEdit(m_subtitleSizeUpKey, &dialog);
+    auto* subtitleSizeDown = new QKeySequenceEdit(m_subtitleSizeDownKey, &dialog);
+    const QList<QKeySequenceEdit*> edits = {volumeUp, volumeDown, mute, seekBack, seekForward, loopA, loopB, loopClear, zoomIn, zoomOut, zoomReset, frameBack, frameForward, switchSubtitles, subtitlePosUp, subtitlePosDown, subtitleSizeUp, subtitleSizeDown};
     for (auto* edit : edits) edit->setClearButtonEnabled(false);
 
     auto addShortcut = [&keyForm, &dialog](const QString& label, QKeySequenceEdit* edit) {
@@ -550,11 +566,11 @@ void MainWindow::showControlsDialog() {
     addShortcut(QStringLiteral("S → Switch subtitles"), switchSubtitles);
     addShortcut(QStringLiteral("Ctrl + Up → Lift subtitles upward"), subtitlePosUp);
     addShortcut(QStringLiteral("Ctrl + Down → Lift subtitles downward"), subtitlePosDown);
-    keyForm->addRow(QStringLiteral("Shift + I → Increase subtitle text size"), new QLabel(QStringLiteral("Fixed shortcut"), &dialog));
-    keyForm->addRow(QStringLiteral("I → Decrease subtitle text size"), new QLabel(QStringLiteral("Fixed shortcut"), &dialog));
+    addShortcut(QStringLiteral("Shift + I → Increase subtitle text size"), subtitleSizeUp);
+    addShortcut(QStringLiteral("I → Decrease subtitle text size"), subtitleSizeDown);
     contentLayout->addLayout(keyForm);
 
-    auto* note = new QLabel(QStringLiteral("Seek duration applies to the arrow keys, wheel seek and double-click seek zones. Choose 5, 10 or 30 seconds, or a value from 1 to 120 minutes. The −10s and +10s buttons always seek exactly 10 seconds. Changes are saved for the next launch. Clear a shortcut to disable it."), &dialog);
+    auto* note = new QLabel(QStringLiteral("Seek duration applies to the arrow keys, wheel seek and double-click seek zones. Choose 5, 10 or 30 seconds, or a value from 1 to 120 minutes. The −10s and +10s buttons always seek exactly 10 seconds. Changes are saved for the next launch. Clear a shortcut to disable it. Cut with zoom bakes positive video zoom/pan into the A-B output and therefore re-encodes the video."), &dialog);
     note->setWordWrap(true);
     contentLayout->addWidget(note);
     content->setLayout(contentLayout);
@@ -589,6 +605,11 @@ void MainWindow::showControlsDialog() {
         frameBack->setKeySequence(QKeySequence(Qt::Key_Comma));
         frameForward->setKeySequence(QKeySequence(Qt::Key_Period));
         switchSubtitles->setKeySequence(QKeySequence(Qt::Key_S));
+        subtitlePosUp->setKeySequence(QKeySequence(Qt::ControlModifier | Qt::Key_Up));
+        subtitlePosDown->setKeySequence(QKeySequence(Qt::ControlModifier | Qt::Key_Down));
+        subtitleSizeUp->setKeySequence(QKeySequence(Qt::SHIFT | Qt::Key_I));
+        subtitleSizeDown->setKeySequence(QKeySequence(Qt::Key_I));
+        cutWithZoomButton->setChecked(false);
     });
 
     connect(buttons, &QDialogButtonBox::accepted, &dialog, [&] {
@@ -624,6 +645,9 @@ void MainWindow::showControlsDialog() {
         m_switchSubtitlesKey = switchSubtitles->keySequence();
         m_subtitlePosUpKey = subtitlePosUp->keySequence();
         m_subtitlePosDownKey = subtitlePosDown->keySequence();
+        m_subtitleSizeUpKey = subtitleSizeUp->keySequence();
+        m_subtitleSizeDownKey = subtitleSizeDown->keySequence();
+        m_cutWithZoom = cutWithZoomButton->isChecked();
 
         QSettings settings(QStringLiteral("REX Player"), QStringLiteral("REX Player"));
         settings.setValue(QStringLiteral("controls/seekDurationSeconds"), m_seekDurationSeconds);
@@ -649,6 +673,9 @@ void MainWindow::showControlsDialog() {
         settings.setValue(QStringLiteral("controls/switchSubtitles"), m_switchSubtitlesKey.toString());
         settings.setValue(QStringLiteral("controls/subtitlePosUp"), m_subtitlePosUpKey.toString());
         settings.setValue(QStringLiteral("controls/subtitlePosDown"), m_subtitlePosDownKey.toString());
+        settings.setValue(QStringLiteral("controls/subtitleSizeUp"), m_subtitleSizeUpKey.toString());
+        settings.setValue(QStringLiteral("controls/subtitleSizeDown"), m_subtitleSizeDownKey.toString());
+        settings.setValue(QStringLiteral("controls/cutWithZoom"), m_cutWithZoom);
         settings.sync();
         updateSeekButtonLabels();
         dialog.accept();
@@ -843,7 +870,7 @@ void MainWindow::cutAbSelection() {
         if (success) {
             QMessageBox::information(
                 this, QStringLiteral("A-B cut complete"),
-                QStringLiteral("Saved:\n%1\n\nStreams were copied without re-encoding. Because this is stream-copy cutting, the start may align to a nearby keyframe.").arg(output));
+                QStringLiteral("Saved:\n%1\n\n%2").arg(output, m_cutWithZoom && getPropertyDouble("video-zoom") > 0.0001 ? QStringLiteral("The current zoom/pan was baked into the video, so the video was re-encoded; audio/subtitles were copied when supported.") : QStringLiteral("Streams were copied without re-encoding. Because this is stream-copy cutting, the start may align to a nearby keyframe.")));
         } else {
             if (QFileInfo::exists(output)) QFile::remove(output);
             const QString detail = error.isEmpty() ? QStringLiteral("FFmpeg exited with code %1.").arg(exitCode) : error;
@@ -855,17 +882,61 @@ void MainWindow::cutAbSelection() {
         m_cutOutputPath.clear();
     });
 
-    const QStringList args = {
+    QStringList args = {
         QStringLiteral("-hide_banner"),
         QStringLiteral("-loglevel"), QStringLiteral("error"),
         QStringLiteral("-ss"), start,
         QStringLiteral("-i"), inputPath,
         QStringLiteral("-t"), length,
         QStringLiteral("-map"), QStringLiteral("0"),
-        QStringLiteral("-c"), QStringLiteral("copy"),
-        QStringLiteral("-avoid_negative_ts"), QStringLiteral("make_zero"),
-        QStringLiteral("-y"), outputPath
     };
+
+    const double zoom = getPropertyDouble("video-zoom");
+    const double panX = getPropertyDouble("video-pan-x");
+    const double panY = getPropertyDouble("video-pan-y");
+    const int sourceWidth = std::max(0, static_cast<int>(std::lround(getPropertyDouble("video-params/w"))));
+    const int sourceHeight = std::max(0, static_cast<int>(std::lround(getPropertyDouble("video-params/h"))));
+    const int rotation = static_cast<int>(std::lround(getPropertyDouble("video-params/rotate")));
+
+    // mpv's video-zoom is logarithmic base 2. A positive zoom means the
+    // visible area is a smaller crop of the source. Bake that crop into the
+    // exported file. Pan is expressed as a fraction of the scaled video size,
+    // so it maps directly to a source-pixel displacement before clamping.
+    const double zoomFactor = std::pow(2.0, std::max(0.0, zoom));
+    const bool canBakeZoom = m_cutWithZoom && sourceWidth > 0 && sourceHeight > 0 &&
+                             zoom > 0.0001 && (rotation % 180) == 0;
+
+    if (canBakeZoom) {
+        const int cropWidth = std::max(2, std::min(sourceWidth,
+            static_cast<int>(std::floor(sourceWidth / zoomFactor / 2.0) * 2.0)));
+        const int cropHeight = std::max(2, std::min(sourceHeight,
+            static_cast<int>(std::floor(sourceHeight / zoomFactor / 2.0) * 2.0)));
+        const int maxX = sourceWidth - cropWidth;
+        const int maxY = sourceHeight - cropHeight;
+        const int centerX = static_cast<int>(std::lround((sourceWidth - cropWidth) / 2.0 + panX * sourceWidth));
+        const int centerY = static_cast<int>(std::lround((sourceHeight - cropHeight) / 2.0 + panY * sourceHeight));
+        const int cropX = std::clamp(centerX, 0, maxX);
+        const int cropY = std::clamp(centerY, 0, maxY);
+
+        const QString crop = QStringLiteral("crop=%1:%2:%3:%4")
+            .arg(cropWidth).arg(cropHeight).arg(cropX).arg(cropY);
+        args << QStringLiteral("-vf") << crop
+             << QStringLiteral("-c:v") << QStringLiteral("libx264")
+             << QStringLiteral("-preset") << QStringLiteral("medium")
+             << QStringLiteral("-crf") << QStringLiteral("18")
+             << QStringLiteral("-c:a") << QStringLiteral("copy")
+             << QStringLiteral("-c:s") << QStringLiteral("copy")
+             << QStringLiteral("-c:d") << QStringLiteral("copy");
+    } else {
+        // At zero/negative zoom there is no zoom crop to bake. Keep the
+        // original fast stream-copy path. Positive zoom with an unsupported
+        // rotation is also left untouched rather than producing a misleading crop.
+        args << QStringLiteral("-c") << QStringLiteral("copy");
+    }
+
+    args << QStringLiteral("-avoid_negative_ts") << QStringLiteral("make_zero")
+         << QStringLiteral("-y") << outputPath;
+
     m_cutProcess->start(ffmpeg, args);
 }
 
@@ -1378,8 +1449,8 @@ void MainWindow::keyPressEvent(QKeyEvent* event) {
         event->accept();
         return;
     }
-    if (event->key() == Qt::Key_I && event->modifiers() == Qt::ShiftModifier) { increaseSubtitleSize(); event->accept(); return; }
-    if (event->key() == Qt::Key_I && event->modifiers() == Qt::NoModifier) { decreaseSubtitleSize(); event->accept(); return; }
+    if (keyMatches(event, m_subtitleSizeUpKey)) { increaseSubtitleSize(); event->accept(); return; }
+    if (keyMatches(event, m_subtitleSizeDownKey)) { decreaseSubtitleSize(); event->accept(); return; }
     if (keyMatches(event, m_volumeUpKey)) { volumeUp(); event->accept(); return; }
     if (keyMatches(event, m_volumeDownKey)) { volumeDown(); event->accept(); return; }
     if (keyMatches(event, m_muteKey)) { toggleMute(); event->accept(); return; }
