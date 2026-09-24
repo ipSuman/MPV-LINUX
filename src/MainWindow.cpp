@@ -432,6 +432,7 @@ void MainWindow::loadControlSettings() {
     m_subtitlePosDownKey = QKeySequence(settings.value(QStringLiteral("controls/subtitlePosDown"), m_subtitlePosDownKey.toString()).toString());
     m_subtitleSizeUpKey = QKeySequence(settings.value(QStringLiteral("controls/subtitleSizeUp"), m_subtitleSizeUpKey.toString()).toString());
     m_subtitleSizeDownKey = QKeySequence(settings.value(QStringLiteral("controls/subtitleSizeDown"), m_subtitleSizeDownKey.toString()).toString());
+    m_captureScreenshotKey = QKeySequence(settings.value(QStringLiteral("controls/captureScreenshot"), m_captureScreenshotKey.toString()).toString());
     m_cutWithZoom = settings.value(QStringLiteral("controls/cutWithZoom"), false).toBool();
     m_saturation = std::clamp(settings.value(QStringLiteral("display/saturation"), m_saturation).toInt(), -100, 100);
     m_brightness = std::clamp(settings.value(QStringLiteral("display/brightness"), m_brightness).toInt(), -100, 100);
@@ -536,7 +537,8 @@ void MainWindow::showControlsDialog() {
     auto* subtitlePosDown = new QKeySequenceEdit(m_subtitlePosDownKey, &dialog);
     auto* subtitleSizeUp = new QKeySequenceEdit(m_subtitleSizeUpKey, &dialog);
     auto* subtitleSizeDown = new QKeySequenceEdit(m_subtitleSizeDownKey, &dialog);
-    const QList<QKeySequenceEdit*> edits = {volumeUp, volumeDown, mute, seekBack, seekForward, loopA, loopB, loopClear, zoomIn, zoomOut, zoomReset, frameBack, frameForward, switchSubtitles, subtitlePosUp, subtitlePosDown, subtitleSizeUp, subtitleSizeDown};
+    auto* captureScreenshot = new QKeySequenceEdit(m_captureScreenshotKey, &dialog);
+    const QList<QKeySequenceEdit*> edits = {volumeUp, volumeDown, mute, seekBack, seekForward, loopA, loopB, loopClear, zoomIn, zoomOut, zoomReset, frameBack, frameForward, switchSubtitles, subtitlePosUp, subtitlePosDown, subtitleSizeUp, subtitleSizeDown, captureScreenshot};
     for (auto* edit : edits) edit->setClearButtonEnabled(false);
 
     auto addShortcut = [&keyForm, &dialog](const QString& label, QKeySequenceEdit* edit) {
@@ -574,6 +576,7 @@ void MainWindow::showControlsDialog() {
     addShortcut(QStringLiteral("Ctrl + Down → Lift subtitles downward"), subtitlePosDown);
     addShortcut(QStringLiteral("Shift + I → Increase subtitle text size"), subtitleSizeUp);
     addShortcut(QStringLiteral("I → Decrease subtitle text size"), subtitleSizeDown);
+    addShortcut(QStringLiteral("C → Capture screenshot"), captureScreenshot);
     contentLayout->addLayout(keyForm);
 
     auto* note = new QLabel(QStringLiteral("Seek duration applies to the arrow keys, wheel seek and double-click seek zones. Choose 5, 10 or 30 seconds, or a value from 1 to 120 minutes. The −10s and +10s buttons always seek exactly 10 seconds. Changes are saved for the next launch. Clear a shortcut to disable it. Cut with zoom bakes positive video zoom/pan into the A-B output and therefore re-encodes the video."), &dialog);
@@ -615,6 +618,7 @@ void MainWindow::showControlsDialog() {
         subtitlePosDown->setKeySequence(QKeySequence(Qt::ControlModifier | Qt::Key_Down));
         subtitleSizeUp->setKeySequence(QKeySequence(Qt::SHIFT | Qt::Key_I));
         subtitleSizeDown->setKeySequence(QKeySequence(Qt::Key_I));
+        captureScreenshot->setKeySequence(QKeySequence(Qt::Key_C));
         cutWithZoomButton->setChecked(false);
     });
 
@@ -653,6 +657,7 @@ void MainWindow::showControlsDialog() {
         m_subtitlePosDownKey = subtitlePosDown->keySequence();
         m_subtitleSizeUpKey = subtitleSizeUp->keySequence();
         m_subtitleSizeDownKey = subtitleSizeDown->keySequence();
+        m_captureScreenshotKey = captureScreenshot->keySequence();
         m_cutWithZoom = cutWithZoomButton->isChecked();
 
         QSettings settings(QStringLiteral("REX Player"), QStringLiteral("REX Player"));
@@ -681,6 +686,7 @@ void MainWindow::showControlsDialog() {
         settings.setValue(QStringLiteral("controls/subtitlePosDown"), m_subtitlePosDownKey.toString());
         settings.setValue(QStringLiteral("controls/subtitleSizeUp"), m_subtitleSizeUpKey.toString());
         settings.setValue(QStringLiteral("controls/subtitleSizeDown"), m_subtitleSizeDownKey.toString());
+        settings.setValue(QStringLiteral("controls/captureScreenshot"), m_captureScreenshotKey.toString());
         settings.setValue(QStringLiteral("controls/cutWithZoom"), m_cutWithZoom);
         settings.sync();
         updateSeekButtonLabels();
@@ -1472,6 +1478,7 @@ void MainWindow::keyPressEvent(QKeyEvent* event) {
     }
     if (keyMatches(event, m_subtitleSizeUpKey)) { increaseSubtitleSize(); event->accept(); return; }
     if (keyMatches(event, m_subtitleSizeDownKey)) { decreaseSubtitleSize(); event->accept(); return; }
+    if (keyMatches(event, m_captureScreenshotKey)) { captureScreenshot(); event->accept(); return; }
     if (keyMatches(event, m_volumeUpKey)) { volumeUp(); event->accept(); return; }
     if (keyMatches(event, m_volumeDownKey)) { volumeDown(); event->accept(); return; }
     if (keyMatches(event, m_muteKey)) { toggleMute(); event->accept(); return; }
