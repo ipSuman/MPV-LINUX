@@ -731,7 +731,11 @@ bool MainWindow::initializeMpv() {
         mpv_set_option_string(m_mpv, "input-vo-keyboard", "no") < 0 ||
         mpv_set_option_string(m_mpv, "input-cursor-passthrough", "yes") < 0 ||
         mpv_set_option_string(m_mpv, "stop-screensaver", "yes") < 0 ||
-        mpv_set_option_string(m_mpv, "panscan", "1.0") < 0) {
+        // Keep the video edge-to-edge in the available viewport while
+        // preserving its native/container aspect ratio. Panscan=1 would
+        // deliberately crop the image to fill the viewport.
+        mpv_set_option_string(m_mpv, "panscan", "0.0") < 0 ||
+        mpv_set_option_string(m_mpv, "keepaspect", "yes") < 0) {
         showError(QStringLiteral("Could not configure libmpv.")); return false;
     }
     if (mpv_initialize(m_mpv) < 0) {
