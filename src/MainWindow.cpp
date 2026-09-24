@@ -470,11 +470,16 @@ void MainWindow::showControlsDialog() {
 
     form->addRow(QStringLiteral("Alt + Ctrl + drag → Pan"), new QLabel(QStringLiteral("Hold Alt + Ctrl and drag with the left mouse button"), &dialog));
 
-    auto* timerPosition = new QComboBox(&dialog);
-    timerPosition->addItem(QStringLiteral("Beside playback controls"), false);
-    timerPosition->addItem(QStringLiteral("Beside progress bar"), true);
-    selectData(timerPosition, m_timerBesideProgress);
-    form->addRow(QStringLiteral("Timer position"), timerPosition);
+    auto* timerPositionButton = new QPushButton(
+        m_timerBesideProgress ? QStringLiteral("Timer: Progress bar") : QStringLiteral("Timer: Controls"),
+        &dialog);
+    timerPositionButton->setCheckable(true);
+    timerPositionButton->setChecked(m_timerBesideProgress);
+    timerPositionButton->setToolTip(QStringLiteral("Switch the timer between the playback controls and the progress bar."));
+    connect(timerPositionButton, &QPushButton::toggled, &dialog, [timerPositionButton](bool checked) {
+        timerPositionButton->setText(checked ? QStringLiteral("Timer: Progress bar") : QStringLiteral("Timer: Controls"));
+    });
+    form->addRow(QStringLiteral("Timer position"), timerPositionButton);
 
     auto* doubleClickButton = new QComboBox(&dialog);
     doubleClickButton->addItem(QStringLiteral("Left button"), static_cast<int>(Qt::LeftButton));
@@ -564,7 +569,7 @@ void MainWindow::showControlsDialog() {
         selectData(seekWheel, QStringLiteral("wheel"));
         selectData(zoomWheel, QStringLiteral("alt-wheel"));
         selectData(volumeWheel, QStringLiteral("ctrl-wheel"));
-        selectData(timerPosition, false);
+        timerPositionButton->setChecked(false);
         selectData(doubleClickButton, static_cast<int>(Qt::LeftButton));
         volumeUp->setKeySequence(QKeySequence(Qt::SHIFT | Qt::Key_V));
         volumeDown->setKeySequence(QKeySequence(Qt::Key_V));
@@ -597,7 +602,7 @@ void MainWindow::showControlsDialog() {
         m_seekWheelMode = seekWheel->currentData().toString();
         m_zoomWheelMode = zoomWheel->currentData().toString();
         m_volumeWheelMode = volumeWheel->currentData().toString();
-        m_timerBesideProgress = timerPosition->currentData().toBool();
+        m_timerBesideProgress = timerPositionButton->isChecked();
         m_doubleClickButton = static_cast<Qt::MouseButton>(doubleClickButton->currentData().toInt());
         m_volumeUpKey = volumeUp->keySequence();
         m_volumeDownKey = volumeDown->keySequence();
@@ -726,6 +731,7 @@ void MainWindow::addToPlaylist(const QString& path) {
 
 void MainWindow::playPlaylistIndex(int index, bool promptResume) {
     if (!m_playlist || index < 0 || index >= m_playlist->count()) return;
+    saveCurrentPlaybackPosition();
     auto* item = m_playlist->item(index);
     const QString path = item->data(Qt::UserRole).toString();
     if (path.isEmpty() || !QFileInfo::exists(path)) return;
