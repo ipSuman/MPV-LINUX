@@ -1904,6 +1904,9 @@ void MainWindow::captureScreenshot() {
         return;
     }
 
+    const QString videoTitle = windowTitle();
+    const QString videoPath = getPropertyString("path");
+
     const char* screenshotArgs[] = {"screenshot", nullptr};
     if (mpv_command(m_mpv, screenshotArgs) < 0) {
         showError(QStringLiteral("REX Player — Screenshot failed"));
@@ -1911,6 +1914,14 @@ void MainWindow::captureScreenshot() {
     }
 
     showError(QStringLiteral("REX Player — Screenshot captured"));
+
+    // Keep the capture confirmation visible briefly, then restore the title
+    // of the video that was playing when the screenshot was taken. Guard the
+    // delayed restore so it cannot overwrite the title of a newly loaded video.
+    QTimer::singleShot(2000, this, [this, videoTitle, videoPath] {
+        if (!m_mpv || getPropertyString("path") != videoPath) return;
+        setWindowTitle(videoTitle);
+    });
 }
 
 void MainWindow::showDisplayDialog() {
