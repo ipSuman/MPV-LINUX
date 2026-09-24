@@ -99,6 +99,7 @@ private:
     QString formatTime(double seconds) const;
     void setControlsVisible(bool visible);
     void toggleFullscreen();
+    void resizeWindowForVideoAspect();
     void showDisplayDialog();
     void captureScreenshot();
     void loadControlSettings();
