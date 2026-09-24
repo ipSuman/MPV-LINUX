@@ -470,6 +470,12 @@ void MainWindow::showControlsDialog() {
 
     form->addRow(QStringLiteral("Alt + Ctrl + drag → Pan"), new QLabel(QStringLiteral("Hold Alt + Ctrl and drag with the left mouse button"), &dialog));
 
+    auto* timerPosition = new QComboBox(&dialog);
+    timerPosition->addItem(QStringLiteral("Beside playback controls"), false);
+    timerPosition->addItem(QStringLiteral("Beside progress bar"), true);
+    selectData(timerPosition, m_timerBesideProgress);
+    form->addRow(QStringLiteral("Timer position"), timerPosition);
+
     auto* doubleClickButton = new QComboBox(&dialog);
     doubleClickButton->addItem(QStringLiteral("Left button"), static_cast<int>(Qt::LeftButton));
     doubleClickButton->addItem(QStringLiteral("Middle button"), static_cast<int>(Qt::MiddleButton));
@@ -558,6 +564,7 @@ void MainWindow::showControlsDialog() {
         selectData(seekWheel, QStringLiteral("wheel"));
         selectData(zoomWheel, QStringLiteral("alt-wheel"));
         selectData(volumeWheel, QStringLiteral("ctrl-wheel"));
+        selectData(timerPosition, false);
         selectData(doubleClickButton, static_cast<int>(Qt::LeftButton));
         volumeUp->setKeySequence(QKeySequence(Qt::SHIFT | Qt::Key_V));
         volumeDown->setKeySequence(QKeySequence(Qt::Key_V));
@@ -590,6 +597,7 @@ void MainWindow::showControlsDialog() {
         m_seekWheelMode = seekWheel->currentData().toString();
         m_zoomWheelMode = zoomWheel->currentData().toString();
         m_volumeWheelMode = volumeWheel->currentData().toString();
+        m_timerBesideProgress = timerPosition->currentData().toBool();
         m_doubleClickButton = static_cast<Qt::MouseButton>(doubleClickButton->currentData().toInt());
         m_volumeUpKey = volumeUp->keySequence();
         m_volumeDownKey = volumeDown->keySequence();
@@ -613,6 +621,7 @@ void MainWindow::showControlsDialog() {
         settings.setValue(QStringLiteral("controls/seekWheel"), m_seekWheelMode);
         settings.setValue(QStringLiteral("controls/zoomWheel"), m_zoomWheelMode);
         settings.setValue(QStringLiteral("controls/volumeWheel"), m_volumeWheelMode);
+        settings.setValue(QStringLiteral("controls/timerBesideProgress"), m_timerBesideProgress);
         settings.setValue(QStringLiteral("controls/panButton"), static_cast<int>(m_panButton));
         settings.setValue(QStringLiteral("controls/doubleClickButton"), static_cast<int>(m_doubleClickButton));
         settings.setValue(QStringLiteral("controls/volumeUp"), m_volumeUpKey.toString());
