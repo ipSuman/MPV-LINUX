@@ -18,6 +18,7 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QFormLayout>
+#include <QGuiApplication>
 #include <QHBoxLayout>
 #include <QKeyEvent>
 #include <QKeySequenceEdit>
@@ -39,6 +40,7 @@
 #include <QStyleOptionSlider>
 #include <QUrl>
 #include <QSettings>
+#include <QScreen>
 #include <QScrollArea>
 #include <QShortcut>
 #include <QSlider>
@@ -735,7 +737,8 @@ bool MainWindow::initializeMpv() {
         // preserving its native/container aspect ratio. Panscan=1 would
         // deliberately crop the image to fill the viewport.
         mpv_set_option_string(m_mpv, "panscan", "0.0") < 0 ||
-        mpv_set_option_string(m_mpv, "keepaspect", "yes") < 0) {
+        mpv_set_option_string(m_mpv, "keepaspect", "yes") < 0 ||
+        mpv_set_option_string(m_mpv, "keepaspect-window", "yes") < 0) {
         showError(QStringLiteral("Could not configure libmpv.")); return false;
     }
     if (mpv_initialize(m_mpv) < 0) {
@@ -1275,6 +1278,14 @@ void MainWindow::pumpMpvEvents() {
         mpv_event* event = mpv_wait_event(m_mpv, 0);
         if (!event || event->event_id == MPV_EVENT_NONE) break;
         if (event->event_id == MPV_EVENT_FILE_LOADED) {
+            // The video viewport is embedded in the Qt window, so mpv cannot
+            // resize the parent window itself. Resize the normal window here
+            // using mpv's actual display dimensions. This makes the windowed
+            // video area match the video aspect ratio exactly, allowing the
+            // edge-to-edge viewport to fill without cropping or distortion.
+            if (!isFullScreen() && !isMaximized()) {
+                QTimer::singleShot(0, this, &MainWindow::resizeWindowForVideoAspect);
+            }
             if (m_promptResumeNextLoad && !m_pendingResumePath.isEmpty()) {
                 QSettings settings(QStringLiteral("REX Player"), QStringLiteral("REX Player"));
                 const double saved = settings.value(playbackPositionKey(m_pendingResumePath), 0.0).toDouble();
@@ -1797,6 +1808,72 @@ void MainWindow::toggleFullscreen() {
                                  m_rootWidget->width(), m_controls->sizeHint().height());
         m_controls->raise();
     }
+}
+
+void MainWindow::resizeWindowForVideoAspect() {
+    if (!m_mpv || isFullScreen() || isMaximized() || isMinimized() || !m_videoWidget) return;
+
+    int64_t displayWidth = 0;
+    int64_t displayHeight = 0;
+
+    // Use mpv's display dimensions first. Unlike raw coded dimensions, these
+    // already account for the video's display aspect ratio (including
+    // non-square pixels and rotation handled by mpv).
+    const bool haveDisplayWidth =
+        mpv_get_property(m_mpv, "video-out-params/dw", MPV_FORMAT_INT64, &displayWidth) >= 0;
+    const bool haveDisplayHeight =
+        mpv_get_property(m_mpv, "video-out-params/dh", MPV_FORMAT_INT64, &displayHeight) >= 0;
+
+    if (!haveDisplayWidth || !haveDisplayHeight || displayWidth <= 0 || displayHeight <= 0) {
+        mpv_get_property(m_mpv, "video-params/w", MPV_FORMAT_INT64, &displayWidth);
+        mpv_get_property(m_mpv, "video-params/h", MPV_FORMAT_INT64, &displayHeight);
+    }
+
+    if (displayWidth <= 0 || displayHeight <= 0) return;
+
+    const double aspect = static_cast<double>(displayWidth) /
+                          static_cast<double>(displayHeight);
+    if (!std::isfinite(aspect) || aspect <= 0.0) return;
+
+    QScreen* currentScreen = screen();
+    if (!currentScreen) currentScreen = QGuiApplication::primaryScreen();
+    if (!currentScreen) return;
+
+    const QRect available = currentScreen->availableGeometry();
+    const int screenMargin = 32;
+    const int controlsHeight = m_controls ? m_controls->sizeHint().height() : 0;
+    const int maxVideoWidth = std::max(320, available.width() - screenMargin * 2);
+    const int maxVideoHeight = std::max(180, available.height() - controlsHeight - screenMargin * 2);
+
+    // Keep the current window width as the preferred viewing size, but never
+    // allow the automatically chosen size to exceed the available screen.
+    const int preferredWidth = std::clamp(m_videoWidget->width(), 640, 1400);
+    int videoWidth = std::min(preferredWidth, maxVideoWidth);
+    int videoHeight = static_cast<int>(std::lround(videoWidth / aspect));
+
+    // Portrait/tall videos need to be reduced to fit above the controls.
+    if (videoHeight > maxVideoHeight) {
+        videoHeight = maxVideoHeight;
+        videoWidth = static_cast<int>(std::lround(videoHeight * aspect));
+    }
+
+    videoWidth = std::clamp(videoWidth, 320, maxVideoWidth);
+    videoHeight = std::clamp(
+        static_cast<int>(std::lround(videoWidth / aspect)),
+        180,
+        maxVideoHeight);
+
+    // Recalculate once after clamping so the video viewport itself keeps the
+    // exact display aspect ratio. The controls are outside that viewport.
+    videoWidth = std::min(
+        videoWidth,
+        static_cast<int>(std::lround(videoHeight * aspect)));
+    videoHeight = static_cast<int>(std::lround(videoWidth / aspect));
+
+    const int targetHeight = videoHeight + controlsHeight;
+    if (targetHeight <= 0 || videoWidth <= 0) return;
+
+    resize(videoWidth, targetHeight);
 }
 
 void MainWindow::captureScreenshot() {
