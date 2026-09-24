@@ -47,7 +47,7 @@ jobs:
           chmod 755 "$PKGROOT/usr/bin/rex-player" "$PKGROOT/usr/bin/rex-player-bin"
           cat > "$PKGROOT/DEBIAN/control" <<'EOF'
           Package: mpv-linux
-          Version: 1.0.0
+          Version: 2.1.0
           Section: video
           Priority: optional
           Architecture: amd64
@@ -56,7 +56,7 @@ jobs:
            A native desktop media player frontend around libmpv.
           Depends: libqt6widgets6, libmpv2, ffmpeg
           EOF
-          dpkg-deb --build --root-owner-group "$PKGROOT" dist/mpv-linux_1.0.0_amd64.deb
+          dpkg-deb --build --root-owner-group "$PKGROOT" dist/mpv-linux_2.1.0_amd64.deb
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -64,5 +64,5 @@ jobs:
           name: mpv-linux-installers
           path: |
             mpv-linux.tar.gz
-            dist/mpv-linux_1.0.0_amd64.deb
+            dist/mpv-linux_2.1.0_amd64.deb
           retention-days: 30
