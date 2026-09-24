@@ -308,6 +308,11 @@ void MainWindow::buildUi() {
     displayButton->setToolTip(QStringLiteral("Adjust brightness, contrast and saturation"));
     connect(displayButton, &QPushButton::clicked, this, &MainWindow::showDisplayDialog);
     row->addWidget(displayButton);
+
+    auto* captureButton = new QPushButton(QStringLiteral("Capture"), m_controls);
+    captureButton->setToolTip(QStringLiteral("Save the current video frame as a screenshot"));
+    connect(captureButton, &QPushButton::clicked, this, &MainWindow::captureScreenshot);
+    row->addWidget(captureButton);
     row->addStretch();
     row->addWidget(new QLabel(QStringLiteral("Volume"), m_controls));
     m_volumeSlider = new QSlider(Qt::Horizontal, m_controls);
@@ -1781,6 +1786,43 @@ void MainWindow::toggleFullscreen() {
                                  m_rootWidget->width(), m_controls->sizeHint().height());
         m_controls->raise();
     }
+}
+
+void MainWindow::captureScreenshot() {
+    if (!m_mpv || getPropertyString("filename").isEmpty()) {
+        showError(QStringLiteral("REX Player — No video is currently loaded"));
+        return;
+    }
+
+    const QString picturesPath = QStandardPaths::writableLocation(QStandardPaths::PicturesLocation);
+    if (picturesPath.isEmpty()) {
+        showError(QStringLiteral("REX Player — Could not locate the Pictures folder"));
+        return;
+    }
+
+    const QString screenshotDir = QDir(picturesPath).filePath(QStringLiteral("REX Player"));
+    if (!QDir().mkpath(screenshotDir)) {
+        showError(QStringLiteral("REX Player — Could not create the screenshot folder"));
+        return;
+    }
+
+    // mpv's screenshot command captures the currently rendered video frame,
+    // including the active video presentation and subtitles. Use a unique
+    // template so existing screenshots are never overwritten.
+    const QByteArray dirUtf8 = QDir::toNativeSeparators(screenshotDir).toUtf8();
+    const char* setDirArgs[] = {"set", "screenshot-dir", dirUtf8.constData(), nullptr};
+    if (mpv_command(m_mpv, setDirArgs) < 0) {
+        showError(QStringLiteral("REX Player — Could not configure screenshot folder"));
+        return;
+    }
+
+    const char* screenshotArgs[] = {"screenshot", nullptr};
+    if (mpv_command(m_mpv, screenshotArgs) < 0) {
+        showError(QStringLiteral("REX Player — Screenshot failed"));
+        return;
+    }
+
+    showError(QStringLiteral("REX Player — Screenshot captured"));
 }
 
 void MainWindow::showDisplayDialog() {
