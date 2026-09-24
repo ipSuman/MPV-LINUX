@@ -100,6 +100,7 @@ private:
     void setControlsVisible(bool visible);
     void toggleFullscreen();
     void showDisplayDialog();
+    void captureScreenshot();
     void loadControlSettings();
     void updatePlaybackInhibit(bool active);
     bool keyMatches(QKeyEvent* event, const QKeySequence& sequence) const;
