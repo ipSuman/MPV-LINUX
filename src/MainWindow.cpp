@@ -1760,5 +1760,15 @@ void MainWindow::showDisplayDialog() {
 }
 void MainWindow::setControlsVisible(bool visible) { if (m_controls) m_controls->setVisible(visible); }
 void MainWindow::togglePlaylist() { if (m_playlistDock) m_playlistDock->setVisible(!m_playlistDock->isVisible()); }
+void MainWindow::resizeEvent(QResizeEvent* event) {
+    QMainWindow::resizeEvent(event);
+    if (isFullScreen() && m_rootWidget && m_controls && m_controls->parentWidget() == m_rootWidget) {
+        const int height = m_controls->sizeHint().height();
+        m_controls->setGeometry(0, std::max(0, m_rootWidget->height() - height),
+                                 m_rootWidget->width(), height);
+        m_controls->raise();
+    }
+}
+
 void MainWindow::closeEvent(QCloseEvent* event) { saveCurrentPlaybackPosition(); if (m_mpv) { const char* args[] = {"quit", nullptr}; mpv_command(m_mpv, args); } QMainWindow::closeEvent(event); }
 void MainWindow::showError(const QString& message) { setWindowTitle(QStringLiteral("REX Player — %1").arg(message)); }
