@@ -232,8 +232,11 @@ void MainWindow::buildUi() {
     });
     progressRow->addWidget(m_seekSlider, 1);
     m_progressTimeLabel = new QLabel(QStringLiteral("00:00"), m_controls);
-    m_progressTimeLabel->setFixedWidth(108);
-    m_progressTimeLabel->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+    m_progressTimeLabel->setFixedWidth(64);
+    m_progressTimeLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    m_progressTimeLabel->setToolTip(QStringLiteral("Click to switch between total and remaining time"));
+    m_progressTimeLabel->setCursor(Qt::PointingHandCursor);
+    m_progressTimeLabel->installEventFilter(this);
     progressRow->addWidget(m_progressTimeLabel);
     controlsLayout->addLayout(progressRow);
 
@@ -1407,7 +1410,8 @@ void MainWindow::keyPressEvent(QKeyEvent* event) {
 }
 
 bool MainWindow::eventFilter(QObject* watched, QEvent* event) {
-    if (watched == m_timeLabel && event->type() == QEvent::MouseButtonPress) {
+    if ((watched == m_timeLabel || watched == m_progressTimeLabel) &&
+        event->type() == QEvent::MouseButtonPress) {
         m_showRemainingTime = !m_showRemainingTime;
         updatePlaybackUi();
         return true;
