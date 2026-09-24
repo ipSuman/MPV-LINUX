@@ -180,6 +180,7 @@ private:
     QKeySequence m_subtitlePosDownKey = QKeySequence(Qt::ControlModifier | Qt::Key_Down);
     QKeySequence m_subtitleSizeUpKey = QKeySequence(Qt::SHIFT | Qt::Key_I);
     QKeySequence m_subtitleSizeDownKey = QKeySequence(Qt::Key_I);
+    QKeySequence m_captureScreenshotKey = QKeySequence(Qt::Key_C);
     int m_saturation = 0;
     int m_brightness = 0;
     int m_contrast = 0;
