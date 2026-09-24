@@ -165,7 +165,7 @@ int main(int argc, char* argv[]) {
     std::setlocale(LC_NUMERIC, "C");
     QApplication app(argc, argv);
     QCoreApplication::setApplicationName(QStringLiteral("REX Player"));
-    QCoreApplication::setApplicationVersion(QStringLiteral("1.0.0"));
+    QCoreApplication::setApplicationVersion(QStringLiteral("2.1.0"));
     // Tell GNOME and other freedesktop desktops exactly which .desktop entry
     // represents this window, so the running app uses the REX Player icon
     // instead of being grouped under a generic application icon.
