@@ -5,6 +5,7 @@
 #include <QCloseEvent>
 #include <QCheckBox>
 #include <QCoreApplication>
+#include <QCryptographicHash>
 #include <QCursor>
 #include <QComboBox>
 #include <QDir>
@@ -212,6 +213,13 @@ void MainWindow::buildUi() {
     controlsLayout->setContentsMargins(12, 8, 12, 10);
     controlsLayout->setSpacing(6);
 
+    auto* progressRow = new QHBoxLayout();
+    progressRow->setContentsMargins(0, 0, 0, 0);
+    progressRow->setSpacing(6);
+    m_currentTimeLabel = new QLabel(QStringLiteral("00:00"), m_controls);
+    m_currentTimeLabel->setFixedWidth(64);
+    m_currentTimeLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    progressRow->addWidget(m_currentTimeLabel);
     m_seekSlider = new QSlider(Qt::Horizontal, m_controls);
     m_seekSlider->setRange(0, 1000);
     m_seekSlider->setTracking(false);
@@ -221,7 +229,12 @@ void MainWindow::buildUi() {
         m_seeking = false;
         seekTo(m_seekSlider->value());
     });
-    controlsLayout->addWidget(m_seekSlider);
+    progressRow->addWidget(m_seekSlider, 1);
+    m_progressTimeLabel = new QLabel(QStringLiteral("00:00"), m_controls);
+    m_progressTimeLabel->setFixedWidth(108);
+    m_progressTimeLabel->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+    progressRow->addWidget(m_progressTimeLabel);
+    controlsLayout->addLayout(progressRow);
 
     auto* row = new QHBoxLayout();
     row->setContentsMargins(0, 0, 0, 0);
@@ -266,6 +279,8 @@ void MainWindow::buildUi() {
     row->addWidget(m_timeLabel);
     m_timeLabel->setFixedWidth(170);
     m_timeLabel->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
+    m_currentTimeLabel->setVisible(false);
+    m_progressTimeLabel->setVisible(false);
     m_abLoopLabel = new QLabel(QStringLiteral("A-B: Off"), m_controls);
     m_abLoopLabel->setToolTip(QStringLiteral("A: set loop start, B: set loop end, L: clear loop"));
     row->addWidget(m_abLoopLabel);
@@ -384,6 +399,7 @@ void MainWindow::loadControlSettings() {
     m_seekWheelMode = settings.value(QStringLiteral("controls/seekWheel"), m_seekWheelMode).toString();
     m_zoomWheelMode = settings.value(QStringLiteral("controls/zoomWheel"), m_zoomWheelMode).toString();
     m_volumeWheelMode = settings.value(QStringLiteral("controls/volumeWheel"), m_volumeWheelMode).toString();
+    m_timerBesideProgress = settings.value(QStringLiteral("controls/timerBesideProgress"), false).toBool();
     m_panButton = static_cast<Qt::MouseButton>(settings.value(QStringLiteral("controls/panButton"), static_cast<int>(m_panButton)).toInt());
     m_doubleClickButton = static_cast<Qt::MouseButton>(settings.value(QStringLiteral("controls/doubleClickButton"), static_cast<int>(m_doubleClickButton)).toInt());
     const int legacyMinutes = std::clamp(settings.value(QStringLiteral("controls/seekDurationMinutes"), 1).toInt(), 1, 120);
@@ -699,7 +715,7 @@ void MainWindow::addToPlaylist(const QString& path) {
     if (wasEmpty) m_playlist->setCurrentItem(item);
 }
 
-void MainWindow::playPlaylistIndex(int index) {
+void MainWindow::playPlaylistIndex(int index, bool promptResume) {
     if (!m_playlist || index < 0 || index >= m_playlist->count()) return;
     auto* item = m_playlist->item(index);
     const QString path = item->data(Qt::UserRole).toString();
@@ -709,6 +725,9 @@ void MainWindow::playPlaylistIndex(int index) {
     const QByteArray encoded = path.toUtf8();
     const char* args[] = {"loadfile", encoded.constData(), "replace", nullptr};
     if (m_mpv) mpv_command_async(m_mpv, 0, args);
+    m_promptResumeNextLoad = promptResume;
+    m_pendingResumePath = path;
+    m_pendingResumePosition = 0.0;
     m_titleLabel->setText(QFileInfo(path).fileName());
     setWindowTitle(QStringLiteral("%1 — REX Player").arg(QFileInfo(path).fileName()));
 }
@@ -1131,7 +1150,7 @@ void MainWindow::pumpMpvEvents() {
                 if (m_autoplayPlaylist && hasNext) {
                     playNext();
                 } else if (m_autoplayPlaylist && m_loopPlaylist && hasPlaylist) {
-                    playPlaylistIndex(0);
+                    playPlaylistIndex(0, false);
                 } else if (isFullScreen()) {
                     // Return to the normal window when playback really ends.
                     toggleFullscreen();
@@ -1153,7 +1172,13 @@ void MainWindow::updatePlaybackUi() {
     if (!m_seeking) m_seekSlider->setValue(duration > 0 ? static_cast<int>(std::clamp(pos / duration, 0.0, 1.0) * 1000.0) : 0);
     const double remaining = std::max(0.0, duration - pos);
     const QString rightTime = m_showRemainingTime ? QStringLiteral("- %1").arg(formatTime(remaining)) : formatTime(duration);
-    m_timeLabel->setText(QStringLiteral("%1 / %2").arg(formatTime(pos), rightTime));
+    const QString currentText = formatTime(pos);
+    m_timeLabel->setText(QStringLiteral("%1 / %2").arg(currentText, rightTime));
+    m_currentTimeLabel->setText(currentText);
+    m_progressTimeLabel->setText(rightTime);
+    m_timeLabel->setVisible(!m_timerBesideProgress);
+    m_currentTimeLabel->setVisible(m_timerBesideProgress);
+    m_progressTimeLabel->setVisible(m_timerBesideProgress);
     updatePlayButton(paused != 0);
     updateHardwareButton();
     updatePlaybackInhibit(paused == 0 && !getPropertyString("path").isEmpty());
@@ -1252,7 +1277,7 @@ void MainWindow::addFolder() {
 void MainWindow::clearPlaylist() { if (m_playlist) m_playlist->clear(); m_currentPlaylistIndex = -1; }
 void MainWindow::playlistActivated() { if (m_playlist && m_playlist->currentItem()) playPlaylistIndex(m_playlist->currentRow()); }
 void MainWindow::playPrevious() { if (!m_playlist || m_playlist->count() == 0) return; int index = m_currentPlaylistIndex >= 0 ? m_currentPlaylistIndex : m_playlist->currentRow(); if (index > 0) playPlaylistIndex(index - 1); }
-void MainWindow::playNext() { if (!m_playlist || m_playlist->count() == 0) return; int index = m_currentPlaylistIndex >= 0 ? m_currentPlaylistIndex : m_playlist->currentRow(); if (index + 1 < m_playlist->count()) playPlaylistIndex(index + 1); }
+void MainWindow::playNext() { if (!m_playlist || m_playlist->count() == 0) return; int index = m_currentPlaylistIndex >= 0 ? m_currentPlaylistIndex : m_playlist->currentRow(); if (index + 1 < m_playlist->count()) playPlaylistIndex(index + 1, false); }
 void MainWindow::dragEnterEvent(QDragEnterEvent* event) { if (event->mimeData()->hasUrls()) event->acceptProposedAction(); }
 void MainWindow::dropEvent(QDropEvent* event) {
     const auto urls = event->mimeData()->urls();
