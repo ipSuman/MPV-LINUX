@@ -184,6 +184,7 @@ MainWindow::~MainWindow() {
 
 void MainWindow::buildUi() {
     auto* root = new QWidget(this);
+    m_rootWidget = root;
     root->setObjectName(QStringLiteral("root"));
     root->setStyleSheet(QStringLiteral("QWidget#root{background:#000;}"));
     auto* layout = new QVBoxLayout(root);
@@ -307,7 +308,7 @@ void MainWindow::buildUi() {
     row->addWidget(new QLabel(QStringLiteral("Volume"), m_controls));
     m_volumeSlider = new QSlider(Qt::Horizontal, m_controls);
     m_volumeSlider->setRange(0, 100);
-    m_volumeSlider->setValue(100);
+    m_volumeSlider->setValue(60);
     m_volumeSlider->setFixedWidth(130);
     connect(m_volumeSlider, &QSlider::valueChanged, this, &MainWindow::setVolume);
     row->addWidget(m_volumeSlider);
@@ -687,7 +688,8 @@ bool MainWindow::initializeMpv() {
         mpv_set_option_string(m_mpv, "hwdec", "auto") < 0 ||
         mpv_set_option_string(m_mpv, "input-vo-keyboard", "no") < 0 ||
         mpv_set_option_string(m_mpv, "input-cursor-passthrough", "yes") < 0 ||
-        mpv_set_option_string(m_mpv, "stop-screensaver", "yes") < 0) {
+        mpv_set_option_string(m_mpv, "stop-screensaver", "yes") < 0 ||
+        mpv_set_option_string(m_mpv, "panscan", "1.0") < 0) {
         showError(QStringLiteral("Could not configure libmpv.")); return false;
     }
     if (mpv_initialize(m_mpv) < 0) {
@@ -696,6 +698,7 @@ bool MainWindow::initializeMpv() {
     setPropertyDouble("saturation", m_saturation);
     setPropertyDouble("brightness", m_brightness);
     setPropertyDouble("contrast", m_contrast);
+    setPropertyDouble("volume", 60.0);
     return true;
 }
 
@@ -1652,7 +1655,15 @@ void MainWindow::toggleControls() {
 void MainWindow::toggleFullscreen() {
     if (isFullScreen()) {
         m_fullscreenHideTimer.stop();
-        setControlsVisible(true);
+        if (m_rootWidget && m_controls) {
+            setControlsVisible(true);
+            m_controls->setParent(m_rootWidget);
+            m_controls->show();
+            auto* rootLayout = qobject_cast<QVBoxLayout*>(m_rootWidget->layout());
+            if (rootLayout) {
+                rootLayout->addWidget(m_controls);
+            }
+        }
         if (m_playlistDock) m_playlistDock->setVisible(m_playlistWasVisibleBeforeFullscreen);
         showNormal();
         return;
@@ -1660,8 +1671,25 @@ void MainWindow::toggleFullscreen() {
 
     m_playlistWasVisibleBeforeFullscreen = m_playlistDock && m_playlistDock->isVisible();
     if (m_playlistDock) m_playlistDock->hide();
+
+    // Keep the video viewport at the full-screen size. The controls are an
+    // overlay rather than part of the vertical layout, so showing/hiding them
+    // cannot change the video's scale.
+    if (m_rootWidget && m_controls) {
+        auto* rootLayout = qobject_cast<QVBoxLayout*>(m_rootWidget->layout());
+        if (rootLayout) rootLayout->removeWidget(m_controls);
+        m_controls->setParent(m_rootWidget);
+        m_controls->raise();
+        m_controls->setGeometry(0, std::max(0, m_rootWidget->height() - m_controls->sizeHint().height()),
+                                 m_rootWidget->width(), m_controls->sizeHint().height());
+    }
     setControlsVisible(false);
     showFullScreen();
+    if (m_rootWidget && m_controls) {
+        m_controls->setGeometry(0, std::max(0, m_rootWidget->height() - m_controls->sizeHint().height()),
+                                 m_rootWidget->width(), m_controls->sizeHint().height());
+        m_controls->raise();
+    }
 }
 
 void MainWindow::showDisplayDialog() {
