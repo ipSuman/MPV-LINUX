@@ -77,7 +77,7 @@ private:
     void buildUi();
     void loadFile(const QString& path);
     void addToPlaylist(const QString& path);
-    void playPlaylistIndex(int index);
+    void playPlaylistIndex(int index, bool promptResume = true);
     void syncPlaylistSelection();
     void command(const char** args);
     double getPropertyDouble(const char* name) const;
@@ -111,6 +111,8 @@ private:
     QSlider* m_seekSlider = nullptr;
     QSlider* m_volumeSlider = nullptr;
     QLabel* m_timeLabel = nullptr;
+    QLabel* m_currentTimeLabel = nullptr;
+    QLabel* m_progressTimeLabel = nullptr;
     QLabel* m_abLoopLabel = nullptr;
     QLabel* m_titleLabel = nullptr;
     QPushButton* m_playButton = nullptr;
@@ -139,6 +141,11 @@ private:
     bool m_autoplayPlaylist = true;
     bool m_loopPlaylist = false;
     bool m_showRemainingTime = false;
+    bool m_timerBesideProgress = false;
+    bool m_promptResumeNextLoad = false;
+    QString m_pendingResumePath;
+    double m_pendingResumePosition = 0.0;
+    qint64 m_lastPositionSaveMs = 0;
     qint64 m_lastEscapePressMs = 0;
 
     QString m_seekWheelMode = QStringLiteral("wheel");
