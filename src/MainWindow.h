@@ -14,6 +14,7 @@ class QPushButton;
 class QSlider;
 class QWidget;
 class QCloseEvent;
+class QResizeEvent;
 class QCheckBox;
 class QDragEnterEvent;
 class QDropEvent;
