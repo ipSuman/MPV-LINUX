@@ -435,6 +435,7 @@ void MainWindow::loadControlSettings() {
     m_subtitleSizeUpKey = QKeySequence(settings.value(QStringLiteral("controls/subtitleSizeUp"), m_subtitleSizeUpKey.toString()).toString());
     m_subtitleSizeDownKey = QKeySequence(settings.value(QStringLiteral("controls/subtitleSizeDown"), m_subtitleSizeDownKey.toString()).toString());
     m_captureScreenshotKey = QKeySequence(settings.value(QStringLiteral("controls/captureScreenshot"), m_captureScreenshotKey.toString()).toString());
+    m_rotateVideoKey = QKeySequence(settings.value(QStringLiteral("controls/rotateVideo"), m_rotateVideoKey.toString()).toString());
     m_cutWithZoom = settings.value(QStringLiteral("controls/cutWithZoom"), false).toBool();
     m_saturation = std::clamp(settings.value(QStringLiteral("display/saturation"), m_saturation).toInt(), -100, 100);
     m_brightness = std::clamp(settings.value(QStringLiteral("display/brightness"), m_brightness).toInt(), -100, 100);
@@ -540,7 +541,8 @@ void MainWindow::showControlsDialog() {
     auto* subtitleSizeUp = new QKeySequenceEdit(m_subtitleSizeUpKey, &dialog);
     auto* subtitleSizeDown = new QKeySequenceEdit(m_subtitleSizeDownKey, &dialog);
     auto* captureScreenshot = new QKeySequenceEdit(m_captureScreenshotKey, &dialog);
-    const QList<QKeySequenceEdit*> edits = {volumeUp, volumeDown, mute, seekBack, seekForward, loopA, loopB, loopClear, zoomIn, zoomOut, zoomReset, frameBack, frameForward, switchSubtitles, subtitlePosUp, subtitlePosDown, subtitleSizeUp, subtitleSizeDown, captureScreenshot};
+    auto* rotateVideo = new QKeySequenceEdit(m_rotateVideoKey, &dialog);
+    const QList<QKeySequenceEdit*> edits = {volumeUp, volumeDown, mute, seekBack, seekForward, loopA, loopB, loopClear, zoomIn, zoomOut, zoomReset, frameBack, frameForward, switchSubtitles, subtitlePosUp, subtitlePosDown, subtitleSizeUp, subtitleSizeDown, captureScreenshot, rotateVideo};
     for (auto* edit : edits) edit->setClearButtonEnabled(false);
 
     auto addShortcut = [&keyForm, &dialog](const QString& label, QKeySequenceEdit* edit) {
@@ -579,9 +581,10 @@ void MainWindow::showControlsDialog() {
     addShortcut(QStringLiteral("Shift + I → Increase subtitle text size"), subtitleSizeUp);
     addShortcut(QStringLiteral("I → Decrease subtitle text size"), subtitleSizeDown);
     addShortcut(QStringLiteral("C → Capture screenshot"), captureScreenshot);
+    addShortcut(QStringLiteral("R → Rotate video 90° clockwise"), rotateVideo);
     contentLayout->addLayout(keyForm);
 
-    auto* note = new QLabel(QStringLiteral("Seek duration applies to the arrow keys, wheel seek and double-click seek zones. Choose 5, 10 or 30 seconds, or a value from 1 to 120 minutes. The −10s and +10s buttons always seek exactly 10 seconds. Changes are saved for the next launch. Clear a shortcut to disable it. Cut with zoom bakes positive video zoom/pan into the A-B output and therefore re-encodes the video."), &dialog);
+    auto* note = new QLabel(QStringLiteral("Seek duration applies to the arrow keys, wheel seek and double-click seek zones. Choose 5, 10 or 30 seconds, or a value from 1 to 120 minutes. The −10s and +10s buttons always seek exactly 10 seconds. Changes are saved for the next launch. Clear a shortcut to disable it. Cut with zoom bakes positive video zoom/pan and the current 90°-step rotation into the A-B output and therefore re-encodes the video."), &dialog);
     note->setWordWrap(true);
     contentLayout->addWidget(note);
     content->setLayout(contentLayout);
@@ -621,6 +624,7 @@ void MainWindow::showControlsDialog() {
         subtitleSizeUp->setKeySequence(QKeySequence(Qt::SHIFT | Qt::Key_I));
         subtitleSizeDown->setKeySequence(QKeySequence(Qt::Key_I));
         captureScreenshot->setKeySequence(QKeySequence(Qt::Key_C));
+        rotateVideo->setKeySequence(QKeySequence(Qt::Key_R));
         cutWithZoomButton->setChecked(false);
     });
 
@@ -660,6 +664,7 @@ void MainWindow::showControlsDialog() {
         m_subtitleSizeUpKey = subtitleSizeUp->keySequence();
         m_subtitleSizeDownKey = subtitleSizeDown->keySequence();
         m_captureScreenshotKey = captureScreenshot->keySequence();
+        m_rotateVideoKey = rotateVideo->keySequence();
         m_cutWithZoom = cutWithZoomButton->isChecked();
 
         QSettings settings(QStringLiteral("REX Player"), QStringLiteral("REX Player"));
@@ -689,6 +694,7 @@ void MainWindow::showControlsDialog() {
         settings.setValue(QStringLiteral("controls/subtitleSizeUp"), m_subtitleSizeUpKey.toString());
         settings.setValue(QStringLiteral("controls/subtitleSizeDown"), m_subtitleSizeDownKey.toString());
         settings.setValue(QStringLiteral("controls/captureScreenshot"), m_captureScreenshotKey.toString());
+        settings.setValue(QStringLiteral("controls/rotateVideo"), m_rotateVideoKey.toString());
         settings.setValue(QStringLiteral("controls/cutWithZoom"), m_cutWithZoom);
         settings.sync();
         updateSeekButtonLabels();
@@ -816,6 +822,12 @@ QString MainWindow::getPropertyString(const char* name) const { if (!m_mpv) retu
 void MainWindow::setPropertyDouble(const char* name, double value) { if (m_mpv) mpv_set_property_async(m_mpv, 0, name, MPV_FORMAT_DOUBLE, &value); }
 void MainWindow::updateSeekButtonLabels() { if (!m_seekBackButton || !m_seekForwardButton) return; m_seekBackButton->setText(QStringLiteral("−10s")); m_seekForwardButton->setText(QStringLiteral("+10s")); }
 void MainWindow::adjustVideoZoom(double amount) { setPropertyDouble("video-zoom", std::clamp(getPropertyDouble("video-zoom") + amount, -2.0, 3.0)); }
+void MainWindow::rotateVideo90() {
+    if (!m_mpv) return;
+    m_videoRotation = (m_videoRotation + 90) % 360;
+    setPropertyDouble("video-rotate", m_videoRotation);
+    QTimer::singleShot(0, this, &MainWindow::resizeWindowForVideoAspect);
+}
 void MainWindow::resetVideoTransform() { setPropertyDouble("video-zoom", 0.0); setPropertyDouble("video-pan-x", 0.0); setPropertyDouble("video-pan-y", 0.0); m_videoPanX = 0.0; m_videoPanY = 0.0; }
 void MainWindow::setAbLoopStart() { if (getPropertyDouble("duration") <= 0.0) return; const double position = getPropertyDouble("time-pos"); clearAbLoop(); m_abLoopStart = position; setPropertyDouble("ab-loop-a", position); updateAbLoopLabel(); }
 void MainWindow::setAbLoopEnd() { const double position = getPropertyDouble("time-pos"); if (m_abLoopStart < 0.0 || position <= m_abLoopStart) return; m_abLoopEnd = position; setPropertyDouble("ab-loop-a", m_abLoopStart); setPropertyDouble("ab-loop-b", m_abLoopEnd); updateAbLoopLabel(); }
@@ -889,7 +901,7 @@ void MainWindow::cutAbSelection() {
         if (success) {
             QMessageBox::information(
                 this, QStringLiteral("A-B cut complete"),
-                QStringLiteral("Saved:\n%1\n\n%2").arg(output, m_cutWithZoom && getPropertyDouble("video-zoom") > 0.0001 ? QStringLiteral("The current zoom/pan was baked into the video, so the video was re-encoded; audio/subtitles were copied when supported.") : QStringLiteral("Streams were copied without re-encoding. Because this is stream-copy cutting, the start may align to a nearby keyframe.")));
+                QStringLiteral("Saved:\n%1\n\n%2").arg(output, m_cutWithZoom && (getPropertyDouble("video-zoom") > 0.0001 || std::abs(getPropertyDouble("video-pan-x")) > 0.0001 || std::abs(getPropertyDouble("video-pan-y")) > 0.0001 || std::abs(getPropertyDouble("video-rotate")) > 0.0001) ? QStringLiteral("The current zoom/pan/rotation was baked into the video, so the video was re-encoded; audio/subtitles were copied when supported.") : QStringLiteral("Streams were copied without re-encoding. Because this is stream-copy cutting, the start may align to a nearby keyframe.")));
         } else {
             if (QFileInfo::exists(output)) QFile::remove(output);
             const QString detail = error.isEmpty() ? QStringLiteral("FFmpeg exited with code %1.").arg(exitCode) : error;
@@ -922,36 +934,55 @@ void MainWindow::cutAbSelection() {
     const int sourceWidth = haveSourceWidth ? std::max(0, static_cast<int>(sourceWidth64)) : 0;
     const int sourceHeight = haveSourceHeight ? std::max(0, static_cast<int>(sourceHeight64)) : 0;
     const int rotation = static_cast<int>(rotation64);
-
-    // mpv's video-zoom is logarithmic base 2. A positive zoom means the
-    // visible area is a smaller crop of the source. Bake that crop into the
-    // exported file. Pan is expressed as a fraction of the scaled video size,
-    // so it maps directly to a source-pixel displacement before clamping.
+    const int normalizedRotation = ((rotation % 360) + 360) % 360;
     const double zoomFactor = std::pow(2.0, std::max(0.0, zoom));
-    const bool canBakeZoom = m_cutWithZoom && sourceWidth > 0 && sourceHeight > 0 &&
-                             zoom > 0.0001 && (rotation % 180) == 0;
+    const bool bakeZoom = m_cutWithZoom && sourceWidth > 0 && sourceHeight > 0 && zoom > 0.0001;
+    const bool bakeRotation = m_cutWithZoom && sourceWidth > 0 && sourceHeight > 0 && normalizedRotation != 0;
+    const bool bakeTransform = bakeZoom || bakeRotation;
 
-    if (canBakeZoom) {
-        const int cropWidth = std::max(2, std::min(sourceWidth,
-            static_cast<int>(std::floor(sourceWidth / zoomFactor / 2.0) * 2.0)));
-        const int cropHeight = std::max(2, std::min(sourceHeight,
-            static_cast<int>(std::floor(sourceHeight / zoomFactor / 2.0) * 2.0)));
-        const int maxX = sourceWidth - cropWidth;
-        const int maxY = sourceHeight - cropHeight;
-        // mpv's positive pan moves the displayed video rectangle right/down,
-        // which means the visible source window moves left/up. Therefore the
-        // source crop offset uses the opposite sign of video-pan-x/y.
-        const int centerX = static_cast<int>(std::lround((sourceWidth - cropWidth) / 2.0 - panX * sourceWidth));
-        const int centerY = static_cast<int>(std::lround((sourceHeight - cropHeight) / 2.0 - panY * sourceHeight));
-        const int cropX = std::clamp(centerX, 0, maxX);
-        const int cropY = std::clamp(centerY, 0, maxY);
+    if (bakeTransform) {
+        // mpv rotates first, then applies zoom/pan to the displayed video.
+        // Mirror that order in FFmpeg: rotate into the current display
+        // orientation, then crop the visible zoom/pan region.
+        const int rotatedWidth = (normalizedRotation == 90 || normalizedRotation == 270)
+            ? sourceHeight : sourceWidth;
+        const int rotatedHeight = (normalizedRotation == 90 || normalizedRotation == 270)
+            ? sourceWidth : sourceHeight;
 
-        const QString crop = QStringLiteral("crop=%1:%2:%3:%4")
-            .arg(cropWidth).arg(cropHeight).arg(cropX).arg(cropY);
-        const bool webmOutput = suffix.compare(QStringLiteral("webm"), Qt::CaseInsensitive) == 0;
-        args << QStringLiteral("-vf") << crop
-             << QStringLiteral("-c:v") << (webmOutput ? QStringLiteral("libvpx-vp9") : QStringLiteral("libx264"));
-        if (webmOutput) {
+        QStringList filters;
+        if (normalizedRotation == 90) {
+            filters << QStringLiteral("transpose=clock");
+        } else if (normalizedRotation == 180) {
+            filters << QStringLiteral("hflip") << QStringLiteral("vflip");
+        } else if (normalizedRotation == 270) {
+            filters << QStringLiteral("transpose=cclock");
+        }
+
+        if (bakeZoom) {
+            const int cropWidth = std::max(2, std::min(rotatedWidth,
+                static_cast<int>(std::floor(rotatedWidth / zoomFactor / 2.0) * 2.0)));
+            const int cropHeight = std::max(2, std::min(rotatedHeight,
+                static_cast<int>(std::floor(rotatedHeight / zoomFactor / 2.0) * 2.0)));
+            const int maxX = rotatedWidth - cropWidth;
+            const int maxY = rotatedHeight - cropHeight;
+            // mpv's positive pan moves the displayed video rectangle right/down,
+            // so the visible source window moves left/up. After rotation, pan
+            // is still expressed in the rotated/displayed video dimensions.
+            const int centerX = static_cast<int>(std::lround(
+                (rotatedWidth - cropWidth) / 2.0 - panX * rotatedWidth));
+            const int centerY = static_cast<int>(std::lround(
+                (rotatedHeight - cropHeight) / 2.0 - panY * rotatedHeight));
+            const int cropX = std::clamp(centerX, 0, maxX);
+            const int cropY = std::clamp(centerY, 0, maxY);
+            filters << QStringLiteral("crop=%1:%2:%3:%4")
+                .arg(cropWidth).arg(cropHeight).arg(cropX).arg(cropY);
+        }
+
+        args << QStringLiteral("-vf") << filters.join(QLatin1Char(','))
+             << QStringLiteral("-c:v") << (suffix.compare(QStringLiteral("webm"), Qt::CaseInsensitive) == 0
+                                               ? QStringLiteral("libvpx-vp9")
+                                               : QStringLiteral("libx264"));
+        if (suffix.compare(QStringLiteral("webm"), Qt::CaseInsensitive) == 0) {
             args << QStringLiteral("-crf") << QStringLiteral("30")
                  << QStringLiteral("-b:v") << QStringLiteral("0");
         } else {
@@ -962,9 +993,8 @@ void MainWindow::cutAbSelection() {
              << QStringLiteral("-c:s") << QStringLiteral("copy")
              << QStringLiteral("-c:d") << QStringLiteral("copy");
     } else {
-        // At zero/negative zoom there is no zoom crop to bake. Keep the
-        // original fast stream-copy path. Positive zoom with an unsupported
-        // rotation is also left untouched rather than producing a misleading crop.
+        // No visual transform needs to be baked. Keep the original fast
+        // stream-copy path.
         args << QStringLiteral("-c") << QStringLiteral("copy");
     }
 
@@ -1278,6 +1308,11 @@ void MainWindow::pumpMpvEvents() {
         mpv_event* event = mpv_wait_event(m_mpv, 0);
         if (!event || event->event_id == MPV_EVENT_NONE) break;
         if (event->event_id == MPV_EVENT_FILE_LOADED) {
+            // Manual rotation is an additional transform for the current file.
+            // Reset it when a new file is loaded while preserving any rotation
+            // metadata carried by the media itself.
+            m_videoRotation = 0;
+            setPropertyDouble("video-rotate", 0.0);
             // The video viewport is embedded in the Qt window, so mpv cannot
             // resize the parent window itself. Resize the normal window here
             // using mpv's actual display dimensions. This makes the windowed
@@ -1494,6 +1529,7 @@ void MainWindow::keyPressEvent(QKeyEvent* event) {
     if (keyMatches(event, m_subtitleSizeUpKey)) { increaseSubtitleSize(); event->accept(); return; }
     if (keyMatches(event, m_subtitleSizeDownKey)) { decreaseSubtitleSize(); event->accept(); return; }
     if (keyMatches(event, m_captureScreenshotKey)) { captureScreenshot(); event->accept(); return; }
+    if (keyMatches(event, m_rotateVideoKey)) { rotateVideo90(); event->accept(); return; }
     if (keyMatches(event, m_volumeUpKey)) { volumeUp(); event->accept(); return; }
     if (keyMatches(event, m_volumeDownKey)) { volumeDown(); event->accept(); return; }
     if (keyMatches(event, m_muteKey)) { toggleMute(); event->accept(); return; }
