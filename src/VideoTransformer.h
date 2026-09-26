@@ -1,13 +1,14 @@
 #pragma once
 
+#include <QObject>
 #include <QString>
 
 class RuntimeLogger;
 struct mpv_handle;
 
-class VideoTransformer {
+class VideoTransformer : public QObject {
 public:
-    VideoTransformer(mpv_handle* mpv, RuntimeLogger* logger);
+    VideoTransformer(mpv_handle* mpv, RuntimeLogger* logger, QObject* parent = nullptr);
 
     void setRotation(int rotation);
     int rotation() const { return m_rotation; }
