@@ -32,6 +32,8 @@ MPV-Linux is a lightweight native Linux desktop media player built around **libm
 ### 🖼️ Video
 - 🔍 Zoom
 - 🖐️ Pan zoomed video
+- 🔄 Rotate video by 90° clockwise steps
+- ⌨️ Customizable video rotation shortcut
 - 🎨 Brightness adjustment
 - 🌈 Contrast adjustment
 - 🎚️ Saturation adjustment
@@ -42,6 +44,7 @@ MPV-Linux is a lightweight native Linux desktop media player built around **libm
 - 🔵 A/B Loop
 - ✂️ Cut selected A/B section
 - 🎞️ FFmpeg stream-copy cutting without re-encoding
+- 🔍 Cut with zoom/pan/rotation baked into the A-B output when enabled
 
 ### 🖥️ Display
 - ⛶ Fullscreen mode
