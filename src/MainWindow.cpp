@@ -315,6 +315,12 @@ void MainWindow::buildUi() {
     captureButton->setToolTip(QStringLiteral("Save the current video frame as a screenshot"));
     connect(captureButton, &QPushButton::clicked, this, &MainWindow::captureScreenshot);
     row->addWidget(captureButton);
+
+    m_mirrorButton = new QPushButton(QStringLiteral("Mirror"), m_controls);
+    m_mirrorButton->setCheckable(true);
+    m_mirrorButton->setToolTip(QStringLiteral("Mirror the video horizontally"));
+    connect(m_mirrorButton, &QPushButton::clicked, this, &MainWindow::toggleMirror);
+    row->addWidget(m_mirrorButton);
     row->addStretch();
     row->addWidget(new QLabel(QStringLiteral("Volume"), m_controls));
     m_volumeSlider = new QSlider(Qt::Horizontal, m_controls);
@@ -436,6 +442,7 @@ void MainWindow::loadControlSettings() {
     m_subtitleSizeDownKey = QKeySequence(settings.value(QStringLiteral("controls/subtitleSizeDown"), m_subtitleSizeDownKey.toString()).toString());
     m_captureScreenshotKey = QKeySequence(settings.value(QStringLiteral("controls/captureScreenshot"), m_captureScreenshotKey.toString()).toString());
     m_rotateVideoKey = QKeySequence(settings.value(QStringLiteral("controls/rotateVideo"), m_rotateVideoKey.toString()).toString());
+    m_mirrorVideoKey = QKeySequence(settings.value(QStringLiteral("controls/mirrorVideo"), m_mirrorVideoKey.toString()).toString());
     m_cutWithZoom = settings.value(QStringLiteral("controls/cutWithZoom"), false).toBool();
     m_saturation = std::clamp(settings.value(QStringLiteral("display/saturation"), m_saturation).toInt(), -100, 100);
     m_brightness = std::clamp(settings.value(QStringLiteral("display/brightness"), m_brightness).toInt(), -100, 100);
@@ -542,7 +549,8 @@ void MainWindow::showControlsDialog() {
     auto* subtitleSizeDown = new QKeySequenceEdit(m_subtitleSizeDownKey, &dialog);
     auto* captureScreenshot = new QKeySequenceEdit(m_captureScreenshotKey, &dialog);
     auto* rotateVideo = new QKeySequenceEdit(m_rotateVideoKey, &dialog);
-    const QList<QKeySequenceEdit*> edits = {volumeUp, volumeDown, mute, seekBack, seekForward, loopA, loopB, loopClear, zoomIn, zoomOut, zoomReset, frameBack, frameForward, switchSubtitles, subtitlePosUp, subtitlePosDown, subtitleSizeUp, subtitleSizeDown, captureScreenshot, rotateVideo};
+    auto* mirrorVideo = new QKeySequenceEdit(m_mirrorVideoKey, &dialog);
+    const QList<QKeySequenceEdit*> edits = {volumeUp, volumeDown, mute, seekBack, seekForward, loopA, loopB, loopClear, zoomIn, zoomOut, zoomReset, frameBack, frameForward, switchSubtitles, subtitlePosUp, subtitlePosDown, subtitleSizeUp, subtitleSizeDown, captureScreenshot, rotateVideo, mirrorVideo};
     for (auto* edit : edits) edit->setClearButtonEnabled(false);
 
     auto addShortcut = [&keyForm, &dialog](const QString& label, QKeySequenceEdit* edit) {
@@ -582,6 +590,7 @@ void MainWindow::showControlsDialog() {
     addShortcut(QStringLiteral("I → Decrease subtitle text size"), subtitleSizeDown);
     addShortcut(QStringLiteral("C → Capture screenshot"), captureScreenshot);
     addShortcut(QStringLiteral("R → Rotate video 90° clockwise"), rotateVideo);
+    addShortcut(QStringLiteral("Shift + M → Mirror video horizontally"), mirrorVideo);
     contentLayout->addLayout(keyForm);
 
     auto* note = new QLabel(QStringLiteral("Seek duration applies to the arrow keys, wheel seek and double-click seek zones. Choose 5, 10 or 30 seconds, or a value from 1 to 120 minutes. The −10s and +10s buttons always seek exactly 10 seconds. Changes are saved for the next launch. Clear a shortcut to disable it. Cut with zoom bakes positive video zoom/pan and the current 90°-step rotation into the A-B output and therefore re-encodes the video."), &dialog);
@@ -625,6 +634,7 @@ void MainWindow::showControlsDialog() {
         subtitleSizeDown->setKeySequence(QKeySequence(Qt::Key_I));
         captureScreenshot->setKeySequence(QKeySequence(Qt::Key_C));
         rotateVideo->setKeySequence(QKeySequence(Qt::Key_R));
+        mirrorVideo->setKeySequence(QKeySequence(Qt::SHIFT | Qt::Key_M));
         cutWithZoomButton->setChecked(false);
     });
 
@@ -665,6 +675,7 @@ void MainWindow::showControlsDialog() {
         m_subtitleSizeDownKey = subtitleSizeDown->keySequence();
         m_captureScreenshotKey = captureScreenshot->keySequence();
         m_rotateVideoKey = rotateVideo->keySequence();
+        m_mirrorVideoKey = mirrorVideo->keySequence();
         m_cutWithZoom = cutWithZoomButton->isChecked();
 
         QSettings settings(QStringLiteral("REX Player"), QStringLiteral("REX Player"));
@@ -695,6 +706,7 @@ void MainWindow::showControlsDialog() {
         settings.setValue(QStringLiteral("controls/subtitleSizeDown"), m_subtitleSizeDownKey.toString());
         settings.setValue(QStringLiteral("controls/captureScreenshot"), m_captureScreenshotKey.toString());
         settings.setValue(QStringLiteral("controls/rotateVideo"), m_rotateVideoKey.toString());
+        settings.setValue(QStringLiteral("controls/mirrorVideo"), m_mirrorVideoKey.toString());
         settings.setValue(QStringLiteral("controls/cutWithZoom"), m_cutWithZoom);
         settings.sync();
         updateSeekButtonLabels();
@@ -828,6 +840,12 @@ void MainWindow::rotateVideo90() {
     setPropertyDouble("video-rotate", m_videoRotation);
     QTimer::singleShot(0, this, &MainWindow::resizeWindowForVideoAspect);
 }
+void MainWindow::toggleMirror() {
+    if (!m_mpv) return;
+    m_videoMirrored = !m_videoMirrored;
+    setPropertyDouble("video-scale-x", m_videoMirrored ? -1.0 : 1.0);
+    if (m_mirrorButton) m_mirrorButton->setChecked(m_videoMirrored);
+}
 void MainWindow::resetVideoTransform() { setPropertyDouble("video-zoom", 0.0); setPropertyDouble("video-pan-x", 0.0); setPropertyDouble("video-pan-y", 0.0); m_videoPanX = 0.0; m_videoPanY = 0.0; }
 void MainWindow::setAbLoopStart() { if (getPropertyDouble("duration") <= 0.0) return; const double position = getPropertyDouble("time-pos"); clearAbLoop(); m_abLoopStart = position; setPropertyDouble("ab-loop-a", position); updateAbLoopLabel(); }
 void MainWindow::setAbLoopEnd() { const double position = getPropertyDouble("time-pos"); if (m_abLoopStart < 0.0 || position <= m_abLoopStart) return; m_abLoopEnd = position; setPropertyDouble("ab-loop-a", m_abLoopStart); setPropertyDouble("ab-loop-b", m_abLoopEnd); updateAbLoopLabel(); }
@@ -901,7 +919,7 @@ void MainWindow::cutAbSelection() {
         if (success) {
             QMessageBox::information(
                 this, QStringLiteral("A-B cut complete"),
-                QStringLiteral("Saved:\n%1\n\n%2").arg(output, m_cutWithZoom && (getPropertyDouble("video-zoom") > 0.0001 || std::abs(getPropertyDouble("video-pan-x")) > 0.0001 || std::abs(getPropertyDouble("video-pan-y")) > 0.0001 || std::abs(getPropertyDouble("video-rotate")) > 0.0001) ? QStringLiteral("The current zoom/pan/rotation was baked into the video, so the video was re-encoded; audio/subtitles were copied when supported.") : QStringLiteral("Streams were copied without re-encoding. Because this is stream-copy cutting, the start may align to a nearby keyframe.")));
+                QStringLiteral("Saved:\n%1\n\n%2").arg(output, m_cutWithZoom && (getPropertyDouble("video-zoom") > 0.0001 || std::abs(getPropertyDouble("video-pan-x")) > 0.0001 || std::abs(getPropertyDouble("video-pan-y")) > 0.0001 || std::abs(getPropertyDouble("video-rotate")) > 0.0001 || m_videoMirrored) ? QStringLiteral("The current zoom/pan/rotation/mirror was baked into the video, so the video was re-encoded; audio/subtitles were copied when supported.") : QStringLiteral("Streams were copied without re-encoding. Because this is stream-copy cutting, the start may align to a nearby keyframe.")));
         } else {
             if (QFileInfo::exists(output)) QFile::remove(output);
             const QString detail = error.isEmpty() ? QStringLiteral("FFmpeg exited with code %1.").arg(exitCode) : error;
@@ -942,7 +960,9 @@ void MainWindow::cutAbSelection() {
     // explicitly filtered here.
     const bool bakeRotation = m_cutWithZoom && sourceWidth > 0 && sourceHeight > 0 &&
                                m_videoRotation != 0;
-    const bool bakeTransform = bakeZoom || bakeRotation;
+    const bool bakeMirror = m_cutWithZoom && sourceWidth > 0 && sourceHeight > 0 &&
+                             m_videoMirrored;
+    const bool bakeTransform = bakeZoom || bakeRotation || bakeMirror;
 
     if (bakeTransform) {
         // mpv rotates first, then applies zoom/pan to the displayed video.
@@ -960,6 +980,9 @@ void MainWindow::cutAbSelection() {
             filters << QStringLiteral("hflip") << QStringLiteral("vflip");
         } else if (m_videoRotation == 270) {
             filters << QStringLiteral("transpose=cclock");
+        }
+        if (bakeMirror) {
+            filters << QStringLiteral("hflip");
         }
 
         if (bakeZoom) {
@@ -1317,6 +1340,9 @@ void MainWindow::pumpMpvEvents() {
             // metadata carried by the media itself.
             m_videoRotation = 0;
             setPropertyDouble("video-rotate", 0.0);
+            m_videoMirrored = false;
+            setPropertyDouble("video-scale-x", 1.0);
+            if (m_mirrorButton) m_mirrorButton->setChecked(false);
             // The video viewport is embedded in the Qt window, so mpv cannot
             // resize the parent window itself. Resize the normal window here
             // using mpv's actual display dimensions. This makes the windowed
@@ -1534,6 +1560,7 @@ void MainWindow::keyPressEvent(QKeyEvent* event) {
     if (keyMatches(event, m_subtitleSizeDownKey)) { decreaseSubtitleSize(); event->accept(); return; }
     if (keyMatches(event, m_captureScreenshotKey)) { captureScreenshot(); event->accept(); return; }
     if (keyMatches(event, m_rotateVideoKey)) { rotateVideo90(); event->accept(); return; }
+    if (keyMatches(event, m_mirrorVideoKey)) { toggleMirror(); event->accept(); return; }
     if (keyMatches(event, m_volumeUpKey)) { volumeUp(); event->accept(); return; }
     if (keyMatches(event, m_volumeDownKey)) { volumeDown(); event->accept(); return; }
     if (keyMatches(event, m_muteKey)) { toggleMute(); event->accept(); return; }
