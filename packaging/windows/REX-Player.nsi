@@ -1,19 +1,19 @@
 Unicode True
 Name "REX Player"
-OutFile "release\\REX-Player-Windows-x64-setup.exe"
+OutFile "..\\..\\release\\REX-Player-Windows-x64-setup.exe"
 InstallDir "$PROGRAMFILES64\\REX Player"
 InstallDirRegKey HKLM "Software\\REX Player" "InstallDir"
 RequestExecutionLevel admin
 ManifestSupportedOS "win10"
-Icon "assets\\rex-player.ico"
-UninstallIcon "assets\\rex-player.ico"
+Icon "..\\..\\assets\\rex-player.ico"
+UninstallIcon "..\\..\\assets\\rex-player.ico"
 BrandingText "REX Player"
 
 !include "MUI2.nsh"
 
 !define MUI_ABORTWARNING
-!define MUI_ICON "assets\\rex-player.ico"
-!define MUI_UNICON "assets\\rex-player.ico"
+!define MUI_ICON "..\\..\\assets\\rex-player.ico"
+!define MUI_UNICON "..\\..\\assets\\rex-player.ico"
 !define MUI_FINISHPAGE_RUN "$INSTDIR\\rex-player.exe"
 !define MUI_FINISHPAGE_RUN_TEXT "Launch REX Player"
 
@@ -28,7 +28,7 @@ Section "REX Player" SecMain
   SectionIn RO
 
   SetOutPath "$INSTDIR"
-  File /r "dist\\bin\\*"
+  File /r "..\\..\\dist\\bin\\*"
 
   WriteRegStr HKLM "Software\\REX Player" "InstallDir" "$INSTDIR"
 
