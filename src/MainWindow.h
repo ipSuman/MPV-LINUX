@@ -24,6 +24,7 @@ class QKeyEvent;
 class QProcess;
 class AudioExporter;
 class RuntimeLogger;
+class PlaybackPositionManager;
 
 struct mpv_handle;
 
@@ -113,7 +114,6 @@ private:
     void loadControlSettings();
     void updatePlaybackInhibit(bool active);
     bool keyMatches(QKeyEvent* event, const QKeySequence& sequence) const;
-    QString playbackPositionKey(const QString& path) const;
     void saveCurrentPlaybackPosition();
     QString mpvEventName(int eventId) const;
 
@@ -145,6 +145,7 @@ private:
     QProcess* m_cutProcess = nullptr;
     AudioExporter* m_audioExporter = nullptr;
     RuntimeLogger* m_runtimeLogger = nullptr;
+    PlaybackPositionManager* m_playbackPositions = nullptr;
     QProcess* m_powerInhibitProcess = nullptr;
     bool m_playbackInhibited = false;
     std::atomic_bool m_mpvWakeQueued{false};
