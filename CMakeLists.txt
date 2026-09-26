@@ -53,6 +53,8 @@ add_executable(rex-player
     src/AudioExporter.h
     src/RuntimeLogger.cpp
     src/RuntimeLogger.h
+    src/PlaybackPositionManager.cpp
+    src/PlaybackPositionManager.h
     assets/rex-player.qrc
 )
 
