@@ -839,29 +839,55 @@ QString MainWindow::getPropertyString(const char* name) const { if (!m_mpv) retu
 void MainWindow::setPropertyDouble(const char* name, double value) { if (m_mpv) mpv_set_property_async(m_mpv, 0, name, MPV_FORMAT_DOUBLE, &value); }
 void MainWindow::updateSeekButtonLabels() { if (!m_seekBackButton || !m_seekForwardButton) return; m_seekBackButton->setText(QStringLiteral("−10s")); m_seekForwardButton->setText(QStringLiteral("+10s")); }
 void MainWindow::adjustVideoZoom(double amount) { setPropertyDouble("video-zoom", std::clamp(getPropertyDouble("video-zoom") + amount, -2.0, 3.0)); }
+void MainWindow::ensureTransformCopyback() {
+    if (!m_mpv || m_transformForcedCopyback) return;
+    const QString current = getPropertyString("hwdec-current").trimmed().toLower();
+    if (current.isEmpty() || current == QStringLiteral("no")) return;
+
+    // AMD VAAPI hardware surfaces can produce corrupted chroma/colours when
+    // rotated, and video filters such as hflip require CPU-readable frames.
+    // Keep hardware decoding enabled but use copy-back for transforms.
+    const char* args[] = {"set", "hwdec", "auto-copy", nullptr};
+    command(args);
+    m_transformForcedCopyback = true;
+}
+void MainWindow::restoreTransformHardwareMode() {
+    if (!m_mpv || !m_transformForcedCopyback) return;
+    const char* args[] = {"set", "hwdec", "auto", nullptr};
+    command(args);
+    m_transformForcedCopyback = false;
+}
 void MainWindow::rotateVideo90() {
     if (!m_mpv) return;
     m_videoRotation = (m_videoRotation + 90) % 360;
 
-    // video-rotate is an mpv option/property, not a floating-point property.
-    // Send it through the command interface so libmpv performs the proper
-    // integer option conversion.
+    if (m_videoRotation != 0 || m_videoMirrored) ensureTransformCopyback();
+    else restoreTransformHardwareMode();
+
     const QByteArray rotation = QByteArray::number(m_videoRotation);
     const char* args[] = {"set", "video-rotate", rotation.constData(), nullptr};
     command(args);
 
-    // Let mpv apply the property before measuring the new display dimensions.
-    QTimer::singleShot(50, this, &MainWindow::resizeWindowForVideoAspect);
+    QTimer::singleShot(100, this, &MainWindow::resizeWindowForVideoAspect);
 }
 void MainWindow::toggleMirror() {
     if (!m_mpv) return;
-    m_videoMirrored = !m_videoMirrored;
 
-    // Use mpv's native hflip filter. mpv documents hflip as a
-    // runtime-toggleable video filter, avoiding the libavfilter bridge.
-    const char* args[] = {"vf", "toggle", "@rex-mirror", nullptr};
-    command(args);
+    const bool enable = !m_videoMirrored;
+    if (enable) ensureTransformCopyback();
 
+    if (enable) {
+        const char* removeArgs[] = {"vf-remove", "@rex-mirror", nullptr};
+        command(removeArgs);
+        const char* addArgs[] = {"vf-add", "@rex-mirror:hflip", nullptr};
+        command(addArgs);
+    } else {
+        const char* removeArgs[] = {"vf-remove", "@rex-mirror", nullptr};
+        command(removeArgs);
+        if (m_videoRotation == 0) restoreTransformHardwareMode();
+    }
+
+    m_videoMirrored = enable;
     if (m_mirrorButton) m_mirrorButton->setChecked(m_videoMirrored);
 }
 void MainWindow::resetVideoTransform() { setPropertyDouble("video-zoom", 0.0); setPropertyDouble("video-pan-x", 0.0); setPropertyDouble("video-pan-y", 0.0); m_videoPanX = 0.0; m_videoPanY = 0.0; }
