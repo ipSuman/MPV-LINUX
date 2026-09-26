@@ -189,6 +189,8 @@ MainWindow::MainWindow(const QString& mediaPath, QWidget* parent)
         [this](const char* property, double value) { setPropertyDouble(property, value); }, this);
     connect(m_displayController, &DisplayController::logMessage,
             m_runtimeLogger, &RuntimeLogger::append);
+    m_controlSettings = new ControlSettings;
+    m_controlSettings->load();
     m_screenshotController = new ScreenshotController(m_mpv, this);
     connect(m_screenshotController, &ScreenshotController::errorMessage,
             this, &MainWindow::showError);
@@ -463,39 +465,37 @@ void MainWindow::buildUi() {
 }
 
 void MainWindow::loadControlSettings() {
-    QSettings settings(QStringLiteral("REX Player"), QStringLiteral("REX Player"));
-    m_seekWheelMode = settings.value(QStringLiteral("controls/seekWheel"), m_seekWheelMode).toString();
-    m_zoomWheelMode = settings.value(QStringLiteral("controls/zoomWheel"), m_zoomWheelMode).toString();
-    m_volumeWheelMode = settings.value(QStringLiteral("controls/volumeWheel"), m_volumeWheelMode).toString();
-    m_timerBesideProgress = settings.value(QStringLiteral("controls/timerBesideProgress"), false).toBool();
-    m_panButton = static_cast<Qt::MouseButton>(settings.value(QStringLiteral("controls/panButton"), static_cast<int>(m_panButton)).toInt());
-    m_doubleClickButton = static_cast<Qt::MouseButton>(settings.value(QStringLiteral("controls/doubleClickButton"), static_cast<int>(m_doubleClickButton)).toInt());
-    const int legacyMinutes = std::clamp(settings.value(QStringLiteral("controls/seekDurationMinutes"), 1).toInt(), 1, 120);
-    m_seekDurationSeconds = std::clamp(settings.value(QStringLiteral("controls/seekDurationSeconds"), legacyMinutes * 60).toInt(), 5, 7200);
-    m_volumeUpKey = QKeySequence(settings.value(QStringLiteral("controls/volumeUp"), m_volumeUpKey.toString()).toString());
-    m_volumeDownKey = QKeySequence(settings.value(QStringLiteral("controls/volumeDown"), m_volumeDownKey.toString()).toString());
-    m_muteKey = QKeySequence(settings.value(QStringLiteral("controls/mute"), m_muteKey.toString()).toString());
-    m_seekBackwardKey = QKeySequence(settings.value(QStringLiteral("controls/seekBackward"), m_seekBackwardKey.toString()).toString());
-    m_seekForwardKey = QKeySequence(settings.value(QStringLiteral("controls/seekForward"), m_seekForwardKey.toString()).toString());
-    m_loopAKey = QKeySequence(settings.value(QStringLiteral("controls/loopA"), m_loopAKey.toString()).toString());
-    m_loopBKey = QKeySequence(settings.value(QStringLiteral("controls/loopB"), m_loopBKey.toString()).toString());
-    m_loopClearKey = QKeySequence(settings.value(QStringLiteral("controls/loopClear"), m_loopClearKey.toString()).toString());
-    m_zoomInKey = QKeySequence(settings.value(QStringLiteral("controls/zoomIn"), m_zoomInKey.toString()).toString());
-    m_zoomOutKey = QKeySequence(settings.value(QStringLiteral("controls/zoomOut"), m_zoomOutKey.toString()).toString());
-    m_zoomResetKey = QKeySequence(settings.value(QStringLiteral("controls/zoomReset"), m_zoomResetKey.toString()).toString());
-    m_frameBackKey = QKeySequence(settings.value(QStringLiteral("controls/frameBack"), m_frameBackKey.toString()).toString());
-    m_frameForwardKey = QKeySequence(settings.value(QStringLiteral("controls/frameForward"), m_frameForwardKey.toString()).toString());
-    m_switchSubtitlesKey = QKeySequence(settings.value(QStringLiteral("controls/switchSubtitles"), m_switchSubtitlesKey.toString()).toString());
-    m_subtitlePosUpKey = QKeySequence(settings.value(QStringLiteral("controls/subtitlePosUp"), m_subtitlePosUpKey.toString()).toString());
-    m_subtitlePosDownKey = QKeySequence(settings.value(QStringLiteral("controls/subtitlePosDown"), m_subtitlePosDownKey.toString()).toString());
-    m_subtitleSizeUpKey = QKeySequence(settings.value(QStringLiteral("controls/subtitleSizeUp"), m_subtitleSizeUpKey.toString()).toString());
-    m_subtitleSizeDownKey = QKeySequence(settings.value(QStringLiteral("controls/subtitleSizeDown"), m_subtitleSizeDownKey.toString()).toString());
-    m_captureScreenshotKey = QKeySequence(settings.value(QStringLiteral("controls/captureScreenshot"), m_captureScreenshotKey.toString()).toString());
-    m_rotateVideoKey = QKeySequence(settings.value(QStringLiteral("controls/rotateVideo"), m_rotateVideoKey.toString()).toString());
-    m_cutWithZoom = settings.value(QStringLiteral("controls/cutWithZoom"), false).toBool();
-    m_saturation = std::clamp(settings.value(QStringLiteral("display/saturation"), m_saturation).toInt(), -100, 100);
-    m_brightness = std::clamp(settings.value(QStringLiteral("display/brightness"), m_brightness).toInt(), -100, 100);
-    m_contrast = std::clamp(settings.value(QStringLiteral("display/contrast"), m_contrast).toInt(), -100, 100);
+    if (!m_controlSettings) return;
+    m_controlSettings->load();
+
+    m_seekWheelMode = m_controlSettings->seekWheelMode;
+    m_zoomWheelMode = m_controlSettings->zoomWheelMode;
+    m_volumeWheelMode = m_controlSettings->volumeWheelMode;
+    m_timerBesideProgress = m_controlSettings->timerBesideProgress;
+    m_panButton = m_controlSettings->panButton;
+    m_doubleClickButton = m_controlSettings->doubleClickButton;
+    m_seekDurationSeconds = m_controlSettings->seekDurationSeconds;
+    m_volumeUpKey = m_controlSettings->volumeUpKey;
+    m_volumeDownKey = m_controlSettings->volumeDownKey;
+    m_muteKey = m_controlSettings->muteKey;
+    m_seekBackwardKey = m_controlSettings->seekBackwardKey;
+    m_seekForwardKey = m_controlSettings->seekForwardKey;
+    m_loopAKey = m_controlSettings->loopAKey;
+    m_loopBKey = m_controlSettings->loopBKey;
+    m_loopClearKey = m_controlSettings->loopClearKey;
+    m_zoomInKey = m_controlSettings->zoomInKey;
+    m_zoomOutKey = m_controlSettings->zoomOutKey;
+    m_zoomResetKey = m_controlSettings->zoomResetKey;
+    m_frameBackKey = m_controlSettings->frameBackKey;
+    m_frameForwardKey = m_controlSettings->frameForwardKey;
+    m_switchSubtitlesKey = m_controlSettings->switchSubtitlesKey;
+    m_subtitlePosUpKey = m_controlSettings->subtitlePosUpKey;
+    m_subtitlePosDownKey = m_controlSettings->subtitlePosDownKey;
+    m_subtitleSizeUpKey = m_controlSettings->subtitleSizeUpKey;
+    m_subtitleSizeDownKey = m_controlSettings->subtitleSizeDownKey;
+    m_captureScreenshotKey = m_controlSettings->captureScreenshotKey;
+    m_rotateVideoKey = m_controlSettings->rotateVideoKey;
+    m_cutWithZoom = m_controlSettings->cutWithZoom;
 }
 
 void MainWindow::showControlsDialog() {
