@@ -22,6 +22,7 @@ class QEvent;
 class QDockWidget;
 class QKeyEvent;
 class QProcess;
+class AudioExporter;
 
 struct mpv_handle;
 
@@ -143,12 +144,11 @@ private:
     QCheckBox* m_autoplayCheck = nullptr;
     QPushButton* m_loopPlaylistButton = nullptr;
     QProcess* m_cutProcess = nullptr;
-    QProcess* m_audioSaveProcess = nullptr;
+    AudioExporter* m_audioExporter = nullptr;
     QProcess* m_powerInhibitProcess = nullptr;
     bool m_playbackInhibited = false;
     std::atomic_bool m_mpvWakeQueued{false};
     QString m_cutOutputPath;
-    QString m_audioSaveOutputPath;
     bool m_seeking = false;
     bool m_panningVideo = false;
     QPointF m_panStart;
