@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QKeySequence>
+#include <QString>
 #include <Qt>
 
 class ControlSettings final {
