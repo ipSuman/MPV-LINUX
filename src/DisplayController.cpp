@@ -14,13 +14,11 @@
 #include <cmath>
 
 DisplayController::DisplayController(
-    mpv_handle* mpv,
     QWidget* parentWidget,
     Values* values,
     const std::function<void(const char*, double)>& setProperty,
     QObject* parent)
     : QObject(parent),
-      m_mpv(mpv),
       m_parentWidget(parentWidget),
       m_values(values),
       m_setProperty(setProperty) {}
