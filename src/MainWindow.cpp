@@ -1001,10 +1001,22 @@ void MainWindow::applyVideoTransforms() {
     // previous lavfi=[hflip]/lavfi=[vflip] form can fail when the decoded
     // frames remain hardware-backed.
     const bool waitForCopyBack = flipsActive && m_flipHwdecOverride;
-    if (waitForCopyBack && getPropertyString("hwdec-current").trimmed() != QStringLiteral("auto-copy")) {
-        appendRuntimeLog(QStringLiteral("TRANSFORM: waiting for hwdec copy-back before installing flip filters"));
-        QTimer::singleShot(100, this, &MainWindow::applyVideoTransforms);
-        return;
+    if (waitForCopyBack) {
+        const QString activeHwdec = getPropertyString("hwdec-current").trimmed();
+        // hwdec-current reports the actual backend, e.g. "vaapi-copy",
+        // not the configured value "auto-copy". Treat any *-copy backend
+        // as ready. If mpv has fallen back to software ("no"/"none"),
+        // CPU-frame filters are also safe to install.
+        const bool copyBackReady =
+            activeHwdec.endsWith(QStringLiteral("-copy")) ||
+            activeHwdec == QStringLiteral("no") ||
+            activeHwdec == QStringLiteral("none");
+        if (!copyBackReady) {
+            appendRuntimeLog(QStringLiteral("TRANSFORM: waiting for hwdec copy-back; current=%1")
+                .arg(activeHwdec.isEmpty() ? QStringLiteral("<empty>") : activeHwdec));
+            QTimer::singleShot(100, this, &MainWindow::applyVideoTransforms);
+            return;
+        }
     }
 
     const char* removeHArgs[] = {"vf", "remove", "@rex-flip-h", nullptr};
