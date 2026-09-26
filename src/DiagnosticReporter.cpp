@@ -25,6 +25,10 @@ DiagnosticReporter::DiagnosticReporter(mpv_handle* mpv, RuntimeLogger* logger,
       m_playlistController(playlistController),
       m_parentWidget(parent) {}
 
+void DiagnosticReporter::setControlStateProvider(std::function<QString()> provider) {
+    m_controlStateProvider = std::move(provider);
+}
+
 void DiagnosticReporter::log(const QString& message) const {
     if (m_logger) m_logger->append(message);
 }
@@ -156,13 +160,11 @@ void DiagnosticReporter::saveReport() {
     }
 
     out << "\nA-B / Controls\n--------------\n";
-    out << "A-B start: " << "managed by MainWindow" << "\n";
-    out << "Diagnostic reporter captures mpv/runtime information only.\n";
-    out << "Playlist count: " << (m_playlistController ? m_playlistController->count() : 0) << "\n";
-    out << "Autoplay next item: "
-        << ((m_playlistController && m_playlistController->autoplay()) ? "enabled" : "disabled") << "\n";
-    out << "Loop playlist: "
-        << ((m_playlistController && m_playlistController->loop()) ? "enabled" : "disabled") << "\n";
+    if (m_controlStateProvider) {
+        out << m_controlStateProvider();
+    } else {
+        out << "Control state unavailable.\n";
+    }
 
     out << "\nEnd of report\n";
     file.close();
