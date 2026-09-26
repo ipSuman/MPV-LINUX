@@ -15,16 +15,20 @@
 
 DisplayController::DisplayController(
     QWidget* parentWidget,
-    Values* values,
+    int* saturation,
+    int* brightness,
+    int* contrast,
     const std::function<void(const char*, double)>& setProperty,
     QObject* parent)
     : QObject(parent),
       m_parentWidget(parentWidget),
-      m_values(values),
+      m_saturation(saturation),
+      m_brightness(brightness),
+      m_contrast(contrast),
       m_setProperty(setProperty) {}
 
 void DisplayController::showDialog() {
-    if (!m_parentWidget || !m_values) return;
+    if (!m_parentWidget || !m_saturation || !m_brightness || !m_contrast) return;
 
     QDialog dialog(m_parentWidget);
     dialog.setWindowTitle(QStringLiteral("Display"));
@@ -35,9 +39,9 @@ void DisplayController::showDialog() {
     auto* form = new QFormLayout();
     form->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
 
-    const int currentSaturation = std::clamp(m_values->saturation, -100, 100);
-    const int currentBrightness = std::clamp(m_values->brightness, -100, 100);
-    const int currentContrast = std::clamp(m_values->contrast, -100, 100);
+    const int currentSaturation = std::clamp(*m_saturation, -100, 100);
+    const int currentBrightness = std::clamp(*m_brightness, -100, 100);
+    const int currentContrast = std::clamp(*m_contrast, -100, 100);
 
     auto makeSlider = [&](const QString& name, int value, const char* property,
                           int* storedValue, const char* settingKey) {
