@@ -51,6 +51,8 @@ add_executable(rex-player
     src/MpvNodeUtils.h
     src/AudioExporter.cpp
     src/AudioExporter.h
+    src/RuntimeLogger.cpp
+    src/RuntimeLogger.h
     assets/rex-player.qrc
 )
 
