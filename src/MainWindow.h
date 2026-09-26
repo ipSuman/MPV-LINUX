@@ -27,6 +27,7 @@ class RuntimeLogger;
 class PlaybackPositionManager;
 class PlaylistController;
 class VideoTransformer;
+class TrackController;
 
 struct mpv_handle;
 
@@ -66,7 +67,6 @@ private slots:
     void showControlsDialog();
     void playPrevious();
     void playNext();
-    void showTracksMenu();
     void saveSelectedAudioTrack();
     void cutAbSelection();
     void saveLogReport();
@@ -74,7 +74,6 @@ private slots:
     void decreaseSubtitleSize();
     void increaseSubtitlePosition();
     void decreaseSubtitlePosition();
-    void cycleSubtitles();
 
 signals:
     void mpvWakeup();
@@ -145,6 +144,7 @@ private:
     PlaybackPositionManager* m_playbackPositions = nullptr;
     PlaylistController* m_playlistController = nullptr;
     VideoTransformer* m_videoTransformer = nullptr;
+    TrackController* m_trackController = nullptr;
     QProcess* m_powerInhibitProcess = nullptr;
     bool m_playbackInhibited = false;
     std::atomic_bool m_mpvWakeQueued{false};
