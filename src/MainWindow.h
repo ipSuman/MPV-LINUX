@@ -25,6 +25,7 @@ class QProcess;
 class AudioExporter;
 class RuntimeLogger;
 class PlaybackPositionManager;
+class PlaylistController;
 
 struct mpv_handle;
 
@@ -146,6 +147,7 @@ private:
     AudioExporter* m_audioExporter = nullptr;
     RuntimeLogger* m_runtimeLogger = nullptr;
     PlaybackPositionManager* m_playbackPositions = nullptr;
+    PlaylistController* m_playlistController = nullptr;
     QProcess* m_powerInhibitProcess = nullptr;
     bool m_playbackInhibited = false;
     std::atomic_bool m_mpvWakeQueued{false};
@@ -158,8 +160,6 @@ private:
     double m_abLoopStart = -1.0;
     double m_abLoopEnd = -1.0;
     int m_currentPlaylistIndex = -1;
-    bool m_autoplayPlaylist = true;
-    bool m_loopPlaylist = false;
     bool m_showRemainingTime = false;
     bool m_timerBesideProgress = false;
     bool m_cutWithZoom = false;
