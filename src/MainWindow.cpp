@@ -935,91 +935,115 @@ void MainWindow::updateSeekButtonLabels() { if (!m_seekBackButton || !m_seekForw
 void MainWindow::adjustVideoZoom(double amount) { setPropertyDouble("video-zoom", std::clamp(getPropertyDouble("video-zoom") + amount, -2.0, 3.0)); }
 void MainWindow::applyVideoTransforms() {
     if (!m_mpv) return;
+
     appendRuntimeLog(QStringLiteral("TRANSFORM: apply begin rotation=%1 mirror=%2 hwdec=%3")
-        .arg(m_videoRotation).arg(m_videoMirrored ? QStringLiteral("on") : QStringLiteral("off"))
+        .arg(m_videoRotation)
+        .arg(m_videoMirrored ? QStringLiteral("on") : QStringLiteral("off"))
         .arg(getPropertyString("hwdec-current")));
 
-    // Apply rotation through mpv's native video-rotate property. mpv documents
-    // that all angles are supported with software decoding and copy-back
-    // hardware decoding, while direct hardware decoding is limited to 90°
-    // steps.
-    const QByteArray rotation = QByteArray::number(m_videoRotation);
-    const char* rotationArgs[] = {"set", "video-rotate", rotation.constData(), nullptr};
-    appendRuntimeLog(QStringLiteral("TRANSFORM: setting video-rotate=%1").arg(m_videoRotation));
-    command(rotationArgs);
+    // Rotation and mirror are deliberately processed on software-decoded
+    // frames. The AMD/VAAPI copy-back path on the affected system still
+    // produces chroma corruption when the rotated frame is rendered, while
+    // software decoding is known to preserve the original colors.
+    const qint64 rotation = m_videoRotation;
+    const int rotationResult = mpv_set_property(
+        m_mpv, "video-rotate", MPV_FORMAT_INT64, &rotation);
+    appendRuntimeLog(QStringLiteral("TRANSFORM: video-rotate=%1 result=%2 (%3)")
+        .arg(m_videoRotation)
+        .arg(rotationResult)
+        .arg(QString::fromUtf8(mpv_error_string(rotationResult))));
 
-    // Keep one labelled mirror filter in the chain and toggle it by label.
-    // Use libavfilter explicitly so we do not depend on mpv's deprecated
-    // builtin hflip/auto-bridge selection.
     const char* removeMirrorArgs[] = {"vf-remove", "@rex-mirror", nullptr};
-    command(removeMirrorArgs);
+    const int removeResult = mpv_command(m_mpv, removeMirrorArgs);
+    appendRuntimeLog(QStringLiteral("TRANSFORM: remove @rex-mirror result=%1 (%2)")
+        .arg(removeResult)
+        .arg(QString::fromUtf8(mpv_error_string(removeResult))));
+
     if (m_videoMirrored) {
+        // Use libavfilter explicitly. hflip is a standard FFmpeg filter and
+        // the labelled form lets us remove it without disturbing other filters.
         const char* addMirrorArgs[] = {"vf-add", "@rex-mirror:lavfi=[hflip]", nullptr};
-        appendRuntimeLog(QStringLiteral("TRANSFORM: adding @rex-mirror:lavfi=[hflip]"));
-        command(addMirrorArgs);
+        const int addResult = mpv_command(m_mpv, addMirrorArgs);
+        appendRuntimeLog(QStringLiteral("TRANSFORM: add @rex-mirror:lavfi=[hflip] result=%1 (%2)")
+            .arg(addResult)
+            .arg(QString::fromUtf8(mpv_error_string(addResult))));
+
+        // If the explicit lavfi form is rejected by a particular libmpv build,
+        // retry with mpv's automatic filter bridge.
+        if (addResult < 0) {
+            const char* fallbackArgs[] = {"vf-add", "@rex-mirror:hflip", nullptr};
+            const int fallbackResult = mpv_command(m_mpv, fallbackArgs);
+            appendRuntimeLog(QStringLiteral("TRANSFORM: fallback add @rex-mirror:hflip result=%1 (%2)")
+                .arg(fallbackResult)
+                .arg(QString::fromUtf8(mpv_error_string(fallbackResult))));
+        }
     }
 
     if (m_mirrorButton) m_mirrorButton->setChecked(m_videoMirrored);
-    appendRuntimeLog(QStringLiteral("TRANSFORM: apply end active hwdec=%1").arg(getPropertyString("hwdec-current")));
+    appendRuntimeLog(QStringLiteral("TRANSFORM: apply end active hwdec=%1")
+        .arg(getPropertyString("hwdec-current")));
     QTimer::singleShot(100, this, &MainWindow::resizeWindowForVideoAspect);
 }
 
 void MainWindow::ensureTransformCopyback() {
     if (!m_mpv) return;
-    appendRuntimeLog(QStringLiteral("TRANSFORM: ensure copyback begin requested rotation=%1 mirror=%2 active hwdec=%3")
-        .arg(m_videoRotation).arg(m_videoMirrored ? QStringLiteral("on") : QStringLiteral("off"))
+
+    appendRuntimeLog(QStringLiteral("TRANSFORM: ensure software mode begin requested rotation=%1 mirror=%2 active hwdec=%3")
+        .arg(m_videoRotation)
+        .arg(m_videoMirrored ? QStringLiteral("on") : QStringLiteral("off"))
         .arg(getPropertyString("hwdec-current")));
 
     const QString current = getPropertyString("hwdec-current").trimmed().toLower();
-    if (current.isEmpty() || current == QStringLiteral("no")) {
-        appendRuntimeLog(QStringLiteral("TRANSFORM: software decoding already active; no decoder reload needed"));
-        // Already using software decoding; no decoder restart is required.
+    if (current == QStringLiteral("no")) {
+        m_transformForcedSoftware = true;
+        appendRuntimeLog(QStringLiteral("TRANSFORM: software decoding already active; applying transforms"));
         applyVideoTransforms();
         return;
     }
 
-    // Changing hwdec while a decoder is already active does not reliably
-    // replace the existing hardware decoder. Force copy-back first, then
-    // reload the video track so the new decoder is actually initialized.
-    if (!current.endsWith(QStringLiteral("-copy"))) {
-        const char* setArgs[] = {"set", "hwdec", "auto-copy", nullptr};
-        appendRuntimeLog(QStringLiteral("TRANSFORM: requesting hwdec=auto-copy (previous=%1)").arg(current));
-        command(setArgs);
-        m_transformForcedCopyback = true;
+    // Do not use auto-copy here. The affected AMD VAAPI copy-back path still
+    // corrupts colors during rotation. Force the decoder all the way to
+    // software mode, then rebuild the video decoder.
+    const char* setArgs[] = {"set", "hwdec", "no", nullptr};
+    const int setResult = mpv_command(m_mpv, setArgs);
+    appendRuntimeLog(QStringLiteral("TRANSFORM: requesting hwdec=no result=%1 (%2)")
+        .arg(setResult)
+        .arg(QString::fromUtf8(mpv_error_string(setResult))));
+    m_transformForcedSoftware = true;
 
-        const char* reloadArgs[] = {"video-reload", nullptr};
-        appendRuntimeLog(QStringLiteral("TRANSFORM: requesting video-reload to rebuild decoder"));
-        command(reloadArgs);
+    const char* reloadArgs[] = {"video-reload", nullptr};
+    const int reloadResult = mpv_command(m_mpv, reloadArgs);
+    appendRuntimeLog(QStringLiteral("TRANSFORM: requesting video-reload for software transform mode result=%1 (%2)")
+        .arg(reloadResult)
+        .arg(QString::fromUtf8(mpv_error_string(reloadResult))));
 
-        // video-reload is asynchronous. Reapply the transform after the
-        // decoder has had time to rebuild on the copy-back path.
-        appendRuntimeLog(QStringLiteral("TRANSFORM: scheduling transform reapply after decoder reload (350ms)"));
-        QTimer::singleShot(350, this, &MainWindow::applyVideoTransforms);
-        return;
-    }
-
-    m_transformForcedCopyback = true;
-    appendRuntimeLog(QStringLiteral("TRANSFORM: copyback decoder already active; applying transforms immediately"));
-    applyVideoTransforms();
+    appendRuntimeLog(QStringLiteral("TRANSFORM: scheduling transform reapply after decoder reload (500ms)"));
+    QTimer::singleShot(500, this, &MainWindow::applyVideoTransforms);
 }
 
 void MainWindow::restoreTransformHardwareMode() {
-    if (!m_mpv || !m_transformForcedCopyback) return;
+    if (!m_mpv || !m_transformForcedSoftware) return;
+
     appendRuntimeLog(QStringLiteral("TRANSFORM: restoring normal hardware decoding"));
 
     const char* setArgs[] = {"set", "hwdec", "auto", nullptr};
-    appendRuntimeLog(QStringLiteral("TRANSFORM: requesting hwdec=auto"));
-    command(setArgs);
+    const int setResult = mpv_command(m_mpv, setArgs);
+    appendRuntimeLog(QStringLiteral("TRANSFORM: requesting hwdec=auto result=%1 (%2)")
+        .arg(setResult)
+        .arg(QString::fromUtf8(mpv_error_string(setResult))));
 
-    // Reinitialize the decoder so normal hardware mode is actually restored.
     const char* reloadArgs[] = {"video-reload", nullptr};
-    appendRuntimeLog(QStringLiteral("TRANSFORM: requesting video-reload to restore hardware path"));
-    command(reloadArgs);
-    m_transformForcedCopyback = false;
+    const int reloadResult = mpv_command(m_mpv, reloadArgs);
+    appendRuntimeLog(QStringLiteral("TRANSFORM: requesting video-reload to restore hardware path result=%1 (%2)")
+        .arg(reloadResult)
+        .arg(QString::fromUtf8(mpv_error_string(reloadResult))));
+
+    m_transformForcedSoftware = false;
 }
 
 void MainWindow::rotateVideo90() {
     if (!m_mpv) return;
+
     m_videoRotation = (m_videoRotation + 90) % 360;
     appendRuntimeLog(QStringLiteral("USER ACTION: Rotate clicked; new rotation=%1").arg(m_videoRotation));
 
@@ -1035,7 +1059,9 @@ void MainWindow::toggleMirror() {
     if (!m_mpv) return;
 
     m_videoMirrored = !m_videoMirrored;
-    appendRuntimeLog(QStringLiteral("USER ACTION: Mirror clicked; new state=%1").arg(m_videoMirrored ? QStringLiteral("on") : QStringLiteral("off")));
+    appendRuntimeLog(QStringLiteral("USER ACTION: Mirror clicked; new state=%1")
+        .arg(m_videoMirrored ? QStringLiteral("on") : QStringLiteral("off")));
+
     if (m_videoMirrored || m_videoRotation != 0) {
         ensureTransformCopyback();
     } else {
@@ -1043,6 +1069,7 @@ void MainWindow::toggleMirror() {
         applyVideoTransforms();
     }
 }
+
 void MainWindow::resetVideoTransform() { setPropertyDouble("video-zoom", 0.0); setPropertyDouble("video-pan-x", 0.0); setPropertyDouble("video-pan-y", 0.0); m_videoPanX = 0.0; m_videoPanY = 0.0; }
 void MainWindow::setAbLoopStart() { if (getPropertyDouble("duration") <= 0.0) return; const double position = getPropertyDouble("time-pos"); clearAbLoop(); m_abLoopStart = position; setPropertyDouble("ab-loop-a", position); updateAbLoopLabel(); }
 void MainWindow::setAbLoopEnd() { const double position = getPropertyDouble("time-pos"); if (m_abLoopStart < 0.0 || position <= m_abLoopStart) return; m_abLoopEnd = position; setPropertyDouble("ab-loop-a", m_abLoopStart); setPropertyDouble("ab-loop-b", m_abLoopEnd); updateAbLoopLabel(); }
