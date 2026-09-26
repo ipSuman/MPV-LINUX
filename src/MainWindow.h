@@ -67,6 +67,7 @@ private slots:
     void toggleMirror();
     void ensureTransformCopyback();
     void restoreTransformHardwareMode();
+    void applyVideoTransforms();
     void saveLogReport();
     void increaseSubtitleSize();
     void decreaseSubtitleSize();
