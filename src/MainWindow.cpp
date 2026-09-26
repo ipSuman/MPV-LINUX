@@ -189,6 +189,16 @@ MainWindow::MainWindow(const QString& mediaPath, QWidget* parent)
         [this](const char* property, double value) { setPropertyDouble(property, value); }, this);
     connect(m_displayController, &DisplayController::logMessage,
             m_runtimeLogger, &RuntimeLogger::append);
+    m_screenshotController = new ScreenshotController(m_mpv, this);
+    connect(m_screenshotController, &ScreenshotController::errorMessage,
+            this, &MainWindow::showError);
+    connect(m_screenshotController, &ScreenshotController::successMessage,
+            this, [this](const QString& message, const QString&) { showError(message); });
+    connect(m_screenshotController, &ScreenshotController::restoreTitleRequested,
+            this, [this](const QString& title, const QString& path) {
+                if (!m_mpv || getPropertyString("path") != path) return;
+                setWindowTitle(title);
+            });
 
     m_uiTimer.setInterval(250);
     connect(&m_uiTimer, &QTimer::timeout, this, &MainWindow::updatePlaybackUi);
@@ -978,45 +988,11 @@ void MainWindow::resizeWindowForVideoAspect() {
 }
 
 void MainWindow::captureScreenshot() {
-    if (!m_mpv || getPropertyString("filename").isEmpty()) {
+    if (!m_screenshotController || !m_mpv || getPropertyString("filename").isEmpty()) {
         showError(QStringLiteral("REX Player — No video is currently loaded"));
         return;
     }
-
-    const QString picturesPath = QStandardPaths::writableLocation(QStandardPaths::PicturesLocation);
-    if (picturesPath.isEmpty()) {
-        showError(QStringLiteral("REX Player — Could not locate the Pictures folder"));
-        return;
-    }
-
-    const QString screenshotDir = QDir(picturesPath).filePath(QStringLiteral("REX Player"));
-    if (!QDir().mkpath(screenshotDir)) {
-        showError(QStringLiteral("REX Player — Could not create the screenshot folder"));
-        return;
-    }
-
-    const QByteArray dirUtf8 = QDir::toNativeSeparators(screenshotDir).toUtf8();
-    const char* setDirArgs[] = {"set", "screenshot-dir", dirUtf8.constData(), nullptr};
-    if (mpv_command(m_mpv, setDirArgs) < 0) {
-        showError(QStringLiteral("REX Player — Could not configure screenshot folder"));
-        return;
-    }
-
-    const QString videoTitle = windowTitle();
-    const QString videoPath = getPropertyString("path");
-
-    const char* screenshotArgs[] = {"screenshot", nullptr};
-    if (mpv_command(m_mpv, screenshotArgs) < 0) {
-        showError(QStringLiteral("REX Player — Screenshot failed"));
-        return;
-    }
-
-    showError(QStringLiteral("REX Player — Screenshot captured"));
-
-    QTimer::singleShot(2000, this, [this, videoTitle, videoPath] {
-        if (!m_mpv || getPropertyString("path") != videoPath) return;
-        setWindowTitle(videoTitle);
-    });
+    m_screenshotController->capture(windowTitle(), getPropertyString("path"));
 }
 
 void MainWindow::showDisplayDialog() {
