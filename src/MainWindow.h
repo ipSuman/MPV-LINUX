@@ -114,6 +114,7 @@ private:
     bool keyMatches(QKeyEvent* event, const QKeySequence& sequence) const;
     void saveCurrentPlaybackPosition();
     QString mpvEventName(int eventId) const;
+    QString diagnosticControlState() const;
 
     mpv_handle* m_mpv = nullptr;
     QTimer m_uiTimer;
