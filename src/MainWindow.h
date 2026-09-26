@@ -90,7 +90,6 @@ private:
     void updatePlayButton(bool paused);
     void updateSeekButtonLabels();
     void adjustVideoZoom(double amount);
-    void rotateVideo90();
     void resetVideoTransform();
     void setAbLoopStart();
     void setAbLoopEnd();
