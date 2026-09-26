@@ -110,6 +110,7 @@ MainWindow::MainWindow(const QString& mediaPath, QWidget* parent)
     resize(1200, 760);
     setAcceptDrops(true);
     setFocusPolicy(Qt::StrongFocus);
+    m_controlSettings = new ControlSettings;
     loadControlSettings();
     m_playlistController = new PlaylistController();
     buildUi();
@@ -189,8 +190,6 @@ MainWindow::MainWindow(const QString& mediaPath, QWidget* parent)
         [this](const char* property, double value) { setPropertyDouble(property, value); }, this);
     connect(m_displayController, &DisplayController::logMessage,
             m_runtimeLogger, &RuntimeLogger::append);
-    m_controlSettings = new ControlSettings;
-    m_controlSettings->load();
     m_screenshotController = new ScreenshotController(m_mpv, this);
     connect(m_screenshotController, &ScreenshotController::errorMessage,
             this, &MainWindow::showError);
@@ -218,6 +217,8 @@ MainWindow::~MainWindow() {
     m_playbackInhibitor = nullptr;
     delete m_playlistController;
     m_playlistController = nullptr;
+    delete m_controlSettings;
+    m_controlSettings = nullptr;
     if (m_mpv) {
         // The wakeup callback may originate from an mpv worker thread. Unregister
         // it before destroying the client handle so no callback can target this
@@ -496,6 +497,11 @@ void MainWindow::loadControlSettings() {
     m_captureScreenshotKey = m_controlSettings->captureScreenshotKey;
     m_rotateVideoKey = m_controlSettings->rotateVideoKey;
     m_cutWithZoom = m_controlSettings->cutWithZoom;
+
+    QSettings settings(QStringLiteral("REX Player"), QStringLiteral("REX Player"));
+    m_saturation = std::clamp(settings.value(QStringLiteral("display/saturation"), m_saturation).toInt(), -100, 100);
+    m_brightness = std::clamp(settings.value(QStringLiteral("display/brightness"), m_brightness).toInt(), -100, 100);
+    m_contrast = std::clamp(settings.value(QStringLiteral("display/contrast"), m_contrast).toInt(), -100, 100);
 }
 
 void MainWindow::showControlsDialog() {
