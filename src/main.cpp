@@ -10,6 +10,9 @@
 #include <QIcon>
 #include <QKeyEvent>
 #include <QLayout>
+#include <QPushButton>
+#include <QVBoxLayout>
+#include <QWidget>
 #include <QTimer>
 
 namespace {
