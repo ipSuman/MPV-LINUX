@@ -56,6 +56,7 @@
 #include "PlaylistController.h"
 #include "VideoTransformer.h"
 #include "TrackController.h"
+#include "PlaybackInhibitor.h"
 
 #include <algorithm>
 #include <cmath>
@@ -64,9 +65,6 @@
 
 #include <mpv/client.h>
 
-#ifdef Q_OS_WIN
-#include <windows.h>
-#endif
 
 namespace {
 const QStringList kMediaExtensions = {
@@ -181,6 +179,8 @@ MainWindow::MainWindow(const QString& mediaPath, QWidget* parent)
 
     m_trackController = new TrackController(m_mpv, m_runtimeLogger, this);
 
+    m_playbackInhibitor = new PlaybackInhibitor(m_runtimeLogger, this);
+
     m_uiTimer.setInterval(250);
     connect(&m_uiTimer, &QTimer::timeout, this, &MainWindow::updatePlaybackUi);
     m_uiTimer.start();
@@ -191,6 +191,7 @@ MainWindow::MainWindow(const QString& mediaPath, QWidget* parent)
 MainWindow::~MainWindow() {
     m_uiTimer.stop();
     m_videoTransformer = nullptr;
+    m_playbackInhibitor = nullptr;
     delete m_playlistController;
     m_playlistController = nullptr;
     updatePlaybackInhibit(false);
@@ -1263,65 +1264,7 @@ void MainWindow::saveLogReport() {
 }
 
 void MainWindow::updatePlaybackInhibit(bool active) {
-#ifdef Q_OS_WIN
-    if (active == m_playbackInhibited) return;
-    if (active) {
-        SetThreadExecutionState(ES_CONTINUOUS | ES_DISPLAY_REQUIRED);
-    } else {
-        SetThreadExecutionState(ES_CONTINUOUS);
-    }
-    m_playbackInhibited = active;
-#elif defined(Q_OS_LINUX)
-    if (active) {
-        // Do not trust the cached flag alone: an inhibitor helper can exit or
-        // fail after it was started. Re-create it whenever it is not running.
-        if (!m_powerInhibitProcess || m_powerInhibitProcess->state() == QProcess::NotRunning) {
-            if (m_powerInhibitProcess) {
-                m_powerInhibitProcess->deleteLater();
-                m_powerInhibitProcess = nullptr;
-            }
-
-            m_powerInhibitProcess = new QProcess(this);
-            const QString gnomeInhibit = QStandardPaths::findExecutable(QStringLiteral("gnome-session-inhibit"));
-            if (!gnomeInhibit.isEmpty()) {
-                // GNOME's own idle inhibitor covers screen dimming/blanking.
-                m_powerInhibitProcess->setProgram(gnomeInhibit);
-                m_powerInhibitProcess->setArguments({
-                    QStringLiteral("--app-id=rex-player"),
-                    QStringLiteral("--reason=Video playback"),
-                    QStringLiteral("--inhibit=idle"),
-                    QStringLiteral("--inhibit-only")
-                });
-            } else {
-                // Fallback for non-GNOME Linux desktops using logind.
-                m_powerInhibitProcess->setProgram(QStringLiteral("systemd-inhibit"));
-                m_powerInhibitProcess->setArguments({
-                    QStringLiteral("--what=idle"),
-                    QStringLiteral("--who=REX Player"),
-                    QStringLiteral("--why=Video playback"),
-                    QStringLiteral("--mode=block"),
-                    QStringLiteral("sleep"),
-                    QStringLiteral("infinity")
-                });
-            }
-            m_powerInhibitProcess->start();
-        }
-        m_playbackInhibited = m_powerInhibitProcess &&
-                              m_powerInhibitProcess->state() != QProcess::NotRunning;
-    } else {
-        if (m_powerInhibitProcess) {
-            m_powerInhibitProcess->terminate();
-            if (!m_powerInhibitProcess->waitForFinished(500)) {
-                m_powerInhibitProcess->kill();
-            }
-            m_powerInhibitProcess->deleteLater();
-            m_powerInhibitProcess = nullptr;
-        }
-        m_playbackInhibited = false;
-    }
-#else
-    m_playbackInhibited = active;
-#endif
+    if (m_playbackInhibitor) m_playbackInhibitor->setActive(active);
 }
 
 void MainWindow::updateHardwareButton() {
