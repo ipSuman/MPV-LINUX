@@ -1570,6 +1570,8 @@ void MainWindow::saveSelectedAudioTrack() {
 
     int selectedId = -1;
     int ffIndex = -1;
+    int selectedAudioIndex = -1;
+    int audioIndex = 0;
     QString trackTitle;
     QString codec;
     QString externalFilename;
@@ -1578,14 +1580,18 @@ void MainWindow::saveSelectedAudioTrack() {
         const mpv_node& track = tracks.u.list->values[i];
         if (track.format != MPV_FORMAT_NODE_MAP || !track.u.list) continue;
         if (nodeString(mapValue(track.u.list, "type")) != QStringLiteral("audio")) continue;
-        if (!nodeFlag(mapValue(track.u.list, "selected"))) continue;
+        const bool isSelected = nodeFlag(mapValue(track.u.list, "selected"));
+        if (isSelected) selectedAudioIndex = audioIndex;
 
-        selectedId = nodeInt(mapValue(track.u.list, "id"));
+        if (isSelected) {
+            selectedId = nodeInt(mapValue(track.u.list, "id"));
         ffIndex = nodeInt(mapValue(track.u.list, "ff-index"));
         trackTitle = nodeString(mapValue(track.u.list, "title"));
         codec = nodeString(mapValue(track.u.list, "codec")).trimmed().toLower();
-        externalFilename = nodeString(mapValue(track.u.list, "external-filename"));
-        break;
+            externalFilename = nodeString(mapValue(track.u.list, "external-filename"));
+        }
+        ++audioIndex;
+        if (isSelected) break;
     }
     mpv_free_node_contents(&tracks);
 
@@ -1668,10 +1674,11 @@ void MainWindow::saveSelectedAudioTrack() {
 
     const QString mapSpecifier = ffIndex >= 0
         ? QStringLiteral("0:%1").arg(ffIndex)
-        : QStringLiteral("0:a:0");
+        : QStringLiteral("0:a:%1").arg(std::max(0, selectedAudioIndex));
 
-    appendRuntimeLog(QStringLiteral("AUDIO SAVE: selected id=%1 ff-index=%2 codec=%3 external=%4")
+    appendRuntimeLog(QStringLiteral("AUDIO SAVE: selected id=%1 audio-index=%2 ff-index=%3 codec=%4 external=%5")
         .arg(selectedId)
+        .arg(selectedAudioIndex)
         .arg(ffIndex)
         .arg(codec.isEmpty() ? QStringLiteral("<unknown>") : codec)
         .arg(externalFilename.isEmpty() ? QStringLiteral("no") : externalFilename));
