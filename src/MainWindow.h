@@ -63,6 +63,7 @@ private slots:
     void playNext();
     void showTracksMenu();
     void cutAbSelection();
+    void rotateVideo90();
     void saveLogReport();
     void increaseSubtitleSize();
     void decreaseSubtitleSize();
@@ -89,6 +90,7 @@ private:
     void updatePlayButton(bool paused);
     void updateSeekButtonLabels();
     void adjustVideoZoom(double amount);
+    void rotateVideo90();
     void resetVideoTransform();
     void setAbLoopStart();
     void setAbLoopEnd();
@@ -182,6 +184,8 @@ private:
     QKeySequence m_subtitleSizeUpKey = QKeySequence(Qt::SHIFT | Qt::Key_I);
     QKeySequence m_subtitleSizeDownKey = QKeySequence(Qt::Key_I);
     QKeySequence m_captureScreenshotKey = QKeySequence(Qt::Key_C);
+    QKeySequence m_rotateVideoKey = QKeySequence(Qt::Key_R);
+    int m_videoRotation = 0;
     int m_saturation = 0;
     int m_brightness = 0;
     int m_contrast = 0;
