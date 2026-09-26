@@ -1670,7 +1670,7 @@ void MainWindow::savePlaylist() {
     stream << QStringLiteral("#EXTM3U\n");
     for (int i = 0; i < m_playlist->count(); ++i) {
         const QString mediaPath = m_playlist->item(i)->data(Qt::UserRole).toString();
-        if (!mediaPath.isEmpty()) stream << mediaPath << QLatin1Char('\\n');
+        if (!mediaPath.isEmpty()) stream << mediaPath << QLatin1Char('\n');
     }
     file.close();
     m_runtimeLogger->append(QStringLiteral("PLAYLIST SAVE: saved %1 item(s) to %2")
@@ -1706,11 +1706,13 @@ void MainWindow::openPlaylist() {
     int missingCount = 0;
     for (const QString& mediaPath : paths) {
         const QFileInfo info(mediaPath);
-        if (!info.exists() || !info.isFile()) {
+        QFileInfo resolvedInfo = info;
+        if (resolvedInfo.isRelative()) resolvedInfo = QFileInfo(QFileInfo(path).dir(), resolvedInfo.filePath());
+        if (!resolvedInfo.exists() || !resolvedInfo.isFile()) {
             ++missingCount;
             continue;
         }
-        addToPlaylist(info.absoluteFilePath());
+        addToPlaylist(resolvedInfo.absoluteFilePath());
     }
 
     if (m_playlistController->count() > 0) {
