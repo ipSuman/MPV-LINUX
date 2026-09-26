@@ -62,6 +62,7 @@ private slots:
     void playPrevious();
     void playNext();
     void showTracksMenu();
+    void saveSelectedAudioTrack();
     void cutAbSelection();
     void rotateVideo90();
     void toggleFlipHorizontal();
@@ -139,13 +140,16 @@ private:
     QPushButton* m_cutAbButton = nullptr;
     QPushButton* m_rotateButton = nullptr;
     QPushButton* m_logButton = nullptr;
+    QPushButton* m_saveAudioButton = nullptr;
     QCheckBox* m_autoplayCheck = nullptr;
     QPushButton* m_loopPlaylistButton = nullptr;
     QProcess* m_cutProcess = nullptr;
+    QProcess* m_audioSaveProcess = nullptr;
     QProcess* m_powerInhibitProcess = nullptr;
     bool m_playbackInhibited = false;
     std::atomic_bool m_mpvWakeQueued{false};
     QString m_cutOutputPath;
+    QString m_audioSaveOutputPath;
     bool m_seeking = false;
     bool m_panningVideo = false;
     QPointF m_panStart;
