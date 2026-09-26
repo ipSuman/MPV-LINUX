@@ -53,6 +53,7 @@
 #include "MpvNodeUtils.h"
 #include "AudioExporter.h"
 #include "RuntimeLogger.h"
+#include "PlaybackPositionManager.h"
 
 #include <algorithm>
 #include <cmath>
@@ -112,6 +113,7 @@ MainWindow::MainWindow(const QString& mediaPath, QWidget* parent)
     buildUi();
 
     m_runtimeLogger = new RuntimeLogger(this);
+    m_playbackPositions = new PlaybackPositionManager(this);
     m_audioExporter = new AudioExporter(this);
     connect(m_audioExporter, &AudioExporter::logMessage,
             m_runtimeLogger, &RuntimeLogger::append);
@@ -1687,19 +1689,14 @@ void MainWindow::saveSelectedAudioTrack() {
     }
 }
 
-QString MainWindow::playbackPositionKey(const QString& path) const {
-    const QByteArray digest = QCryptographicHash::hash(path.toUtf8(), QCryptographicHash::Sha256).toHex();
-    return QStringLiteral("playback/positions/%1").arg(QString::fromLatin1(digest));
-}
-
 void MainWindow::saveCurrentPlaybackPosition() {
     if (!m_mpv || m_pendingResumePath.isEmpty()) return;
     const double pos = getPropertyDouble("time-pos");
     const double duration = getPropertyDouble("duration");
     if (!std::isfinite(pos) || pos <= 0.5 || duration <= 0.0) return;
-    QSettings settings(QStringLiteral("REX Player"), QStringLiteral("REX Player"));
-    settings.setValue(playbackPositionKey(m_pendingResumePath), pos);
-    settings.sync();
+    if (m_playbackPositions) {
+        m_playbackPositions->save(m_pendingResumePath, pos);
+    }
 }
 
 void MainWindow::pumpMpvEvents() {
@@ -1733,8 +1730,8 @@ void MainWindow::pumpMpvEvents() {
                 QTimer::singleShot(0, this, &MainWindow::resizeWindowForVideoAspect);
             }
             if (m_promptResumeNextLoad && !m_pendingResumePath.isEmpty()) {
-                QSettings settings(QStringLiteral("REX Player"), QStringLiteral("REX Player"));
-                const double saved = settings.value(playbackPositionKey(m_pendingResumePath), 0.0).toDouble();
+                const double saved =
+                    m_playbackPositions ? m_playbackPositions->load(m_pendingResumePath) : 0.0;
                 const double duration = getPropertyDouble("duration");
                 m_promptResumeNextLoad = false;
                 if (saved >= 5.0 && duration > 0.0 && saved < duration - 5.0) {
