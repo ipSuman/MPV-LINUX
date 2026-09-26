@@ -9,13 +9,9 @@ struct mpv_handle;
 class DisplayController final : public QObject {
     Q_OBJECT
 public:
-    struct Values {
-        int saturation = 0;
-        int brightness = 0;
-        int contrast = 0;
-    };
-
-    DisplayController(mpv_handle* mpv, QWidget* parentWidget, Values* values, const std::function<void(const char*, double)>& setProperty, QObject* parent = nullptr);
+    DisplayController(QWidget* parentWidget, int* saturation, int* brightness, int* contrast,
+                      const std::function<void(const char*, double)>& setProperty,
+                      QObject* parent = nullptr);
 
     void showDialog();
 
@@ -24,6 +20,8 @@ signals:
 
 private:
     QWidget* m_parentWidget = nullptr;
-    Values* m_values = nullptr;
+    int* m_saturation = nullptr;
+    int* m_brightness = nullptr;
+    int* m_contrast = nullptr;
     std::function<void(const char*, double)> m_setProperty;
 };
