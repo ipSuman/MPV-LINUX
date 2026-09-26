@@ -197,7 +197,7 @@ private:
     QKeySequence m_mirrorVideoKey = QKeySequence(Qt::SHIFT | Qt::Key_M);
     int m_videoRotation = 0;
     bool m_videoMirrored = false;
-    bool m_transformForcedCopyback = false;
+    bool m_transformForcedSoftware = false;
     int m_saturation = 0;
     int m_brightness = 0;
     int m_contrast = 0;
