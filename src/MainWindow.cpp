@@ -1363,7 +1363,7 @@ void MainWindow::pumpMpvEvents() {
             // Install the mirror filter once in a disabled state. mpv's
             // documented vf toggle command then enables/disables it without
             // disturbing any other filters.
-            const char* mirrorFilterArgs[] = {"vf-add", "@rex-mirror:!lavfi=hflip", nullptr};
+            const char* mirrorFilterArgs[] = {"vf-add", "@rex-mirror:!lavfi=[hflip]", nullptr};
             command(mirrorFilterArgs);
             if (m_mirrorButton) m_mirrorButton->setChecked(false);
             // The video viewport is embedded in the Qt window, so mpv cannot
