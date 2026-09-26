@@ -75,6 +75,9 @@ private slots:
     void showTracksMenu();
     void saveSelectedAudioTrack();
     void cutAbSelection();
+    void rotateVideo90();
+    void toggleFlipHorizontal();
+    void toggleFlipVertical();
     void increaseSubtitleSize();
     void decreaseSubtitleSize();
     void cycleSubtitles();
@@ -113,7 +116,9 @@ private:
     void resizeWindowForVideoAspect();
     void showDisplayDialog();
     void captureScreenshot();
+    void saveLogReport();
     void loadControlSettings();
+    void updatePlaybackInhibit(bool active);
     bool keyMatches(QKeyEvent* event, const QKeySequence& sequence) const;
     void saveCurrentPlaybackPosition();
     QString mpvEventName(int eventId) const;
