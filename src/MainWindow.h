@@ -139,7 +139,6 @@ private:
     QPushButton* m_seekForwardButton = nullptr;
     QPushButton* m_cutAbButton = nullptr;
     QPushButton* m_rotateButton = nullptr;
-    QPushButton* m_logButton = nullptr;
     QPushButton* m_saveAudioButton = nullptr;
     QCheckBox* m_autoplayCheck = nullptr;
     QPushButton* m_loopPlaylistButton = nullptr;
@@ -166,7 +165,6 @@ private:
     bool m_promptResumeNextLoad = false;
     QString m_pendingResumePath;
     QString m_runtimeLogPath;
-    double m_pendingResumePosition = 0.0;
     qint64 m_lastPositionSaveMs = 0;
     qint64 m_lastEscapePressMs = 0;
 
