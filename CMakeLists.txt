@@ -57,6 +57,8 @@ add_executable(rex-player
     src/PlaybackPositionManager.h
     src/PlaylistController.cpp
     src/PlaylistController.h
+    src/VideoTransformer.cpp
+    src/VideoTransformer.h
     assets/rex-player.qrc
 )
 
