@@ -1367,7 +1367,8 @@ void MainWindow::saveLogReport() {
     out << "Frame back shortcut: " << m_frameBackKey.toString() << "\n";
     out << "Frame forward shortcut: " << m_frameForwardKey.toString() << "\n";
     out << "Switch subtitles shortcut: " << m_switchSubtitlesKey.toString() << "\n";
-    out << "Autoplay next item: " << (m_autoplayPlaylist ? "enabled" : "disabled") << "\n";
+    out << "Autoplay next item: " << ((m_playlistController && m_playlistController->autoplay()) ? "enabled" : "disabled") << "\n";
+    out << "Loop playlist: " << ((m_playlistController && m_playlistController->loop()) ? "enabled" : "disabled") << "\n";
 
     out << "\nPlaylist\n--------\n";
     if (m_playlist) {
