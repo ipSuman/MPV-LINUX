@@ -209,14 +209,14 @@ void MainWindow::buildUi() {
     m_controls->setObjectName(QStringLiteral("controls"));
     m_controls->setStyleSheet(QStringLiteral(
         "QWidget#controls{background:#171717;color:#eee;}"
-        "QPushButton{background:transparent;color:#eee;border:0;padding:8px 10px;}"
-        "QPushButton:hover{background:#303030;border-radius:6px;}"
+        "QPushButton{background:transparent;color:#eee;border:0;padding:4px 6px;font-size:11px;}"
+        "QPushButton:hover{background:#303030;border-radius:5px;}"
         "QSlider::groove:horizontal{height:4px;background:#555;border-radius:2px;}"
         "QSlider::handle:horizontal{width:12px;margin:-4px 0;border-radius:6px;background:#ddd;}"
-        "QLabel{color:#ddd;}"));
+        "QLabel{color:#ddd;font-size:11px;}"));
     auto* controlsLayout = new QVBoxLayout(m_controls);
-    controlsLayout->setContentsMargins(12, 8, 12, 10);
-    controlsLayout->setSpacing(6);
+    controlsLayout->setContentsMargins(8, 5, 8, 6);
+    controlsLayout->setSpacing(3);
 
     auto* progressRow = new QHBoxLayout();
     progressRow->setContentsMargins(0, 0, 0, 0);
@@ -246,7 +246,7 @@ void MainWindow::buildUi() {
 
     auto* row = new QHBoxLayout();
     row->setContentsMargins(0, 0, 0, 0);
-    row->setSpacing(4);
+    row->setSpacing(2);
     auto* open = new QPushButton(QStringLiteral("Open"), m_controls);
     connect(open, &QPushButton::clicked, this, &MainWindow::openFile);
     row->addWidget(open);
@@ -285,7 +285,7 @@ void MainWindow::buildUi() {
     m_timeLabel->setCursor(Qt::PointingHandCursor);
     m_timeLabel->installEventFilter(this);
     row->addWidget(m_timeLabel);
-    m_timeLabel->setFixedWidth(170);
+    m_timeLabel->setFixedWidth(145);
     m_timeLabel->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
     m_currentTimeLabel->setVisible(false);
     m_progressTimeLabel->setVisible(false);
@@ -293,7 +293,7 @@ void MainWindow::buildUi() {
     m_abLoopLabel->setToolTip(QStringLiteral("A: set loop start, B: set loop end, L: clear loop"));
     row->addWidget(m_abLoopLabel);
     m_cutAbButton = new QPushButton(QStringLiteral("Cut AB"), m_controls);
-    m_cutAbButton->setMinimumWidth(76);
+    m_cutAbButton->setFixedWidth(62);
     m_cutAbButton->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
     m_cutAbButton->setToolTip(QStringLiteral("Cut the current A-B selection with FFmpeg without re-encoding"));
     connect(m_cutAbButton, &QPushButton::clicked, this, &MainWindow::cutAbSelection);
@@ -336,7 +336,7 @@ void MainWindow::buildUi() {
     m_volumeSlider = new QSlider(Qt::Horizontal, m_controls);
     m_volumeSlider->setRange(0, 100);
     m_volumeSlider->setValue(60);
-    m_volumeSlider->setFixedWidth(130);
+    m_volumeSlider->setFixedWidth(100);
     connect(m_volumeSlider, &QSlider::valueChanged, this, &MainWindow::setVolume);
     row->addWidget(m_volumeSlider);
     auto* tracks = new QPushButton(QStringLiteral("Tracks"), m_controls);
@@ -345,6 +345,7 @@ void MainWindow::buildUi() {
     row->addWidget(tracks);
 
     m_saveAudioButton = new QPushButton(QStringLiteral("Save Audio"), m_controls);
+    m_saveAudioButton->setFixedWidth(72);
     m_saveAudioButton->setToolTip(QStringLiteral("Save the currently selected audio track without re-encoding"));
     connect(m_saveAudioButton, &QPushButton::clicked, this, &MainWindow::saveSelectedAudioTrack);
     row->addWidget(m_saveAudioButton);
