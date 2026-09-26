@@ -65,6 +65,8 @@ private slots:
     void cutAbSelection();
     void rotateVideo90();
     void toggleMirror();
+    void ensureTransformCopyback();
+    void restoreTransformHardwareMode();
     void saveLogReport();
     void increaseSubtitleSize();
     void decreaseSubtitleSize();
