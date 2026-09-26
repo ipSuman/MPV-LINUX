@@ -54,6 +54,7 @@
 #include "RuntimeLogger.h"
 #include "PlaybackPositionManager.h"
 #include "PlaylistController.h"
+#include "VideoTransformer.h"
 
 #include <algorithm>
 #include <cmath>
@@ -114,6 +115,7 @@ MainWindow::MainWindow(const QString& mediaPath, QWidget* parent)
     buildUi();
 
     m_runtimeLogger = new RuntimeLogger(this);
+    m_videoTransformer = new VideoTransformer(m_mpv, m_runtimeLogger);
     m_playbackPositions = new PlaybackPositionManager(this);
     m_audioExporter = new AudioExporter(this);
     connect(m_audioExporter, &AudioExporter::logMessage,
@@ -185,6 +187,8 @@ MainWindow::MainWindow(const QString& mediaPath, QWidget* parent)
 
 MainWindow::~MainWindow() {
     m_uiTimer.stop();
+    delete m_videoTransformer;
+    m_videoTransformer = nullptr;
     delete m_playlistController;
     m_playlistController = nullptr;
     updatePlaybackInhibit(false);
@@ -853,16 +857,7 @@ void MainWindow::playPlaylistIndex(int index, bool promptResume) {
 
     // A newly selected file starts with normal hardware decoding and
     // no manual rotation or flip transforms.
-    clearFlipHardwareOverride();
-    m_videoRotation = 0;
-    m_flipHorizontal = false;
-    m_flipVertical = false;
-    const char* removeFlipHArgs[] = {"vf-remove", "@rex-flip-h", nullptr};
-    const char* removeFlipVArgs[] = {"vf-remove", "@rex-flip-v", nullptr};
-    command(removeFlipHArgs);
-    command(removeFlipVArgs);
-    const char* resetRotationArgs[] = {"set", "video-rotate", "0", nullptr};
-    command(resetRotationArgs);
+    if (m_videoTransformer) m_videoTransformer->reset();
 
     const QString path = m_playlistController->pathAt(index);
     if (path.isEmpty() || !QFileInfo::exists(path)) return;
@@ -913,149 +908,31 @@ void MainWindow::setPropertyDouble(const char* name, double value) {
 }
 void MainWindow::updateSeekButtonLabels() { if (!m_seekBackButton || !m_seekForwardButton) return; m_seekBackButton->setText(QStringLiteral("−10s")); m_seekForwardButton->setText(QStringLiteral("+10s")); }
 void MainWindow::adjustVideoZoom(double amount) { setPropertyDouble("video-zoom", std::clamp(getPropertyDouble("video-zoom") + amount, -2.0, 3.0)); }
-void MainWindow::clearFlipHardwareOverride() {
-    if (!m_mpv || !m_flipHwdecOverride) return;
-
-    const QString currentHwdec = getPropertyString("hwdec").trimmed();
-    m_runtimeLogger->append(QStringLiteral("FLIP HWDEC: clearing override; current=%1 saved=%2")
-        .arg(currentHwdec, m_flipPreHwdec));
-
-    // Restore the user's previous hwdec choice only if it is still the
-    // copy-back value we installed for the flip session. This mirrors
-    // REX Player's behaviour and avoids overwriting a manual user change.
-    if (currentHwdec == QStringLiteral("auto-copy")) {
-        const QByteArray saved = m_flipPreHwdec.toUtf8();
-        const char* args[] = {"set", "hwdec", saved.constData(), nullptr};
-        command(args);
-        m_runtimeLogger->append(QStringLiteral("FLIP HWDEC: queued restore %1")
-            .arg(m_flipPreHwdec));
-    }
-
-    m_flipPreHwdec.clear();
-    m_flipHwdecOverride = false;
-}
-
-void MainWindow::applyVideoTransforms() {
-    if (!m_mpv) return;
-
-    const bool flipsActive = m_flipHorizontal || m_flipVertical;
-    m_runtimeLogger->append(QStringLiteral("TRANSFORM: apply rotation=%1 flipH=%2 flipV=%3 hwdec=%4 hwdec-current=%5")
-        .arg(m_videoRotation)
-        .arg(m_flipHorizontal ? QStringLiteral("on") : QStringLiteral("off"))
-        .arg(m_flipVertical ? QStringLiteral("on") : QStringLiteral("off"))
-        .arg(getPropertyString("hwdec"))
-        .arg(getPropertyString("hwdec-current")));
-
-    // Keep rotation native in mpv. Flip filters are CPU-frame filters, so
-    // when hardware decoding is active we temporarily switch to mpv's
-    // copy-back mode. This is the same basic approach used by REX Player.
-    if (flipsActive && !m_flipHwdecOverride) {
-        const QString activeHwdec = getPropertyString("hwdec-current").trimmed();
-        const QString configuredHwdec = getPropertyString("hwdec").trimmed();
-        const bool hardwareActive =
-            !activeHwdec.isEmpty() &&
-            activeHwdec != QStringLiteral("no") &&
-            activeHwdec != QStringLiteral("none");
-        const bool alreadyCopyBack =
-            activeHwdec == QStringLiteral("auto-copy") ||
-            activeHwdec.endsWith(QStringLiteral("-copy"));
-
-        if (hardwareActive && !alreadyCopyBack) {
-            m_flipPreHwdec = configuredHwdec.isEmpty() ? QStringLiteral("auto") : configuredHwdec;
-
-            const char* args[] = {"set", "hwdec", "auto-copy", nullptr};
-            command(args);
-            m_runtimeLogger->append(QStringLiteral("FLIP HWDEC: queued %1 -> auto-copy")
-                .arg(m_flipPreHwdec));
-            m_flipHwdecOverride = true;
-        }
-    }
-
-    if (!flipsActive) {
-        clearFlipHardwareOverride();
-    }
-
-    qint64 rotation = m_videoRotation;
-    const int rotationResult = mpv_set_property(
-        m_mpv, "video-rotate", MPV_FORMAT_INT64, &rotation);
-    m_runtimeLogger->append(QStringLiteral("TRANSFORM: video-rotate=%1 result=%2 (%3)")
-        .arg(m_videoRotation)
-        .arg(rotationResult)
-        .arg(QString::fromUtf8(mpv_error_string(rotationResult))));
-
-    // Use mpv's native hflip/vflip filters, as REX Player does. The
-    // previous lavfi=[hflip]/lavfi=[vflip] form can fail when the decoded
-    // frames remain hardware-backed.
-    const bool waitForCopyBack = flipsActive && m_flipHwdecOverride;
-    if (waitForCopyBack) {
-        const QString activeHwdec = getPropertyString("hwdec-current").trimmed();
-        // hwdec-current reports the actual backend, e.g. "vaapi-copy",
-        // not the configured value "auto-copy". Treat any *-copy backend
-        // as ready. If mpv has fallen back to software ("no"/"none"),
-        // CPU-frame filters are also safe to install.
-        const bool copyBackReady =
-            activeHwdec.endsWith(QStringLiteral("-copy")) ||
-            activeHwdec == QStringLiteral("no") ||
-            activeHwdec == QStringLiteral("none");
-        if (!copyBackReady) {
-            m_runtimeLogger->append(QStringLiteral("TRANSFORM: waiting for hwdec copy-back; current=%1")
-                .arg(activeHwdec.isEmpty() ? QStringLiteral("<empty>") : activeHwdec));
-            QTimer::singleShot(100, this, &MainWindow::applyVideoTransforms);
-            return;
-        }
-    }
-
-    const char* removeHArgs[] = {"vf", "remove", "@rex-flip-h", nullptr};
-    const int removeHResult = mpv_command(m_mpv, removeHArgs);
-    m_runtimeLogger->append(QStringLiteral("TRANSFORM: remove @rex-flip-h result=%1 (%2)")
-        .arg(removeHResult).arg(QString::fromUtf8(mpv_error_string(removeHResult))));
-
-    const char* removeVArgs[] = {"vf", "remove", "@rex-flip-v", nullptr};
-    const int removeVResult = mpv_command(m_mpv, removeVArgs);
-    m_runtimeLogger->append(QStringLiteral("TRANSFORM: remove @rex-flip-v result=%1 (%2)")
-        .arg(removeVResult).arg(QString::fromUtf8(mpv_error_string(removeVResult))));
-
-    if (m_flipHorizontal) {
-        const char* addHArgs[] = {"vf", "add", "@rex-flip-h:hflip", nullptr};
-        const int result = mpv_command(m_mpv, addHArgs);
-        m_runtimeLogger->append(QStringLiteral("TRANSFORM: add horizontal flip result=%1 (%2)")
-            .arg(result).arg(QString::fromUtf8(mpv_error_string(result))));
-    }
-
-    if (m_flipVertical) {
-        const char* addVArgs[] = {"vf", "add", "@rex-flip-v:vflip", nullptr};
-        const int result = mpv_command(m_mpv, addVArgs);
-        m_runtimeLogger->append(QStringLiteral("TRANSFORM: add vertical flip result=%1 (%2)")
-            .arg(result).arg(QString::fromUtf8(mpv_error_string(result))));
-    }
-
-    m_runtimeLogger->append(QStringLiteral("TRANSFORM: apply complete hwdec=%1 hwdec-current=%2")
-        .arg(getPropertyString("hwdec"))
-        .arg(getPropertyString("hwdec-current")));
+void MainWindow::rotateVideo90() {
+    if (!m_videoTransformer) return;
+    const int nextRotation = (m_videoTransformer->rotation() + 90) % 360;
+    m_videoTransformer->setRotation(nextRotation);
+    m_runtimeLogger->append(QStringLiteral("USER ACTION: Rotate clicked; new rotation=%1").arg(nextRotation));
+    m_videoTransformer->apply();
     QTimer::singleShot(100, this, &MainWindow::resizeWindowForVideoAspect);
 }
 
-void MainWindow::rotateVideo90() {
-    if (!m_mpv) return;
-    m_videoRotation = (m_videoRotation + 90) % 360;
-    m_runtimeLogger->append(QStringLiteral("USER ACTION: Rotate clicked; new rotation=%1").arg(m_videoRotation));
-    applyVideoTransforms();
-}
-
 void MainWindow::toggleFlipHorizontal() {
-    if (!m_mpv) return;
-    m_flipHorizontal = !m_flipHorizontal;
+    if (!m_videoTransformer) return;
+    m_videoTransformer->toggleFlipHorizontal();
     m_runtimeLogger->append(QStringLiteral("USER ACTION: Flip H clicked; new state=%1")
-        .arg(m_flipHorizontal ? QStringLiteral("on") : QStringLiteral("off")));
-    applyVideoTransforms();
+        .arg(m_videoTransformer->flipHorizontal() ? QStringLiteral("on") : QStringLiteral("off")));
+    m_videoTransformer->apply();
+    QTimer::singleShot(100, this, &MainWindow::resizeWindowForVideoAspect);
 }
 
 void MainWindow::toggleFlipVertical() {
-    if (!m_mpv) return;
-    m_flipVertical = !m_flipVertical;
+    if (!m_videoTransformer) return;
+    m_videoTransformer->toggleFlipVertical();
     m_runtimeLogger->append(QStringLiteral("USER ACTION: Flip V clicked; new state=%1")
-        .arg(m_flipVertical ? QStringLiteral("on") : QStringLiteral("off")));
-    applyVideoTransforms();
+        .arg(m_videoTransformer->flipVertical() ? QStringLiteral("on") : QStringLiteral("off")));
+    m_videoTransformer->apply();
+    QTimer::singleShot(100, this, &MainWindow::resizeWindowForVideoAspect);
 }
 
 void MainWindow::resetVideoTransform() { setPropertyDouble("video-zoom", 0.0); setPropertyDouble("video-pan-x", 0.0); setPropertyDouble("video-pan-y", 0.0); m_videoPanX = 0.0; m_videoPanY = 0.0; }
@@ -1723,7 +1600,7 @@ void MainWindow::pumpMpvEvents() {
             // new file is selected. Do not reset it here: video-reload is also
             // used to rebuild the decoder for transform mode, and that reload
             // Preserve the requested rotation and flip state.
-            applyVideoTransforms();
+            if (m_videoTransformer) m_videoTransformer->apply();
             // The video viewport is embedded in the Qt window, so mpv cannot
             // resize the parent window itself. Resize the normal window here
             // using mpv's actual display dimensions. This makes the windowed
