@@ -159,7 +159,6 @@ private:
     double m_videoPanY = 0.0;
     double m_abLoopStart = -1.0;
     double m_abLoopEnd = -1.0;
-    int m_currentPlaylistIndex = -1;
     bool m_showRemainingTime = false;
     bool m_timerBesideProgress = false;
     bool m_cutWithZoom = false;
