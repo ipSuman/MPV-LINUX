@@ -183,6 +183,7 @@ MainWindow::MainWindow(const QString& mediaPath, QWidget* parent)
     m_playbackInhibitor = new PlaybackInhibitor(m_runtimeLogger, this);
 
     m_diagnosticReporter = new DiagnosticReporter(m_mpv, m_runtimeLogger, m_playlistController, this);
+    m_diagnosticReporter->setControlStateProvider([this] { return diagnosticControlState(); });
 
     m_uiTimer.setInterval(250);
     connect(&m_uiTimer, &QTimer::timeout, this, &MainWindow::updatePlaybackUi);
@@ -1129,6 +1130,50 @@ void MainWindow::cutAbSelection() {
          << QStringLiteral("-y") << outputPath;
 
     m_cutProcess->start(ffmpeg, args);
+}
+
+QString MainWindow::diagnosticControlState() const {
+    QString state;
+    QTextStream out(&state);
+    out << "A-B start: " << m_abLoopStart << "\n";
+    out << "A-B end: " << m_abLoopEnd << "\n";
+    out << "Seek duration (seconds): " << m_seekDurationSeconds << "\n";
+    out << "Seek wheel: " << m_seekWheelMode << "\n";
+    out << "Zoom wheel: " << m_zoomWheelMode << "\n";
+    out << "Volume wheel: " << m_volumeWheelMode << "\n";
+    out << "Pan gesture: Alt + Ctrl + left-drag\n";
+    out << "Double-click button: " << static_cast<int>(m_doubleClickButton) << "\n";
+    out << "Double-click zones: " << (m_doubleClickZones ? "enabled" : "disabled") << "\n";
+    out << "Volume up shortcut: " << m_volumeUpKey.toString() << "\n";
+    out << "Volume down shortcut: " << m_volumeDownKey.toString() << "\n";
+    out << "Mute shortcut: " << m_muteKey.toString() << "\n";
+    out << "Seek backward shortcut: " << m_seekBackwardKey.toString() << "\n";
+    out << "Seek forward shortcut: " << m_seekForwardKey.toString() << "\n";
+    out << "Loop A shortcut: " << m_loopAKey.toString() << "\n";
+    out << "Loop B shortcut: " << m_loopBKey.toString() << "\n";
+    out << "Loop clear shortcut: " << m_loopClearKey.toString() << "\n";
+    out << "Zoom in shortcut: " << m_zoomInKey.toString() << "\n";
+    out << "Zoom out shortcut: " << m_zoomOutKey.toString() << "\n";
+    out << "Zoom reset shortcut: " << m_zoomResetKey.toString() << "\n";
+    out << "Frame back shortcut: " << m_frameBackKey.toString() << "\n";
+    out << "Frame forward shortcut: " << m_frameForwardKey.toString() << "\n";
+    out << "Switch subtitles shortcut: " << m_switchSubtitlesKey.toString() << "\n";
+    out << "Autoplay next item: "
+        << ((m_playlistController && m_playlistController->autoplay()) ? "enabled" : "disabled") << "\n";
+    out << "Loop playlist: "
+        << ((m_playlistController && m_playlistController->loop()) ? "enabled" : "disabled") << "\n";
+
+    out << "\nPlaylist\n--------\n";
+    if (m_playlist) {
+        out << "Count: " << m_playlist->count() << "\n";
+        out << "Current index: "
+            << (m_playlistController ? m_playlistController->currentIndex() : -1) << "\n";
+        for (int i = 0; i < m_playlist->count(); ++i) {
+            const auto* item = m_playlist->item(i);
+            if (item) out << (i + 1) << ": " << item->data(Qt::UserRole).toString() << "\n";
+        }
+    }
+    return state;
 }
 
 void MainWindow::saveLogReport() {
