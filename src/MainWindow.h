@@ -112,6 +112,9 @@ private:
     bool keyMatches(QKeyEvent* event, const QKeySequence& sequence) const;
     QString playbackPositionKey(const QString& path) const;
     void saveCurrentPlaybackPosition();
+    void initializeRuntimeLog();
+    void appendRuntimeLog(const QString& message);
+    QString mpvEventName(int eventId) const;
 
     mpv_handle* m_mpv = nullptr;
     QTimer m_uiTimer;
@@ -159,6 +162,7 @@ private:
     bool m_cutWithZoom = false;
     bool m_promptResumeNextLoad = false;
     QString m_pendingResumePath;
+    QString m_runtimeLogPath;
     double m_pendingResumePosition = 0.0;
     qint64 m_lastPositionSaveMs = 0;
     qint64 m_lastEscapePressMs = 0;
