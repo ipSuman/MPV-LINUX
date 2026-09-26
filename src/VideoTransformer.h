@@ -16,6 +16,7 @@ public:
     void toggleFlipVertical();
     bool flipHorizontal() const { return m_flipHorizontal; }
     bool flipVertical() const { return m_flipVertical; }
+    bool hasTransforms() const { return m_rotation != 0 || m_flipHorizontal || m_flipVertical; }
 
     void reset();
     void apply();
