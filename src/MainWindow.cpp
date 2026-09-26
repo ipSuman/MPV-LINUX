@@ -1008,7 +1008,7 @@ void MainWindow::cutAbSelection() {
         if (success) {
             QMessageBox::information(
                 this, QStringLiteral("A-B cut complete"),
-                QStringLiteral("Saved:\n%1\n\n%2").arg(output, m_cutWithZoom && (getPropertyDouble("video-zoom") > 0.0001 || std::abs(getPropertyDouble("video-pan-x")) > 0.0001 || std::abs(getPropertyDouble("video-pan-y")) > 0.0001 || std::abs(getPropertyDouble("video-rotate")) > 0.0001 || m_flipHorizontal || m_flipVertical) ? QStringLiteral("The current zoom/pan/rotation/flip was baked into the video, so the video was re-encoded; audio/subtitles were copied when supported.") : QStringLiteral("Streams were copied without re-encoding. Because this is stream-copy cutting, the start may align to a nearby keyframe.")));
+                QStringLiteral("Saved:\n%1\n\n%2").arg(output, m_cutWithZoom && (getPropertyDouble("video-zoom") > 0.0001 || std::abs(getPropertyDouble("video-pan-x")) > 0.0001 || std::abs(getPropertyDouble("video-pan-y")) > 0.0001 || std::abs(getPropertyDouble("video-rotate")) > 0.0001 || (m_videoTransformer && m_videoTransformer->hasTransforms())) ? QStringLiteral("The current zoom/pan/rotation/flip was baked into the video, so the video was re-encoded; audio/subtitles were copied when supported.") : QStringLiteral("Streams were copied without re-encoding. Because this is stream-copy cutting, the start may align to a nearby keyframe.")));
         } else {
             if (QFileInfo::exists(output)) QFile::remove(output);
             const QString detail = error.isEmpty() ? QStringLiteral("FFmpeg exited with code %1.").arg(exitCode) : error;
@@ -1048,11 +1048,11 @@ void MainWindow::cutAbSelection() {
     // transcoding. Only the user's additional manual rotation must be
     // explicitly filtered here.
     const bool bakeRotation = m_cutWithZoom && sourceWidth > 0 && sourceHeight > 0 &&
-                               m_videoRotation != 0;
+                               m_videoTransformer && m_videoTransformer->rotation() != 0;
     const bool bakeFlipHorizontal = m_cutWithZoom && sourceWidth > 0 && sourceHeight > 0 &&
-                                     m_flipHorizontal;
+                                     m_videoTransformer && m_videoTransformer->flipHorizontal();
     const bool bakeFlipVertical = m_cutWithZoom && sourceWidth > 0 && sourceHeight > 0 &&
-                                   m_flipVertical;
+                                   m_videoTransformer && m_videoTransformer->flipVertical();
     const bool bakeTransform = bakeZoom || bakeRotation || bakeFlipHorizontal || bakeFlipVertical;
 
     if (bakeTransform) {
@@ -1065,11 +1065,11 @@ void MainWindow::cutAbSelection() {
             ? sourceWidth : sourceHeight;
 
         QStringList filters;
-        if (m_videoRotation == 90) {
+        if (m_videoTransformer && m_videoTransformer->rotation() == 90) {
             filters << QStringLiteral("transpose=clock");
-        } else if (m_videoRotation == 180) {
+        } else if (m_videoTransformer && m_videoTransformer->rotation() == 180) {
             filters << QStringLiteral("hflip") << QStringLiteral("vflip");
-        } else if (m_videoRotation == 270) {
+        } else if (m_videoTransformer && m_videoTransformer->rotation() == 270) {
             filters << QStringLiteral("transpose=cclock");
         }
         if (bakeFlipHorizontal) {
