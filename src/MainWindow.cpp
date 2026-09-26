@@ -879,10 +879,10 @@ void MainWindow::playPlaylistIndex(int index, bool promptResume) {
     const char* removeMirrorArgs[] = {"vf-remove", "@rex-mirror", nullptr};
     appendRuntimeLog(QStringLiteral("TRANSFORM: removing @rex-mirror"));
     command(removeMirrorArgs);
-    if (m_transformForcedCopyback) {
+    if (m_transformForcedSoftware) {
         const char* restoreHwdecArgs[] = {"set", "hwdec", "auto", nullptr};
         command(restoreHwdecArgs);
-        m_transformForcedCopyback = false;
+        m_transformForcedSoftware = false;
     }
     const char* resetRotationArgs[] = {"set", "video-rotate", "0", nullptr};
     command(resetRotationArgs);
