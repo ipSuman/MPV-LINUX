@@ -67,6 +67,7 @@ private slots:
     void toggleFlipHorizontal();
     void toggleFlipVertical();
     void applyVideoTransforms();
+    void clearFlipHardwareOverride();
     void saveLogReport();
     void increaseSubtitleSize();
     void decreaseSubtitleSize();
@@ -195,6 +196,8 @@ private:
     int m_videoRotation = 0;
     bool m_flipHorizontal = false;
     bool m_flipVertical = false;
+    bool m_flipHwdecOverride = false;
+    QString m_flipPreHwdec;
     int m_saturation = 0;
     int m_brightness = 0;
     int m_contrast = 0;
