@@ -842,13 +842,31 @@ void MainWindow::adjustVideoZoom(double amount) { setPropertyDouble("video-zoom"
 void MainWindow::rotateVideo90() {
     if (!m_mpv) return;
     m_videoRotation = (m_videoRotation + 90) % 360;
-    setPropertyDouble("video-rotate", m_videoRotation);
-    QTimer::singleShot(0, this, &MainWindow::resizeWindowForVideoAspect);
+
+    // video-rotate is an mpv option/property, not a floating-point property.
+    // Send it through the command interface so libmpv performs the proper
+    // integer option conversion.
+    const QByteArray rotation = QByteArray::number(m_videoRotation);
+    const char* args[] = {"set", "video-rotate", rotation.constData(), nullptr};
+    command(args);
+
+    // Let mpv apply the property before measuring the new display dimensions.
+    QTimer::singleShot(50, this, &MainWindow::resizeWindowForVideoAspect);
 }
 void MainWindow::toggleMirror() {
     if (!m_mpv) return;
     m_videoMirrored = !m_videoMirrored;
-    setPropertyDouble("video-scale-x", m_videoMirrored ? -1.0 : 1.0);
+
+    // video-scale-x is not an mpv property. Use a labelled hflip filter,
+    // which can be added/removed at runtime without disturbing other filters.
+    if (m_videoMirrored) {
+        const char* args[] = {"vf-add", "@rex-mirror:hflip", nullptr};
+        command(args);
+    } else {
+        const char* args[] = {"vf-remove", "@rex-mirror", nullptr};
+        command(args);
+    }
+
     if (m_mirrorButton) m_mirrorButton->setChecked(m_videoMirrored);
 }
 void MainWindow::resetVideoTransform() { setPropertyDouble("video-zoom", 0.0); setPropertyDouble("video-pan-x", 0.0); setPropertyDouble("video-pan-y", 0.0); m_videoPanX = 0.0; m_videoPanY = 0.0; }
@@ -1346,7 +1364,11 @@ void MainWindow::pumpMpvEvents() {
             m_videoRotation = 0;
             setPropertyDouble("video-rotate", 0.0);
             m_videoMirrored = false;
-            setPropertyDouble("video-scale-x", 1.0);
+            // Remove the runtime mirror filter when switching files. The
+            // labelled filter is intentionally removed rather than clearing
+            // mpv's entire video-filter chain.
+            const char* removeMirrorArgs[] = {"vf-remove", "@rex-mirror", nullptr};
+            command(removeMirrorArgs);
             if (m_mirrorButton) m_mirrorButton->setChecked(false);
             // The video viewport is embedded in the Qt window, so mpv cannot
             // resize the parent window itself. Resize the normal window here
