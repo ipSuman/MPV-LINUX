@@ -194,6 +194,8 @@ MainWindow::MainWindow(const QString& mediaPath, QWidget* parent)
             this, &MainWindow::showError);
     connect(m_screenshotController, &ScreenshotController::successMessage,
             this, [this](const QString& message, const QString&) { showError(message); });
+    connect(m_screenshotController, &ScreenshotController::logMessage,
+            m_runtimeLogger, &RuntimeLogger::append);
     connect(m_screenshotController, &ScreenshotController::restoreTitleRequested,
             this, [this](const QString& title, const QString& path) {
                 if (!m_mpv || getPropertyString("path") != path) return;
