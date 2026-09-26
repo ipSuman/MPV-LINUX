@@ -47,6 +47,8 @@ add_executable(rex-player
     src/main.cpp
     src/MainWindow.cpp
     src/MainWindow.h
+    src/MpvNodeUtils.cpp
+    src/MpvNodeUtils.h
     assets/rex-player.qrc
 )
 
