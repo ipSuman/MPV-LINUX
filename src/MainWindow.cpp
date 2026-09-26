@@ -736,7 +736,66 @@ void MainWindow::mpvWakeupCallback(void* context) {
     }
 }
 
+void MainWindow::initializeRuntimeLog() {
+    const QString base = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    if (base.isEmpty()) return;
+    QDir().mkpath(base);
+    m_runtimeLogPath = QDir(base).filePath(QStringLiteral("REX_Player_Runtime.log"));
+
+    QFile file(m_runtimeLogPath);
+    if (file.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Append)) {
+        QTextStream out(&file);
+        out << "\n===== REX Player session started "
+            << QDateTime::currentDateTime().toString(Qt::ISODateWithMs)
+            << " =====\n";
+        out << "Application: " << QCoreApplication::applicationName()
+            << " " << QCoreApplication::applicationVersion() << "\n";
+        out << "OS: " << QSysInfo::prettyProductName()
+            << " | Kernel: " << QSysInfo::kernelVersion()
+            << " | CPU: " << QSysInfo::currentCpuArchitecture() << "\n";
+        out.flush();
+    }
+}
+
+void MainWindow::appendRuntimeLog(const QString& message) {
+    if (m_runtimeLogPath.isEmpty()) return;
+    QFile file(m_runtimeLogPath);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Append)) return;
+    QTextStream out(&file);
+    out << QDateTime::currentDateTime().toString(Qt::ISODateWithMs)
+        << " | " << message << "\n";
+    out.flush();
+    file.flush();
+}
+
+QString MainWindow::mpvEventName(int eventId) const {
+    switch (eventId) {
+    case MPV_EVENT_NONE: return QStringLiteral("NONE");
+    case MPV_EVENT_SHUTDOWN: return QStringLiteral("SHUTDOWN");
+    case MPV_EVENT_START_FILE: return QStringLiteral("START_FILE");
+    case MPV_EVENT_END_FILE: return QStringLiteral("END_FILE");
+    case MPV_EVENT_FILE_LOADED: return QStringLiteral("FILE_LOADED");
+    case MPV_EVENT_IDLE: return QStringLiteral("IDLE");
+    case MPV_EVENT_TICK: return QStringLiteral("TICK");
+    case MPV_EVENT_CLIENT_MESSAGE: return QStringLiteral("CLIENT_MESSAGE");
+    case MPV_EVENT_VIDEO_RECONFIG: return QStringLiteral("VIDEO_RECONFIG");
+    case MPV_EVENT_AUDIO_RECONFIG: return QStringLiteral("AUDIO_RECONFIG");
+    case MPV_EVENT_SEEK: return QStringLiteral("SEEK");
+    case MPV_EVENT_PLAYBACK_RESTART: return QStringLiteral("PLAYBACK_RESTART");
+    case MPV_EVENT_PROPERTY_CHANGE: return QStringLiteral("PROPERTY_CHANGE");
+    case MPV_EVENT_QUEUE_OVERFLOW: return QStringLiteral("QUEUE_OVERFLOW");
+    case MPV_EVENT_LOG_MESSAGE: return QStringLiteral("LOG_MESSAGE");
+    case MPV_EVENT_GET_PROPERTY_REPLY: return QStringLiteral("GET_PROPERTY_REPLY");
+    case MPV_EVENT_SET_PROPERTY_REPLY: return QStringLiteral("SET_PROPERTY_REPLY");
+    case MPV_EVENT_COMMAND_REPLY: return QStringLiteral("COMMAND_REPLY");
+    case MPV_EVENT_START_FILE: return QStringLiteral("START_FILE");
+    default: return QStringLiteral("EVENT_%1").arg(eventId);
+    }
+}
+
 bool MainWindow::initializeMpv() {
+    initializeRuntimeLog();
+    appendRuntimeLog(QStringLiteral("initializeMpv: creating libmpv instance"));
     std::setlocale(LC_NUMERIC, "C");
     m_mpv = mpv_create();
     if (!m_mpv) { showError(QStringLiteral("Could not create libmpv instance.")); return false; }
@@ -765,8 +824,12 @@ bool MainWindow::initializeMpv() {
         showError(QStringLiteral("Could not configure libmpv.")); return false;
     }
     if (mpv_initialize(m_mpv) < 0) {
+        appendRuntimeLog(QStringLiteral("initializeMpv: mpv_initialize FAILED"));
         showError(QStringLiteral("Could not initialize libmpv.")); return false;
     }
+    appendRuntimeLog(QStringLiteral("initializeMpv: mpv_initialize succeeded"));
+    const int logResult = mpv_request_log_messages(m_mpv, "info");
+    appendRuntimeLog(QStringLiteral("initializeMpv: requested mpv info logs, result=%1").arg(logResult));
     setPropertyDouble("saturation", m_saturation);
     setPropertyDouble("brightness", m_brightness);
     setPropertyDouble("contrast", m_contrast);
@@ -815,6 +878,7 @@ void MainWindow::playPlaylistIndex(int index, bool promptResume) {
     m_videoMirrored = false;
     if (m_mirrorButton) m_mirrorButton->setChecked(false);
     const char* removeMirrorArgs[] = {"vf-remove", "@rex-mirror", nullptr};
+    appendRuntimeLog(QStringLiteral("TRANSFORM: removing @rex-mirror"));
     command(removeMirrorArgs);
     if (m_transformForcedCopyback) {
         const char* restoreHwdecArgs[] = {"set", "hwdec", "auto", nullptr};
@@ -842,7 +906,16 @@ void MainWindow::syncPlaylistSelection() {
     if (m_playlist && m_currentPlaylistIndex >= 0 && m_currentPlaylistIndex < m_playlist->count()) m_playlist->setCurrentRow(m_currentPlaylistIndex);
 }
 
-void MainWindow::command(const char** args) { if (m_mpv) mpv_command_async(m_mpv, 0, args); }
+void MainWindow::command(const char** args) {
+    if (!m_mpv || !args) return;
+    QStringList parts;
+    for (int i = 0; args[i] != nullptr; ++i) parts << QString::fromUtf8(args[i]);
+    appendRuntimeLog(QStringLiteral("COMMAND async: %1").arg(parts.join(QStringLiteral(" | "))));
+    const int result = mpv_command_async(m_mpv, 0, args);
+    if (result < 0) {
+        appendRuntimeLog(QStringLiteral("COMMAND submit FAILED: %1").arg(result));
+    }
+}
 void MainWindow::togglePause() { const char* args[] = {"cycle", "pause", nullptr}; command(args); }
 void MainWindow::seekBackward() { const QByteArray seconds = QByteArray::number(-m_seekDurationSeconds); const char* args[] = {"seek", seconds.constData(), "relative", "exact", nullptr}; command(args); }
 void MainWindow::seekForward() { const QByteArray seconds = QByteArray::number(m_seekDurationSeconds); const char* args[] = {"seek", seconds.constData(), "relative", "exact", nullptr}; command(args); }
@@ -853,11 +926,19 @@ void MainWindow::volumeDown() { m_volumeSlider->setValue(std::clamp(m_volumeSlid
 void MainWindow::toggleMute() { const char* args[] = {"cycle", "mute", nullptr}; command(args); }
 double MainWindow::getPropertyDouble(const char* name) const { if (!m_mpv) return 0.0; double value = 0.0; return mpv_get_property(m_mpv, name, MPV_FORMAT_DOUBLE, &value) >= 0 ? value : 0.0; }
 QString MainWindow::getPropertyString(const char* name) const { if (!m_mpv) return {}; char* value = nullptr; if (mpv_get_property(m_mpv, name, MPV_FORMAT_STRING, &value) < 0 || !value) return {}; const QString result = QString::fromUtf8(value); mpv_free(value); return result; }
-void MainWindow::setPropertyDouble(const char* name, double value) { if (m_mpv) mpv_set_property_async(m_mpv, 0, name, MPV_FORMAT_DOUBLE, &value); }
+void MainWindow::setPropertyDouble(const char* name, double value) {
+    if (!m_mpv) return;
+    appendRuntimeLog(QStringLiteral("SET_PROPERTY async: %1=%2").arg(QString::fromUtf8(name)).arg(QString::number(value, 'g', 12)));
+    const int result = mpv_set_property_async(m_mpv, 0, name, MPV_FORMAT_DOUBLE, &value);
+    if (result < 0) appendRuntimeLog(QStringLiteral("SET_PROPERTY submit FAILED: %1 result=%2").arg(QString::fromUtf8(name)).arg(result));
+}
 void MainWindow::updateSeekButtonLabels() { if (!m_seekBackButton || !m_seekForwardButton) return; m_seekBackButton->setText(QStringLiteral("−10s")); m_seekForwardButton->setText(QStringLiteral("+10s")); }
 void MainWindow::adjustVideoZoom(double amount) { setPropertyDouble("video-zoom", std::clamp(getPropertyDouble("video-zoom") + amount, -2.0, 3.0)); }
 void MainWindow::applyVideoTransforms() {
     if (!m_mpv) return;
+    appendRuntimeLog(QStringLiteral("TRANSFORM: apply begin rotation=%1 mirror=%2 hwdec=%3")
+        .arg(m_videoRotation).arg(m_videoMirrored ? QStringLiteral("on") : QStringLiteral("off"))
+        .arg(getPropertyString("hwdec-current")));
 
     // Apply rotation through mpv's native video-rotate property. mpv documents
     // that all angles are supported with software decoding and copy-back
@@ -865,6 +946,7 @@ void MainWindow::applyVideoTransforms() {
     // steps.
     const QByteArray rotation = QByteArray::number(m_videoRotation);
     const char* rotationArgs[] = {"set", "video-rotate", rotation.constData(), nullptr};
+    appendRuntimeLog(QStringLiteral("TRANSFORM: setting video-rotate=%1").arg(m_videoRotation));
     command(rotationArgs);
 
     // Keep one labelled mirror filter in the chain and toggle it by label.
@@ -874,18 +956,24 @@ void MainWindow::applyVideoTransforms() {
     command(removeMirrorArgs);
     if (m_videoMirrored) {
         const char* addMirrorArgs[] = {"vf-add", "@rex-mirror:lavfi=[hflip]", nullptr};
+        appendRuntimeLog(QStringLiteral("TRANSFORM: adding @rex-mirror:lavfi=[hflip]"));
         command(addMirrorArgs);
     }
 
     if (m_mirrorButton) m_mirrorButton->setChecked(m_videoMirrored);
+    appendRuntimeLog(QStringLiteral("TRANSFORM: apply end active hwdec=%1").arg(getPropertyString("hwdec-current")));
     QTimer::singleShot(100, this, &MainWindow::resizeWindowForVideoAspect);
 }
 
 void MainWindow::ensureTransformCopyback() {
     if (!m_mpv) return;
+    appendRuntimeLog(QStringLiteral("TRANSFORM: ensure copyback begin requested rotation=%1 mirror=%2 active hwdec=%3")
+        .arg(m_videoRotation).arg(m_videoMirrored ? QStringLiteral("on") : QStringLiteral("off"))
+        .arg(getPropertyString("hwdec-current")));
 
     const QString current = getPropertyString("hwdec-current").trimmed().toLower();
     if (current.isEmpty() || current == QStringLiteral("no")) {
+        appendRuntimeLog(QStringLiteral("TRANSFORM: software decoding already active; no decoder reload needed"));
         // Already using software decoding; no decoder restart is required.
         applyVideoTransforms();
         return;
@@ -896,30 +984,37 @@ void MainWindow::ensureTransformCopyback() {
     // reload the video track so the new decoder is actually initialized.
     if (!current.endsWith(QStringLiteral("-copy"))) {
         const char* setArgs[] = {"set", "hwdec", "auto-copy", nullptr};
+        appendRuntimeLog(QStringLiteral("TRANSFORM: requesting hwdec=auto-copy (previous=%1)").arg(current));
         command(setArgs);
         m_transformForcedCopyback = true;
 
         const char* reloadArgs[] = {"video-reload", nullptr};
+        appendRuntimeLog(QStringLiteral("TRANSFORM: requesting video-reload to rebuild decoder"));
         command(reloadArgs);
 
         // video-reload is asynchronous. Reapply the transform after the
         // decoder has had time to rebuild on the copy-back path.
+        appendRuntimeLog(QStringLiteral("TRANSFORM: scheduling transform reapply after decoder reload (350ms)"));
         QTimer::singleShot(350, this, &MainWindow::applyVideoTransforms);
         return;
     }
 
     m_transformForcedCopyback = true;
+    appendRuntimeLog(QStringLiteral("TRANSFORM: copyback decoder already active; applying transforms immediately"));
     applyVideoTransforms();
 }
 
 void MainWindow::restoreTransformHardwareMode() {
     if (!m_mpv || !m_transformForcedCopyback) return;
+    appendRuntimeLog(QStringLiteral("TRANSFORM: restoring normal hardware decoding"));
 
     const char* setArgs[] = {"set", "hwdec", "auto", nullptr};
+    appendRuntimeLog(QStringLiteral("TRANSFORM: requesting hwdec=auto"));
     command(setArgs);
 
     // Reinitialize the decoder so normal hardware mode is actually restored.
     const char* reloadArgs[] = {"video-reload", nullptr};
+    appendRuntimeLog(QStringLiteral("TRANSFORM: requesting video-reload to restore hardware path"));
     command(reloadArgs);
     m_transformForcedCopyback = false;
 }
@@ -927,6 +1022,7 @@ void MainWindow::restoreTransformHardwareMode() {
 void MainWindow::rotateVideo90() {
     if (!m_mpv) return;
     m_videoRotation = (m_videoRotation + 90) % 360;
+    appendRuntimeLog(QStringLiteral("USER ACTION: Rotate clicked; new rotation=%1").arg(m_videoRotation));
 
     if (m_videoRotation != 0 || m_videoMirrored) {
         ensureTransformCopyback();
@@ -940,6 +1036,7 @@ void MainWindow::toggleMirror() {
     if (!m_mpv) return;
 
     m_videoMirrored = !m_videoMirrored;
+    appendRuntimeLog(QStringLiteral("USER ACTION: Mirror clicked; new state=%1").arg(m_videoMirrored ? QStringLiteral("on") : QStringLiteral("off")));
     if (m_videoMirrored || m_videoRotation != 0) {
         ensureTransformCopyback();
     } else {
@@ -1435,6 +1532,15 @@ void MainWindow::pumpMpvEvents() {
     while (true) {
         mpv_event* event = mpv_wait_event(m_mpv, 0);
         if (!event || event->event_id == MPV_EVENT_NONE) break;
+
+        appendRuntimeLog(QStringLiteral("MPV_EVENT: %1 (%2)").arg(mpvEventName(event->event_id)).arg(event->event_id));
+        if (event->event_id == MPV_EVENT_LOG_MESSAGE && event->data) {
+            const auto* log = static_cast<mpv_event_log_message*>(event->data);
+            appendRuntimeLog(QStringLiteral("MPV_LOG [%1] %2: %3")
+                .arg(QString::fromUtf8(log->level ? log->level : ""))
+                .arg(QString::fromUtf8(log->prefix ? log->prefix : ""))
+                .arg(QString::fromUtf8(log->text ? log->text : "").trimmed()));
+        }
         if (event->event_id == MPV_EVENT_FILE_LOADED) {
             // Transform state is reset by playPlaylistIndex() when a genuinely
             // new file is selected. Do not reset it here: video-reload is also
