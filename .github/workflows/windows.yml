@@ -102,10 +102,20 @@ jobs:
             cp /ucrt64/bin/ffmpeg.exe dist/bin/
           fi
 
-      - name: Create portable ZIP
+      - name: Build Windows installer
+        shell: powershell
         run: |
-          mkdir -p release
-          powershell.exe -NoProfile -Command "Compress-Archive -Path 'dist/bin/*' -DestinationPath 'release/REX-Player-Windows-x64.zip' -Force"
+          choco install nsis -y --no-progress
+          New-Item -ItemType Directory -Force -Path release | Out-Null
+          & "C:\Program Files (x86)\NSIS\makensis.exe" "packaging\windows\REX-Player.nsi"
+          if ($LASTEXITCODE -ne 0) {
+            throw "NSIS installer build failed with exit code $LASTEXITCODE"
+          }
+
+      - name: Create installer ZIP
+        shell: powershell
+        run: |
+          Compress-Archive -Path "release\REX-Player-Windows-x64-setup.exe" -DestinationPath "release\REX-Player-Windows-x64.zip" -Force
 
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
