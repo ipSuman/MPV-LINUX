@@ -190,11 +190,11 @@ MainWindow::MainWindow(const QString& mediaPath, QWidget* parent)
 
 MainWindow::~MainWindow() {
     m_uiTimer.stop();
+    updatePlaybackInhibit(false);
     m_videoTransformer = nullptr;
     m_playbackInhibitor = nullptr;
     delete m_playlistController;
     m_playlistController = nullptr;
-    updatePlaybackInhibit(false);
     if (m_mpv) {
         // The wakeup callback may originate from an mpv worker thread. Unregister
         // it before destroying the client handle so no callback can target this
