@@ -1764,9 +1764,9 @@ void MainWindow::pumpMpvEvents() {
                                      m_playlistController &&
                                      m_playlistController->nextIndex() >= 0;
                 const bool hasPlaylist = m_playlistController && m_playlistController->count() > 0;
-                if (m_autoplayPlaylist && hasNext) {
+                if (m_playlistController && m_playlistController->autoplay() && hasNext) {
                     playNext();
-                } else if (m_autoplayPlaylist && m_loopPlaylist && hasPlaylist) {
+                } else if (m_playlistController && m_playlistController->autoplay() && m_playlistController->loop() && hasPlaylist) {
                     playPlaylistIndex(0, false);
                 } else if (isFullScreen()) {
                     // Return to the normal window when playback really ends.
