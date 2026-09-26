@@ -63,6 +63,8 @@ add_executable(rex-player
     src/TrackController.h
     src/PlaybackInhibitor.cpp
     src/PlaybackInhibitor.h
+    src/DiagnosticReporter.cpp
+    src/DiagnosticReporter.h
     assets/rex-player.qrc
 )
 
