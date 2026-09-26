@@ -51,6 +51,7 @@
 #include <QWidget>
 
 #include "MpvNodeUtils.h"
+#include "AudioExporter.h"
 
 #include <algorithm>
 #include <cmath>
@@ -108,6 +109,33 @@ MainWindow::MainWindow(const QString& mediaPath, QWidget* parent)
     setFocusPolicy(Qt::StrongFocus);
     loadControlSettings();
     buildUi();
+
+    m_audioExporter = new AudioExporter(this);
+    connect(m_audioExporter, &AudioExporter::logMessage,
+            this, &MainWindow::appendRuntimeLog);
+    connect(m_audioExporter, &AudioExporter::finished, this,
+            [this](bool success, const QString& output, const QString& errorMessage,
+                   const QString& stderrText, const QString&, int, QProcess::ExitStatus) {
+        if (success) {
+            showError(QStringLiteral("REX Player — Audio saved: %1")
+                          .arg(QFileInfo(output).fileName()));
+            QMessageBox::information(
+                this, QStringLiteral("Save Audio"),
+                QStringLiteral("Audio track saved successfully:\n%1").arg(output));
+        } else {
+            showError(QStringLiteral("REX Player — Audio save failed"));
+            const QString details = !stderrText.isEmpty() ? stderrText : errorMessage;
+            QMessageBox::warning(
+                this, QStringLiteral("Save Audio"),
+                QStringLiteral("Could not save the selected audio track.\n\n%1")
+                    .arg(details.isEmpty()
+                             ? QStringLiteral("FFmpeg returned an error.")
+                             : details));
+            if (!output.isEmpty()) QFile::remove(output);
+        }
+
+        if (m_saveAudioButton) m_saveAudioButton->setEnabled(true);
+    });
 
     auto* enterFullscreenShortcut = new QShortcut(QKeySequence(Qt::Key_Return), this);
     enterFullscreenShortcut->setContext(Qt::WindowShortcut);
@@ -1528,9 +1556,9 @@ void MainWindow::showTracksMenu() {
 }
 
 void MainWindow::saveSelectedAudioTrack() {
-    if (!m_mpv) return;
+    if (!m_mpv || !m_audioExporter) return;
 
-    if (m_audioSaveProcess && m_audioSaveProcess->state() != QProcess::NotRunning) {
+    if (m_audioExporter->isRunning()) {
         QMessageBox::information(this, QStringLiteral("Save Audio"),
                                  QStringLiteral("An audio export is already in progress."));
         return;
@@ -1557,17 +1585,24 @@ void MainWindow::saveSelectedAudioTrack() {
     for (int i = 0; i < tracks.u.list->num; ++i) {
         const mpv_node& track = tracks.u.list->values[i];
         if (track.format != MPV_FORMAT_NODE_MAP || !track.u.list) continue;
-        if (nodeString(mapValue(track.u.list, "type")) != QStringLiteral("audio")) continue;
-        const bool isSelected = nodeFlag(mapValue(track.u.list, "selected"));
+        if (MpvNodeUtils::nodeString(MpvNodeUtils::mapValue(track.u.list, "type")) != QStringLiteral("audio")) {
+            continue;
+        }
+
+        const bool isSelected = MpvNodeUtils::nodeFlag(
+            MpvNodeUtils::mapValue(track.u.list, "selected"));
         if (isSelected) selectedAudioIndex = audioIndex;
 
         if (isSelected) {
-            selectedId = nodeInt(mapValue(track.u.list, "id"));
-        ffIndex = nodeInt(mapValue(track.u.list, "ff-index"));
-        trackTitle = nodeString(mapValue(track.u.list, "title"));
-        codec = nodeString(mapValue(track.u.list, "codec")).trimmed().toLower();
-            externalFilename = nodeString(mapValue(track.u.list, "external-filename"));
+            selectedId = MpvNodeUtils::nodeInt(MpvNodeUtils::mapValue(track.u.list, "id"));
+            ffIndex = MpvNodeUtils::nodeInt(MpvNodeUtils::mapValue(track.u.list, "ff-index"));
+            trackTitle = MpvNodeUtils::nodeString(MpvNodeUtils::mapValue(track.u.list, "title"));
+            codec = MpvNodeUtils::nodeString(MpvNodeUtils::mapValue(track.u.list, "codec"))
+                        .trimmed().toLower();
+            externalFilename =
+                MpvNodeUtils::nodeString(MpvNodeUtils::mapValue(track.u.list, "external-filename"));
         }
+
         ++audioIndex;
         if (isSelected) break;
     }
@@ -1602,8 +1637,9 @@ void MainWindow::saveSelectedAudioTrack() {
     else if (codec == QStringLiteral("opus")) extension = QStringLiteral("opus");
     else if (codec == QStringLiteral("vorbis")) extension = QStringLiteral("ogg");
     else if (codec == QStringLiteral("pcm_s16le") || codec == QStringLiteral("pcm_s24le") ||
-             codec == QStringLiteral("pcm_s32le") || codec == QStringLiteral("pcm_f32le")) extension = QStringLiteral("wav");
-    else if (codec == QStringLiteral("ac3")) extension = QStringLiteral("ac3");
+             codec == QStringLiteral("pcm_s32le") || codec == QStringLiteral("pcm_f32le")) {
+        extension = QStringLiteral("wav");
+    } else if (codec == QStringLiteral("ac3")) extension = QStringLiteral("ac3");
     else if (codec == QStringLiteral("eac3")) extension = QStringLiteral("eac3");
     else if (codec == QStringLiteral("dts")) extension = QStringLiteral("dts");
 
@@ -1611,15 +1647,18 @@ void MainWindow::saveSelectedAudioTrack() {
     if (baseName.isEmpty()) baseName = QStringLiteral("audio");
     if (!trackTitle.isEmpty()) {
         QString safeTitle = trackTitle;
-        safeTitle.replace(QRegularExpression(QStringLiteral("[^A-Za-z0-9._-]+")), QStringLiteral("_"));
+        safeTitle.replace(QRegularExpression(QStringLiteral("[^A-Za-z0-9._-]+")),
+                          QStringLiteral("_"));
         safeTitle = safeTitle.trimmed();
         if (!safeTitle.isEmpty()) baseName += QStringLiteral("_") + safeTitle;
     }
 
     QString musicDir = QStandardPaths::writableLocation(QStandardPaths::MusicLocation);
     if (musicDir.isEmpty()) musicDir = QDir::homePath();
-    const QString defaultName = QDir(musicDir).filePath(baseName + QStringLiteral(".") + extension);
-    const QString filter = QStringLiteral("Audio files (*.%1);;Matroska audio (*.mka);;All files (*)").arg(extension);
+    const QString defaultName =
+        QDir(musicDir).filePath(baseName + QStringLiteral(".") + extension);
+    const QString filter =
+        QStringLiteral("Audio files (*.%1);;Matroska audio (*.mka);;All files (*)").arg(extension);
 
     const QString outputPath = QFileDialog::getSaveFileName(
         this, QStringLiteral("Save selected audio track"), defaultName, filter);
@@ -1634,6 +1673,7 @@ void MainWindow::saveSelectedAudioTrack() {
                              QStringLiteral("The output file must be different from the source media."));
         return;
     }
+
     if (outputInfo.exists()) {
         const auto answer = QMessageBox::question(
             this, QStringLiteral("Overwrite file?"),
@@ -1645,8 +1685,10 @@ void MainWindow::saveSelectedAudioTrack() {
     const QString ffmpeg = QStandardPaths::findExecutable(QStringLiteral("ffmpeg"));
     if (ffmpeg.isEmpty()) {
         appendRuntimeLog(QStringLiteral("AUDIO SAVE: ffmpeg not found"));
-        QMessageBox::warning(this, QStringLiteral("Save Audio"),
-                             QStringLiteral("FFmpeg is required to save the selected audio track. Install ffmpeg and try again."));
+        QMessageBox::warning(
+            this, QStringLiteral("Save Audio"),
+            QStringLiteral("FFmpeg is required to save the selected audio track. "
+                           "Install ffmpeg and try again."));
         return;
     }
 
@@ -1654,80 +1696,24 @@ void MainWindow::saveSelectedAudioTrack() {
         ? QStringLiteral("0:%1").arg(ffIndex)
         : QStringLiteral("0:a:%1").arg(std::max(0, selectedAudioIndex));
 
-    appendRuntimeLog(QStringLiteral("AUDIO SAVE: selected id=%1 audio-index=%2 ff-index=%3 codec=%4 external=%5")
+    appendRuntimeLog(QStringLiteral(
+        "AUDIO SAVE: selected id=%1 audio-index=%2 ff-index=%3 codec=%4 external=%5")
         .arg(selectedId)
         .arg(selectedAudioIndex)
         .arg(ffIndex)
         .arg(codec.isEmpty() ? QStringLiteral("<unknown>") : codec)
         .arg(externalFilename.isEmpty() ? QStringLiteral("no") : externalFilename));
     appendRuntimeLog(QStringLiteral("AUDIO SAVE: input=%1 output=%2 map=%3")
-        .arg(sourcePath, outputPath, mapSpecifier));
+                         .arg(sourcePath, outputPath, mapSpecifier));
 
-    m_audioSaveOutputPath = outputPath;
-    m_audioSaveProcess = new QProcess(this);
-    m_audioSaveProcess->setProcessChannelMode(QProcess::SeparateChannels);
     m_saveAudioButton->setEnabled(false);
 
-    connect(m_audioSaveProcess, &QProcess::finished, this,
-            [this](int exitCode, QProcess::ExitStatus exitStatus) {
-        const QString stderrText = QString::fromLocal8Bit(m_audioSaveProcess->readAllStandardError()).trimmed();
-        const QString stdoutText = QString::fromLocal8Bit(m_audioSaveProcess->readAllStandardOutput()).trimmed();
-        const QString output = m_audioSaveOutputPath;
-        const bool success = exitStatus == QProcess::NormalExit &&
-                             exitCode == 0 &&
-                             QFileInfo::exists(output) &&
-                             QFileInfo(output).size() > 0;
-
-        appendRuntimeLog(QStringLiteral("AUDIO SAVE: ffmpeg finished exit=%1 status=%2 outputExists=%3 outputSize=%4")
-            .arg(exitCode)
-            .arg(exitStatus == QProcess::NormalExit ? QStringLiteral("normal") : QStringLiteral("crashed"))
-            .arg(QFileInfo::exists(output) ? QStringLiteral("yes") : QStringLiteral("no"))
-            .arg(QFileInfo::exists(output) ? QString::number(QFileInfo(output).size()) : QStringLiteral("0")));
-        if (!stderrText.isEmpty()) appendRuntimeLog(QStringLiteral("AUDIO SAVE: ffmpeg stderr: %1").arg(stderrText));
-        if (!stdoutText.isEmpty()) appendRuntimeLog(QStringLiteral("AUDIO SAVE: ffmpeg stdout: %1").arg(stdoutText));
-
-        if (success) {
-            showError(QStringLiteral("REX Player — Audio saved: %1").arg(QFileInfo(output).fileName()));
-            QMessageBox::information(this, QStringLiteral("Save Audio"),
-                                     QStringLiteral("Audio track saved successfully:\n%1").arg(output));
-        } else {
-            showError(QStringLiteral("REX Player — Audio save failed"));
-            QMessageBox::warning(this, QStringLiteral("Save Audio"),
-                                 QStringLiteral("Could not save the selected audio track.\n\n%1")
-                                     .arg(stderrText.isEmpty()
-                                              ? QStringLiteral("FFmpeg returned an error.")
-                                              : stderrText));
-            QFile::remove(output);
-        }
-
+    QString startError;
+    if (!m_audioExporter->start(ffmpeg, sourcePath, mapSpecifier, outputPath, &startError)) {
         m_saveAudioButton->setEnabled(true);
-        m_audioSaveProcess->deleteLater();
-        m_audioSaveProcess = nullptr;
-        m_audioSaveOutputPath.clear();
-    });
-
-    QStringList args;
-    args << QStringLiteral("-hide_banner")
-         << QStringLiteral("-nostdin")
-         << QStringLiteral("-i") << sourcePath
-         << QStringLiteral("-map") << mapSpecifier
-         << QStringLiteral("-vn")
-         << QStringLiteral("-sn")
-         << QStringLiteral("-dn")
-         << QStringLiteral("-c:a") << QStringLiteral("copy")
-         << QStringLiteral("-y") << outputPath;
-
-    appendRuntimeLog(QStringLiteral("AUDIO SAVE: starting ffmpeg"));
-    m_audioSaveProcess->start(ffmpeg, args);
-    if (!m_audioSaveProcess->waitForStarted(1000)) {
-        const QString error = m_audioSaveProcess->errorString();
-        appendRuntimeLog(QStringLiteral("AUDIO SAVE: failed to start ffmpeg: %1").arg(error));
-        m_saveAudioButton->setEnabled(true);
-        m_audioSaveProcess->deleteLater();
-        m_audioSaveProcess = nullptr;
-        m_audioSaveOutputPath.clear();
-        QMessageBox::warning(this, QStringLiteral("Save Audio"),
-                             QStringLiteral("Could not start FFmpeg:\n%1").arg(error));
+        QMessageBox::warning(
+            this, QStringLiteral("Save Audio"),
+            QStringLiteral("Could not start FFmpeg:\n%1").arg(startError));
     }
 }
 
