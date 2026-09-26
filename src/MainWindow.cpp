@@ -184,6 +184,11 @@ MainWindow::MainWindow(const QString& mediaPath, QWidget* parent)
 
     m_diagnosticReporter = new DiagnosticReporter(m_mpv, m_runtimeLogger, m_playlistController, this);
     m_diagnosticReporter->setControlStateProvider([this] { return diagnosticControlState(); });
+    m_displayController = new DisplayController(
+        this, &m_saturation, &m_brightness, &m_contrast,
+        [this](const char* property, double value) { setPropertyDouble(property, value); }, this);
+    connect(m_displayController, &DisplayController::logMessage,
+            m_runtimeLogger, &RuntimeLogger::append);
 
     m_uiTimer.setInterval(250);
     connect(&m_uiTimer, &QTimer::timeout, this, &MainWindow::updatePlaybackUi);
