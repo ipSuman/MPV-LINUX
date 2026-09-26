@@ -58,6 +58,9 @@
 #include "TrackController.h"
 #include "PlaybackInhibitor.h"
 #include "DiagnosticReporter.h"
+#include "DisplayController.h"
+#include "ScreenshotController.h"
+#include "ControlSettings.h"
 
 #include <algorithm>
 #include <cmath>
@@ -1008,6 +1011,10 @@ void MainWindow::showDisplayDialog() {
     if (m_displayController) m_displayController->showDialog();
 }
 
+void MainWindow::saveLogReport() {
+    if (m_diagnosticReporter) m_diagnosticReporter->saveReport();
+}
+
 void MainWindow::rotateVideo90() {
     if (!m_videoTransformer) return;
     const int nextRotation = (m_videoTransformer->rotation() + 90) % 360;
@@ -1540,6 +1547,10 @@ void MainWindow::pumpMpvEvents() {
             break;
         }
     }
+}
+
+void MainWindow::updatePlaybackInhibit(bool active) {
+    if (m_playbackInhibitor) m_playbackInhibitor->setActive(active);
 }
 
 void MainWindow::updatePlaybackUi() {
