@@ -432,6 +432,14 @@ void MainWindow::buildUi() {
     connect(m_playlist, &QListWidget::itemDoubleClicked, this, [this](QListWidgetItem*) { playlistActivated(); });
     playlistLayout->addWidget(m_playlist, 1);
     auto* playlistButtons = new QHBoxLayout();
+    auto* savePlaylistButton = new QPushButton(QStringLiteral("Save Playlist"), playlistPanel);
+    savePlaylistButton->setToolTip(QStringLiteral("Save playlist as M3U8"));
+    connect(savePlaylistButton, &QPushButton::clicked, this, &MainWindow::savePlaylist);
+    playlistButtons->addWidget(savePlaylistButton);
+    auto* openPlaylistButton = new QPushButton(QStringLiteral("Open Playlist"), playlistPanel);
+    openPlaylistButton->setToolTip(QStringLiteral("Open an M3U/M3U8 playlist"));
+    connect(openPlaylistButton, &QPushButton::clicked, this, &MainWindow::openPlaylist);
+    playlistButtons->addWidget(openPlaylistButton);
     auto* add = new QPushButton(QStringLiteral("+ Files"), playlistPanel);
     connect(add, &QPushButton::clicked, this, &MainWindow::addFiles);
     playlistButtons->addWidget(add);
@@ -548,7 +556,13 @@ void MainWindow::showControlsDialog() {
     selectData(volumeWheel, m_volumeWheelMode);
     form->addRow(QStringLiteral("Wheel → Volume"), volumeWheel);
 
-    form->addRow(QStringLiteral("Alt + Ctrl + drag → Pan"), new QLabel(QStringLiteral("Hold Alt + Ctrl and drag with the left mouse button"), &dialog));
+    auto* panButton = new QComboBox(&dialog);
+    panButton->addItem(QStringLiteral("Left button"), static_cast<int>(Qt::LeftButton));
+    panButton->addItem(QStringLiteral("Middle button"), static_cast<int>(Qt::MiddleButton));
+    panButton->addItem(QStringLiteral("Right button"), static_cast<int>(Qt::RightButton));
+    panButton->addItem(QStringLiteral("Disabled"), static_cast<int>(Qt::NoButton));
+    selectData(panButton, static_cast<int>(m_panButton));
+    form->addRow(QStringLiteral("Alt + Ctrl + drag → Pan"), panButton);
 
     auto* timerPositionButton = new QPushButton(
         m_timerBesideProgress ? QStringLiteral("Timer: Progress bar") : QStringLiteral("Timer: Controls"),
@@ -667,6 +681,7 @@ void MainWindow::showControlsDialog() {
         selectData(zoomWheel, QStringLiteral("alt-wheel"));
         selectData(volumeWheel, QStringLiteral("ctrl-wheel"));
         timerPositionButton->setChecked(false);
+        selectData(panButton, static_cast<int>(Qt::MiddleButton));
         selectData(doubleClickButton, static_cast<int>(Qt::LeftButton));
         volumeUp->setKeySequence(QKeySequence(Qt::SHIFT | Qt::Key_V));
         volumeDown->setKeySequence(QKeySequence(Qt::Key_V));
@@ -707,6 +722,7 @@ void MainWindow::showControlsDialog() {
         m_zoomWheelMode = zoomWheel->currentData().toString();
         m_volumeWheelMode = volumeWheel->currentData().toString();
         m_timerBesideProgress = timerPositionButton->isChecked();
+        m_panButton = static_cast<Qt::MouseButton>(panButton->currentData().toInt());
         m_doubleClickButton = static_cast<Qt::MouseButton>(doubleClickButton->currentData().toInt());
         m_volumeUpKey = volumeUp->keySequence();
         m_volumeDownKey = volumeDown->keySequence();
@@ -1241,7 +1257,7 @@ QString MainWindow::diagnosticControlState() const {
     out << "Seek wheel: " << m_seekWheelMode << "\n";
     out << "Zoom wheel: " << m_zoomWheelMode << "\n";
     out << "Volume wheel: " << m_volumeWheelMode << "\n";
-    out << "Pan gesture: Alt + Ctrl + left-drag\n";
+    out << "Pan gesture: Alt + Ctrl + configured pan-button drag\n";
     out << "Double-click button: " << static_cast<int>(m_doubleClickButton) << "\n";
     out << "Double-click zones: " << (m_doubleClickZones ? "enabled" : "disabled") << "\n";
     out << "Volume up shortcut: " << m_volumeUpKey.toString() << "\n";
@@ -1626,6 +1642,94 @@ void MainWindow::addFolder() {
         m_playlist->setCurrentRow(currentIndex);
     }
 }
+void MainWindow::savePlaylist() {
+    if (!m_playlist || m_playlist->count() == 0) {
+        QMessageBox::information(this, QStringLiteral("Save playlist"),
+                                 QStringLiteral("The playlist is empty."));
+        return;
+    }
+
+    const QString path = QFileDialog::getSaveFileName(
+        this, QStringLiteral("Save playlist"), QString(),
+        QStringLiteral("M3U8 Playlist (*.m3u8);;M3U Playlist (*.m3u);;All files (*.*)"));
+    if (path.isEmpty()) return;
+
+    QString savePath = path;
+    if (QFileInfo(savePath).suffix().isEmpty()) savePath += QStringLiteral(".m3u8");
+
+    QFile file(savePath);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
+        m_runtimeLogger->append(QStringLiteral("PLAYLIST SAVE: failed: %1").arg(file.errorString()));
+        QMessageBox::warning(this, QStringLiteral("Save playlist"),
+                             QStringLiteral("Could not save the playlist:\n%1").arg(file.errorString()));
+        return;
+    }
+
+    QTextStream stream(&file);
+    stream.setEncoding(QStringConverter::Utf8);
+    stream << QStringLiteral("#EXTM3U\n");
+    for (int i = 0; i < m_playlist->count(); ++i) {
+        const QString mediaPath = m_playlist->item(i)->data(Qt::UserRole).toString();
+        if (!mediaPath.isEmpty()) stream << mediaPath << QLatin1Char('\\n');
+    }
+    file.close();
+    m_runtimeLogger->append(QStringLiteral("PLAYLIST SAVE: saved %1 item(s) to %2")
+                             .arg(m_playlist->count()).arg(savePath));
+}
+
+void MainWindow::openPlaylist() {
+    const QString path = QFileDialog::getOpenFileName(
+        this, QStringLiteral("Open playlist"), QString(),
+        QStringLiteral("Playlist files (*.m3u8 *.m3u);;All files (*.*)"));
+    if (path.isEmpty()) return;
+
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        m_runtimeLogger->append(QStringLiteral("PLAYLIST OPEN: failed: %1").arg(file.errorString()));
+        QMessageBox::warning(this, QStringLiteral("Open playlist"),
+                             QStringLiteral("Could not open the playlist:\n%1").arg(file.errorString()));
+        return;
+    }
+
+    QStringList paths;
+    QTextStream stream(&file);
+    stream.setEncoding(QStringConverter::Utf8);
+    while (!stream.atEnd()) {
+        const QString line = stream.readLine().trimmed();
+        if (line.isEmpty() || line.startsWith(QLatin1Char('#'))) continue;
+        paths.append(line);
+    }
+    file.close();
+
+    m_playlist->clear();
+    m_playlistController->clear();
+    int missingCount = 0;
+    for (const QString& mediaPath : paths) {
+        const QFileInfo info(mediaPath);
+        if (!info.exists() || !info.isFile()) {
+            ++missingCount;
+            continue;
+        }
+        addToPlaylist(info.absoluteFilePath());
+    }
+
+    if (m_playlistController->count() > 0) {
+        m_playlistController->setCurrentIndex(0);
+        m_playlist->setCurrentRow(0);
+        playlistActivated();
+    }
+
+    m_runtimeLogger->append(QStringLiteral(
+        "PLAYLIST OPEN: loaded %1 item(s) from %2; missing=%3")
+        .arg(m_playlistController->count()).arg(path).arg(missingCount));
+
+    if (missingCount > 0) {
+        QMessageBox::information(
+            this, QStringLiteral("Open playlist"),
+            QStringLiteral("%1 playlist item(s) could not be found and were skipped.").arg(missingCount));
+    }
+}
+
 void MainWindow::clearPlaylist() {
     if (m_playlist) m_playlist->clear();
     if (m_playlistController) m_playlistController->clear();
@@ -1786,7 +1890,7 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* event) {
     if (event->type() == QEvent::MouseButtonPress) {
         const auto* e = static_cast<QMouseEvent*>(event);
         const Qt::KeyboardModifiers modifiers = e->modifiers() & (Qt::ShiftModifier | Qt::ControlModifier | Qt::AltModifier | Qt::MetaModifier);
-        if (e->button() == Qt::LeftButton &&
+        if (m_panButton != Qt::NoButton && e->button() == m_panButton &&
             modifiers == (Qt::AltModifier | Qt::ControlModifier)) {
             m_panningVideo = true;
             m_panStart = e->position();
@@ -1811,7 +1915,7 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* event) {
 
     if (event->type() == QEvent::MouseButtonRelease) {
         const auto* e = static_cast<QMouseEvent*>(event);
-        if (e->button() == Qt::LeftButton && m_panningVideo) {
+        if (e->button() == m_panButton && m_panningVideo) {
             m_panningVideo = false;
             return true;
         }
