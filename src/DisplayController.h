@@ -23,7 +23,6 @@ signals:
     void logMessage(const QString& message);
 
 private:
-    mpv_handle* m_mpv = nullptr;
     QWidget* m_parentWidget = nullptr;
     Values* m_values = nullptr;
     std::function<void(const char*, double)> m_setProperty;
