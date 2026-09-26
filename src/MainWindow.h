@@ -30,6 +30,7 @@ class VideoTransformer;
 class TrackController;
 class PlaybackInhibitor;
 class DiagnosticReporter;
+class DisplayController;
 
 struct mpv_handle;
 
@@ -150,6 +151,7 @@ private:
     TrackController* m_trackController = nullptr;
     PlaybackInhibitor* m_playbackInhibitor = nullptr;
     DiagnosticReporter* m_diagnosticReporter = nullptr;
+    DisplayController* m_displayController = nullptr;
     std::atomic_bool m_mpvWakeQueued{false};
     QString m_cutOutputPath;
     bool m_seeking = false;
