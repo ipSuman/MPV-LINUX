@@ -872,7 +872,7 @@ void MainWindow::loadFile(const QString& path) {
     clearAbLoop();
     const QString absolute = QFileInfo(path).absoluteFilePath();
     addToPlaylist(absolute);
-    const int index = m_playlistController ? m_playlistController->currentIndex() : -1;
+    const int index = m_playlistController ? m_playlistController->indexOf(absolute) : -1;
     if (index >= 0) playPlaylistIndex(index);
     else {
         const QByteArray encoded = absolute.toUtf8();
