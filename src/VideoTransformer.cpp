@@ -4,9 +4,10 @@
 
 #include <mpv/client.h>
 #include <QTimer>
+#include <QStringList>
 
-VideoTransformer::VideoTransformer(mpv_handle* mpv, RuntimeLogger* logger)
-    : m_mpv(mpv), m_logger(logger) {}
+VideoTransformer::VideoTransformer(mpv_handle* mpv, RuntimeLogger* logger, QObject* parent)
+    : QObject(parent), m_mpv(mpv), m_logger(logger) {}
 
 QString VideoTransformer::propertyString(const char* name) const {
     if (!m_mpv) return {};
@@ -133,7 +134,7 @@ void VideoTransformer::apply() {
                 m_logger->append(QStringLiteral("TRANSFORM: waiting for hwdec copy-back; current=%1")
                     .arg(activeHwdec.isEmpty() ? QStringLiteral("<empty>") : activeHwdec));
             }
-            QTimer::singleShot(100, [this]() { apply(); });
+            QTimer::singleShot(100, this, [this]() { apply(); });
             return;
         }
     }
