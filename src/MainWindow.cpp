@@ -937,7 +937,7 @@ void MainWindow::applyVideoTransforms() {
 
     // Keep rotation native in mpv. Do not force software/copy-back decoding:
     // hardware rotation is supported for the 90° steps used by REX Player.
-    const qint64 rotation = m_videoRotation;
+    qint64 rotation = m_videoRotation;
     const int rotationResult = mpv_set_property(
         m_mpv, "video-rotate", MPV_FORMAT_INT64, &rotation);
     appendRuntimeLog(QStringLiteral("TRANSFORM: video-rotate=%1 result=%2 (%3)")
