@@ -30,6 +30,7 @@
 #include <QMimeData>
 #include <QMouseEvent>
 #include <QPushButton>
+#include <QRegularExpression>
 #include <QFile>
 #include <QProcess>
 #include <QStandardPaths>
@@ -342,6 +343,11 @@ void MainWindow::buildUi() {
     tracks->setToolTip(QStringLiteral("Select audio and subtitle tracks"));
     connect(tracks, &QPushButton::clicked, this, &MainWindow::showTracksMenu);
     row->addWidget(tracks);
+
+    m_saveAudioButton = new QPushButton(QStringLiteral("Save Audio"), m_controls);
+    m_saveAudioButton->setToolTip(QStringLiteral("Save the currently selected audio track without re-encoding"));
+    connect(m_saveAudioButton, &QPushButton::clicked, this, &MainWindow::saveSelectedAudioTrack);
+    row->addWidget(m_saveAudioButton);
     auto* playlistButton = new QPushButton(QStringLiteral("Playlist"), m_controls);
     playlistButton->setToolTip(QStringLiteral("Show or hide playlist"));
     connect(playlistButton, &QPushButton::clicked, this, &MainWindow::togglePlaylist);
@@ -1541,6 +1547,203 @@ void MainWindow::showTracksMenu() {
     if (auto* button = qobject_cast<QPushButton*>(sender())) menu->popup(button->mapToGlobal(QPoint(0, button->height())));
     else menu->popup(QCursor::pos());
     mpv_free_node_contents(&tracks);
+}
+
+void MainWindow::saveSelectedAudioTrack() {
+    if (!m_mpv) return;
+
+    if (m_audioSaveProcess && m_audioSaveProcess->state() != QProcess::NotRunning) {
+        QMessageBox::information(this, QStringLiteral("Save Audio"),
+                                 QStringLiteral("An audio export is already in progress."));
+        return;
+    }
+
+    mpv_node tracks{};
+    if (mpv_get_property(m_mpv, "track-list", MPV_FORMAT_NODE, &tracks) < 0 ||
+        tracks.format != MPV_FORMAT_NODE_ARRAY || !tracks.u.list) {
+        mpv_free_node_contents(&tracks);
+        appendRuntimeLog(QStringLiteral("AUDIO SAVE: could not read track-list"));
+        QMessageBox::warning(this, QStringLiteral("Save Audio"),
+                             QStringLiteral("Could not read the current audio track."));
+        return;
+    }
+
+    int selectedId = -1;
+    int ffIndex = -1;
+    QString trackTitle;
+    QString codec;
+    QString externalFilename;
+
+    for (int i = 0; i < tracks.u.list->num; ++i) {
+        const mpv_node& track = tracks.u.list->values[i];
+        if (track.format != MPV_FORMAT_NODE_MAP || !track.u.list) continue;
+        if (nodeString(mapValue(track.u.list, "type")) != QStringLiteral("audio")) continue;
+        if (!nodeFlag(mapValue(track.u.list, "selected"))) continue;
+
+        selectedId = nodeInt(mapValue(track.u.list, "id"));
+        ffIndex = nodeInt(mapValue(track.u.list, "ff-index"));
+        trackTitle = nodeString(mapValue(track.u.list, "title"));
+        codec = nodeString(mapValue(track.u.list, "codec")).trimmed().toLower();
+        externalFilename = nodeString(mapValue(track.u.list, "external-filename"));
+        break;
+    }
+    mpv_free_node_contents(&tracks);
+
+    if (selectedId < 0) {
+        appendRuntimeLog(QStringLiteral("AUDIO SAVE: no selected audio track"));
+        QMessageBox::information(this, QStringLiteral("Save Audio"),
+                                 QStringLiteral("No audio track is currently selected."));
+        return;
+    }
+
+    QString inputPath = externalFilename.trimmed();
+    if (inputPath.isEmpty()) inputPath = getPropertyString("path").trimmed();
+    const QUrl inputUrl(inputPath);
+    if (inputUrl.isLocalFile()) inputPath = inputUrl.toLocalFile();
+
+    if (inputPath.isEmpty()) {
+        appendRuntimeLog(QStringLiteral("AUDIO SAVE: selected track %1 has no source path").arg(selectedId));
+        QMessageBox::warning(this, QStringLiteral("Save Audio"),
+                             QStringLiteral("The selected audio track has no accessible source."));
+        return;
+    }
+
+    const QFileInfo inputInfo(inputPath);
+    const QString sourcePath = inputInfo.isFile() ? inputInfo.absoluteFilePath() : inputPath;
+
+    QString extension = QStringLiteral("mka");
+    if (codec == QStringLiteral("mp3")) extension = QStringLiteral("mp3");
+    else if (codec == QStringLiteral("aac") || codec == QStringLiteral("alac")) extension = QStringLiteral("m4a");
+    else if (codec == QStringLiteral("flac")) extension = QStringLiteral("flac");
+    else if (codec == QStringLiteral("opus")) extension = QStringLiteral("opus");
+    else if (codec == QStringLiteral("vorbis")) extension = QStringLiteral("ogg");
+    else if (codec == QStringLiteral("pcm_s16le") || codec == QStringLiteral("pcm_s24le") ||
+             codec == QStringLiteral("pcm_s32le") || codec == QStringLiteral("pcm_f32le")) extension = QStringLiteral("wav");
+    else if (codec == QStringLiteral("ac3")) extension = QStringLiteral("ac3");
+    else if (codec == QStringLiteral("eac3")) extension = QStringLiteral("eac3");
+    else if (codec == QStringLiteral("dts")) extension = QStringLiteral("dts");
+
+    QString baseName = QFileInfo(getPropertyString("filename")).completeBaseName();
+    if (baseName.isEmpty()) baseName = QStringLiteral("audio");
+    if (!trackTitle.isEmpty()) {
+        QString safeTitle = trackTitle;
+        safeTitle.replace(QRegularExpression(QStringLiteral("[^A-Za-z0-9._-]+")), QStringLiteral("_"));
+        safeTitle = safeTitle.trimmed();
+        if (!safeTitle.isEmpty()) baseName += QStringLiteral("_") + safeTitle;
+    }
+
+    QString musicDir = QStandardPaths::writableLocation(QStandardPaths::MusicLocation);
+    if (musicDir.isEmpty()) musicDir = QDir::homePath();
+    const QString defaultName = QDir(musicDir).filePath(baseName + QStringLiteral(".") + extension);
+    const QString filter = QStringLiteral("Audio files (*.%1);;Matroska audio (*.mka);;All files (*)").arg(extension);
+
+    const QString outputPath = QFileDialog::getSaveFileName(
+        this, QStringLiteral("Save selected audio track"), defaultName, filter);
+    if (outputPath.isEmpty()) {
+        appendRuntimeLog(QStringLiteral("AUDIO SAVE: user cancelled save dialog"));
+        return;
+    }
+
+    const QFileInfo outputInfo(outputPath);
+    if (inputInfo.isFile() && outputInfo.absoluteFilePath() == inputInfo.absoluteFilePath()) {
+        QMessageBox::warning(this, QStringLiteral("Save Audio"),
+                             QStringLiteral("The output file must be different from the source media."));
+        return;
+    }
+    if (outputInfo.exists()) {
+        const auto answer = QMessageBox::question(
+            this, QStringLiteral("Overwrite file?"),
+            QStringLiteral("%1 already exists. Replace it?").arg(outputInfo.fileName()),
+            QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+        if (answer != QMessageBox::Yes) return;
+    }
+
+    const QString ffmpeg = QStandardPaths::findExecutable(QStringLiteral("ffmpeg"));
+    if (ffmpeg.isEmpty()) {
+        appendRuntimeLog(QStringLiteral("AUDIO SAVE: ffmpeg not found"));
+        QMessageBox::warning(this, QStringLiteral("Save Audio"),
+                             QStringLiteral("FFmpeg is required to save the selected audio track. Install ffmpeg and try again."));
+        return;
+    }
+
+    const QString mapSpecifier = ffIndex >= 0
+        ? QStringLiteral("0:%1").arg(ffIndex)
+        : QStringLiteral("0:a:0");
+
+    appendRuntimeLog(QStringLiteral("AUDIO SAVE: selected id=%1 ff-index=%2 codec=%3 external=%4")
+        .arg(selectedId)
+        .arg(ffIndex)
+        .arg(codec.isEmpty() ? QStringLiteral("<unknown>") : codec)
+        .arg(externalFilename.isEmpty() ? QStringLiteral("no") : externalFilename));
+    appendRuntimeLog(QStringLiteral("AUDIO SAVE: input=%1 output=%2 map=%3")
+        .arg(sourcePath, outputPath, mapSpecifier));
+
+    m_audioSaveOutputPath = outputPath;
+    m_audioSaveProcess = new QProcess(this);
+    m_audioSaveProcess->setProcessChannelMode(QProcess::SeparateChannels);
+    m_saveAudioButton->setEnabled(false);
+
+    connect(m_audioSaveProcess, &QProcess::finished, this,
+            [this](int exitCode, QProcess::ExitStatus exitStatus) {
+        const QString stderrText = QString::fromLocal8Bit(m_audioSaveProcess->readAllStandardError()).trimmed();
+        const QString stdoutText = QString::fromLocal8Bit(m_audioSaveProcess->readAllStandardOutput()).trimmed();
+        const QString output = m_audioSaveOutputPath;
+        const bool success = exitStatus == QProcess::NormalExit &&
+                             exitCode == 0 &&
+                             QFileInfo::exists(output) &&
+                             QFileInfo(output).size() > 0;
+
+        appendRuntimeLog(QStringLiteral("AUDIO SAVE: ffmpeg finished exit=%1 status=%2 outputExists=%3 outputSize=%4")
+            .arg(exitCode)
+            .arg(exitStatus == QProcess::NormalExit ? QStringLiteral("normal") : QStringLiteral("crashed"))
+            .arg(QFileInfo::exists(output) ? QStringLiteral("yes") : QStringLiteral("no"))
+            .arg(QFileInfo::exists(output) ? QString::number(QFileInfo(output).size()) : QStringLiteral("0")));
+        if (!stderrText.isEmpty()) appendRuntimeLog(QStringLiteral("AUDIO SAVE: ffmpeg stderr: %1").arg(stderrText));
+        if (!stdoutText.isEmpty()) appendRuntimeLog(QStringLiteral("AUDIO SAVE: ffmpeg stdout: %1").arg(stdoutText));
+
+        if (success) {
+            showError(QStringLiteral("REX Player — Audio saved: %1").arg(QFileInfo(output).fileName()));
+            QMessageBox::information(this, QStringLiteral("Save Audio"),
+                                     QStringLiteral("Audio track saved successfully:\n%1").arg(output));
+        } else {
+            showError(QStringLiteral("REX Player — Audio save failed"));
+            QMessageBox::warning(this, QStringLiteral("Save Audio"),
+                                 QStringLiteral("Could not save the selected audio track.\n\n%1")
+                                     .arg(stderrText.isEmpty()
+                                              ? QStringLiteral("FFmpeg returned an error.")
+                                              : stderrText));
+            QFile::remove(output);
+        }
+
+        m_saveAudioButton->setEnabled(true);
+        m_audioSaveProcess->deleteLater();
+        m_audioSaveProcess = nullptr;
+        m_audioSaveOutputPath.clear();
+    });
+
+    QStringList args;
+    args << QStringLiteral("-hide_banner")
+         << QStringLiteral("-nostdin")
+         << QStringLiteral("-i") << sourcePath
+         << QStringLiteral("-map") << mapSpecifier
+         << QStringLiteral("-vn")
+         << QStringLiteral("-sn")
+         << QStringLiteral("-dn")
+         << QStringLiteral("-c:a") << QStringLiteral("copy")
+         << QStringLiteral("-y") << outputPath;
+
+    appendRuntimeLog(QStringLiteral("AUDIO SAVE: starting ffmpeg"));
+    m_audioSaveProcess->start(ffmpeg, args);
+    if (!m_audioSaveProcess->waitForStarted(1000)) {
+        const QString error = m_audioSaveProcess->errorString();
+        appendRuntimeLog(QStringLiteral("AUDIO SAVE: failed to start ffmpeg: %1").arg(error));
+        m_saveAudioButton->setEnabled(true);
+        m_audioSaveProcess->deleteLater();
+        m_audioSaveProcess = nullptr;
+        m_audioSaveOutputPath.clear();
+        QMessageBox::warning(this, QStringLiteral("Save Audio"),
+                             QStringLiteral("Could not start FFmpeg:\n%1").arg(error));
+    }
 }
 
 QString MainWindow::playbackPositionKey(const QString& path) const {
