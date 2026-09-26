@@ -807,6 +807,23 @@ void MainWindow::addToPlaylist(const QString& path) {
 void MainWindow::playPlaylistIndex(int index, bool promptResume) {
     if (!m_playlist || index < 0 || index >= m_playlist->count()) return;
     saveCurrentPlaybackPosition();
+
+    // A newly selected file starts with its normal hardware-decoding mode and
+    // no manual rotation/mirror transform. Transform reloads use
+    // video-reload, so they do not pass through this reset path.
+    m_videoRotation = 0;
+    m_videoMirrored = false;
+    if (m_mirrorButton) m_mirrorButton->setChecked(false);
+    const char* removeMirrorArgs[] = {"vf-remove", "@rex-mirror", nullptr};
+    command(removeMirrorArgs);
+    if (m_transformForcedCopyback) {
+        const char* restoreHwdecArgs[] = {"set", "hwdec", "auto", nullptr};
+        command(restoreHwdecArgs);
+        m_transformForcedCopyback = false;
+    }
+    const char* resetRotationArgs[] = {"set", "video-rotate", "0", nullptr};
+    command(resetRotationArgs);
+
     auto* item = m_playlist->item(index);
     const QString path = item->data(Qt::UserRole).toString();
     if (path.isEmpty() || !QFileInfo::exists(path)) return;
@@ -839,56 +856,96 @@ QString MainWindow::getPropertyString(const char* name) const { if (!m_mpv) retu
 void MainWindow::setPropertyDouble(const char* name, double value) { if (m_mpv) mpv_set_property_async(m_mpv, 0, name, MPV_FORMAT_DOUBLE, &value); }
 void MainWindow::updateSeekButtonLabels() { if (!m_seekBackButton || !m_seekForwardButton) return; m_seekBackButton->setText(QStringLiteral("−10s")); m_seekForwardButton->setText(QStringLiteral("+10s")); }
 void MainWindow::adjustVideoZoom(double amount) { setPropertyDouble("video-zoom", std::clamp(getPropertyDouble("video-zoom") + amount, -2.0, 3.0)); }
-void MainWindow::ensureTransformCopyback() {
-    if (!m_mpv || m_transformForcedCopyback) return;
-    const QString current = getPropertyString("hwdec-current").trimmed().toLower();
-    if (current.isEmpty() || current == QStringLiteral("no")) return;
+void MainWindow::applyVideoTransforms() {
+    if (!m_mpv) return;
 
-    // AMD VAAPI hardware surfaces can produce corrupted chroma/colours when
-    // rotated, and video filters such as hflip require CPU-readable frames.
-    // Keep hardware decoding enabled but use copy-back for transforms.
-    const char* args[] = {"set", "hwdec", "auto-copy", nullptr};
-    command(args);
-    m_transformForcedCopyback = true;
+    // Apply rotation through mpv's native video-rotate property. mpv documents
+    // that all angles are supported with software decoding and copy-back
+    // hardware decoding, while direct hardware decoding is limited to 90°
+    // steps.
+    const QByteArray rotation = QByteArray::number(m_videoRotation);
+    const char* rotationArgs[] = {"set", "video-rotate", rotation.constData(), nullptr};
+    command(rotationArgs);
+
+    // Keep one labelled mirror filter in the chain and toggle it by label.
+    // Use libavfilter explicitly so we do not depend on mpv's deprecated
+    // builtin hflip/auto-bridge selection.
+    const char* removeMirrorArgs[] = {"vf-remove", "@rex-mirror", nullptr};
+    command(removeMirrorArgs);
+    if (m_videoMirrored) {
+        const char* addMirrorArgs[] = {"vf-add", "@rex-mirror:lavfi=[hflip]", nullptr};
+        command(addMirrorArgs);
+    }
+
+    if (m_mirrorButton) m_mirrorButton->setChecked(m_videoMirrored);
+    QTimer::singleShot(100, this, &MainWindow::resizeWindowForVideoAspect);
 }
+
+void MainWindow::ensureTransformCopyback() {
+    if (!m_mpv) return;
+
+    const QString current = getPropertyString("hwdec-current").trimmed().toLower();
+    if (current.isEmpty() || current == QStringLiteral("no")) {
+        // Already using software decoding; no decoder restart is required.
+        applyVideoTransforms();
+        return;
+    }
+
+    // Changing hwdec while a decoder is already active does not reliably
+    // replace the existing hardware decoder. Force copy-back first, then
+    // reload the video track so the new decoder is actually initialized.
+    if (!current.endsWith(QStringLiteral("-copy"))) {
+        const char* setArgs[] = {"set", "hwdec", "auto-copy", nullptr};
+        command(setArgs);
+        m_transformForcedCopyback = true;
+
+        const char* reloadArgs[] = {"video-reload", nullptr};
+        command(reloadArgs);
+
+        // video-reload is asynchronous. Reapply the transform after the
+        // decoder has had time to rebuild on the copy-back path.
+        QTimer::singleShot(350, this, &MainWindow::applyVideoTransforms);
+        return;
+    }
+
+    m_transformForcedCopyback = true;
+    applyVideoTransforms();
+}
+
 void MainWindow::restoreTransformHardwareMode() {
     if (!m_mpv || !m_transformForcedCopyback) return;
-    const char* args[] = {"set", "hwdec", "auto", nullptr};
-    command(args);
+
+    const char* setArgs[] = {"set", "hwdec", "auto", nullptr};
+    command(setArgs);
+
+    // Reinitialize the decoder so normal hardware mode is actually restored.
+    const char* reloadArgs[] = {"video-reload", nullptr};
+    command(reloadArgs);
     m_transformForcedCopyback = false;
 }
+
 void MainWindow::rotateVideo90() {
     if (!m_mpv) return;
     m_videoRotation = (m_videoRotation + 90) % 360;
 
-    if (m_videoRotation != 0 || m_videoMirrored) ensureTransformCopyback();
-    else restoreTransformHardwareMode();
-
-    const QByteArray rotation = QByteArray::number(m_videoRotation);
-    const char* args[] = {"set", "video-rotate", rotation.constData(), nullptr};
-    command(args);
-
-    QTimer::singleShot(100, this, &MainWindow::resizeWindowForVideoAspect);
+    if (m_videoRotation != 0 || m_videoMirrored) {
+        ensureTransformCopyback();
+    } else {
+        restoreTransformHardwareMode();
+        applyVideoTransforms();
+    }
 }
+
 void MainWindow::toggleMirror() {
     if (!m_mpv) return;
 
-    const bool enable = !m_videoMirrored;
-    if (enable) ensureTransformCopyback();
-
-    if (enable) {
-        const char* removeArgs[] = {"vf-remove", "@rex-mirror", nullptr};
-        command(removeArgs);
-        const char* addArgs[] = {"vf-add", "@rex-mirror:hflip", nullptr};
-        command(addArgs);
+    m_videoMirrored = !m_videoMirrored;
+    if (m_videoMirrored || m_videoRotation != 0) {
+        ensureTransformCopyback();
     } else {
-        const char* removeArgs[] = {"vf-remove", "@rex-mirror", nullptr};
-        command(removeArgs);
-        if (m_videoRotation == 0) restoreTransformHardwareMode();
+        restoreTransformHardwareMode();
+        applyVideoTransforms();
     }
-
-    m_videoMirrored = enable;
-    if (m_mirrorButton) m_mirrorButton->setChecked(m_videoMirrored);
 }
 void MainWindow::resetVideoTransform() { setPropertyDouble("video-zoom", 0.0); setPropertyDouble("video-pan-x", 0.0); setPropertyDouble("video-pan-y", 0.0); m_videoPanX = 0.0; m_videoPanY = 0.0; }
 void MainWindow::setAbLoopStart() { if (getPropertyDouble("duration") <= 0.0) return; const double position = getPropertyDouble("time-pos"); clearAbLoop(); m_abLoopStart = position; setPropertyDouble("ab-loop-a", position); updateAbLoopLabel(); }
@@ -1379,18 +1436,12 @@ void MainWindow::pumpMpvEvents() {
         mpv_event* event = mpv_wait_event(m_mpv, 0);
         if (!event || event->event_id == MPV_EVENT_NONE) break;
         if (event->event_id == MPV_EVENT_FILE_LOADED) {
-            // Manual rotation is an additional transform for the current file.
-            // Reset it when a new file is loaded while preserving any rotation
-            // metadata carried by the media itself.
-            m_videoRotation = 0;
-            setPropertyDouble("video-rotate", 0.0);
-            m_videoMirrored = false;
-            // Install the mirror filter once in a disabled state. mpv's
-            // documented vf toggle command then enables/disables it without
-            // disturbing any other filters.
-            const char* mirrorFilterArgs[] = {"vf-add", "@rex-mirror:!hflip", nullptr};
-            command(mirrorFilterArgs);
-            if (m_mirrorButton) m_mirrorButton->setChecked(false);
+            // Transform state is reset by playPlaylistIndex() when a genuinely
+            // new file is selected. Do not reset it here: video-reload is also
+            // used to rebuild the decoder for transform mode, and that reload
+            // must preserve the requested rotation/mirror state.
+            if (m_mirrorButton) m_mirrorButton->setChecked(m_videoMirrored);
+            applyVideoTransforms();
             // The video viewport is embedded in the Qt window, so mpv cannot
             // resize the parent window itself. Resize the normal window here
             // using mpv's actual display dimensions. This makes the windowed
