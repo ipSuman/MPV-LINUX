@@ -316,6 +316,11 @@ void MainWindow::buildUi() {
     connect(captureButton, &QPushButton::clicked, this, &MainWindow::captureScreenshot);
     row->addWidget(captureButton);
 
+    m_rotateButton = new QPushButton(QStringLiteral("Rotate"), m_controls);
+    m_rotateButton->setToolTip(QStringLiteral("Rotate the video 90° clockwise"));
+    connect(m_rotateButton, &QPushButton::clicked, this, &MainWindow::rotateVideo90);
+    row->addWidget(m_rotateButton);
+
     m_mirrorButton = new QPushButton(QStringLiteral("Mirror"), m_controls);
     m_mirrorButton->setCheckable(true);
     m_mirrorButton->setToolTip(QStringLiteral("Mirror the video horizontally"));
