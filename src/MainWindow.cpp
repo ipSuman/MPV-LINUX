@@ -857,15 +857,11 @@ void MainWindow::toggleMirror() {
     if (!m_mpv) return;
     m_videoMirrored = !m_videoMirrored;
 
-    // video-scale-x is not an mpv property. Use a labelled hflip filter,
-    // which can be added/removed at runtime without disturbing other filters.
-    if (m_videoMirrored) {
-        const char* args[] = {"vf-add", "@rex-mirror:lavfi=hflip", nullptr};
-        command(args);
-    } else {
-        const char* args[] = {"vf-remove", "@rex-mirror", nullptr};
-        command(args);
-    }
+    // Keep the labelled hflip filter in the video-filter list and use mpv's
+    // documented runtime toggle mechanism. This avoids repeatedly adding and
+    // removing a lavfi filter while video is already playing.
+    const char* args[] = {"vf", "toggle", "@rex-mirror", nullptr};
+    command(args);
 
     if (m_mirrorButton) m_mirrorButton->setChecked(m_videoMirrored);
 }
@@ -1364,11 +1360,11 @@ void MainWindow::pumpMpvEvents() {
             m_videoRotation = 0;
             setPropertyDouble("video-rotate", 0.0);
             m_videoMirrored = false;
-            // Remove the runtime mirror filter when switching files. The
-            // labelled filter is intentionally removed rather than clearing
-            // mpv's entire video-filter chain.
-            const char* removeMirrorArgs[] = {"vf-remove", "@rex-mirror", nullptr};
-            command(removeMirrorArgs);
+            // Install the mirror filter once in a disabled state. mpv's
+            // documented vf toggle command then enables/disables it without
+            // disturbing any other filters.
+            const char* mirrorFilterArgs[] = {"vf-add", "@rex-mirror:!lavfi=hflip", nullptr};
+            command(mirrorFilterArgs);
             if (m_mirrorButton) m_mirrorButton->setChecked(false);
             // The video viewport is embedded in the Qt window, so mpv cannot
             // resize the parent window itself. Resize the normal window here
