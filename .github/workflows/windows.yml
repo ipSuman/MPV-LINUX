@@ -102,12 +102,17 @@ jobs:
             cp /ucrt64/bin/ffmpeg.exe dist/bin/
           fi
 
+      - name: Generate installer icon
+        run: |
+          magick assets/rex-player.svg \
+            -background none \
+            -define icon:auto-resize=256,128,64,48,32,16 \
+            assets/rex-player.ico
+
       - name: Build Windows installer
         shell: powershell
         run: |
           choco install nsis -y --no-progress
-          $iconBase64 = (Get-Content "assets\\rex-player.ico.b64" -Raw).Trim()
-          [IO.File]::WriteAllBytes("assets\\rex-player.ico", [Convert]::FromBase64String($iconBase64))
           New-Item -ItemType Directory -Force -Path release | Out-Null
           & "C:\Program Files (x86)\NSIS\makensis.exe" "packaging\windows\REX-Player.nsi"
           if ($LASTEXITCODE -ne 0) {
