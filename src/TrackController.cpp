@@ -1,11 +1,15 @@
 #include "TrackController.h"
 
+#include <QAction>
 #include <QCursor>
 #include <QFileInfo>
+#include <QList>
 #include <QMenu>
 #include <QPoint>
 #include <QStringList>
 #include <QWidget>
+
+#include <cstdint>
 
 #include "MpvNodeUtils.h"
 #include "RuntimeLogger.h"
@@ -39,30 +43,25 @@ void TrackController::showMenu(QWidget* anchor) {
     bool hasAudio = false;
     bool hasSubtitles = false;
 
-    auto setTrack = [this](int id, const char* property) {
-        if (id < 0) {
-            static char noTrack[] = "no";
-            char* value = noTrack;
-            const int result = mpv_set_property_async(
-                m_mpv, 0, property, MPV_FORMAT_STRING, &value);
-            log(QStringLiteral("TRACK SELECT: %1=no result=%2")
-                    .arg(QString::fromUtf8(property)).arg(result));
-        } else {
-            int64_t value = id;
-            const int result = mpv_set_property_async(
-                m_mpv, 0, property, MPV_FORMAT_INT64, &value);
-            log(QStringLiteral("TRACK SELECT: %1=%2 result=%3")
-                    .arg(QString::fromUtf8(property)).arg(id).arg(result));
-        }
-    };
-
-    auto addTrack = [this, &setTrack](QMenu* target, const QString& label,
-                                      int id, bool selected, const char* property) {
+    auto addTrack = [this](QMenu* target, const QString& label, int id, bool selected, const char* property) {
         auto* action = target->addAction(label);
         action->setCheckable(true);
         action->setChecked(selected);
-        connect(action, &QAction::triggered, this, [this, &setTrack, id, property] {
-            setTrack(id, property);
+        connect(action, &QAction::triggered, this, [this, id, property] {
+            if (id < 0) {
+                static char noTrack[] = "no";
+                char* value = noTrack;
+                const int result = mpv_set_property_async(
+                    m_mpv, 0, property, MPV_FORMAT_STRING, &value);
+                log(QStringLiteral("TRACK SELECT: %1=no result=%2")
+                        .arg(QString::fromUtf8(property)).arg(result));
+            } else {
+                int64_t value = id;
+                const int result = mpv_set_property_async(
+                    m_mpv, 0, property, MPV_FORMAT_INT64, &value);
+                log(QStringLiteral("TRACK SELECT: %1=%2 result=%3")
+                        .arg(QString::fromUtf8(property)).arg(id).arg(result));
+            }
         });
     };
 
