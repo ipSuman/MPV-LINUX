@@ -53,6 +53,7 @@
 #include "AudioExporter.h"
 #include "RuntimeLogger.h"
 #include "PlaybackPositionManager.h"
+#include "PlaylistController.h"
 
 #include <algorithm>
 #include <cmath>
@@ -109,6 +110,7 @@ MainWindow::MainWindow(const QString& mediaPath, QWidget* parent)
     setAcceptDrops(true);
     setFocusPolicy(Qt::StrongFocus);
     loadControlSettings();
+    m_playlistController = new PlaylistController();
     buildUi();
 
     m_runtimeLogger = new RuntimeLogger(this);
@@ -183,6 +185,8 @@ MainWindow::MainWindow(const QString& mediaPath, QWidget* parent)
 
 MainWindow::~MainWindow() {
     m_uiTimer.stop();
+    delete m_playlistController;
+    m_playlistController = nullptr;
     updatePlaybackInhibit(false);
     if (m_mpv) {
         // The wakeup callback may originate from an mpv worker thread. Unregister
@@ -405,28 +409,22 @@ void MainWindow::buildUi() {
     playlistButtons->addWidget(clear);
     playlistLayout->addLayout(playlistButtons);
     m_autoplayCheck = new QCheckBox(QStringLiteral("Autoplay next item"), playlistPanel);
-    m_autoplayCheck->setChecked(m_autoplayPlaylist);
+    m_autoplayCheck->setChecked(m_playlistController && m_playlistController->autoplay());
     m_autoplayCheck->setToolTip(QStringLiteral("Automatically play the next playlist item when the current item reaches the end."));
     connect(m_autoplayCheck, &QCheckBox::toggled, this, [this](bool checked) {
-        m_autoplayPlaylist = checked;
-        QSettings settings(QStringLiteral("REX Player"), QStringLiteral("REX Player"));
-        settings.setValue(QStringLiteral("playlist/autoplay"), checked);
-        settings.sync();
+        if (m_playlistController) m_playlistController->setAutoplay(checked);
     });
     auto* playbackOptions = new QHBoxLayout();
     playbackOptions->setContentsMargins(0, 0, 0, 0);
     playbackOptions->setSpacing(8);
     playbackOptions->addWidget(m_autoplayCheck);
-    m_loopPlaylistButton = new QPushButton(m_loopPlaylist ? QStringLiteral("Loop: On") : QStringLiteral("Loop: Off"), playlistPanel);
+    m_loopPlaylistButton = new QPushButton(m_playlistController && m_playlistController->loop() ? QStringLiteral("Loop: On") : QStringLiteral("Loop: Off"), playlistPanel);
     m_loopPlaylistButton->setCheckable(true);
-    m_loopPlaylistButton->setChecked(m_loopPlaylist);
+    m_loopPlaylistButton->setChecked(m_playlistController && m_playlistController->loop());
     m_loopPlaylistButton->setToolTip(QStringLiteral("Loop the playlist: after the last item, continue again from the first item."));
     connect(m_loopPlaylistButton, &QPushButton::toggled, this, [this](bool checked) {
-        m_loopPlaylist = checked;
         m_loopPlaylistButton->setText(checked ? QStringLiteral("Loop: On") : QStringLiteral("Loop: Off"));
-        QSettings settings(QStringLiteral("REX Player"), QStringLiteral("REX Player"));
-        settings.setValue(QStringLiteral("playlist/loop"), checked);
-        settings.sync();
+        if (m_playlistController) m_playlistController->setLoop(checked);
     });
     playbackOptions->addWidget(m_loopPlaylistButton);
     playbackOptions->addStretch();
@@ -470,8 +468,6 @@ void MainWindow::loadControlSettings() {
     m_saturation = std::clamp(settings.value(QStringLiteral("display/saturation"), m_saturation).toInt(), -100, 100);
     m_brightness = std::clamp(settings.value(QStringLiteral("display/brightness"), m_brightness).toInt(), -100, 100);
     m_contrast = std::clamp(settings.value(QStringLiteral("display/contrast"), m_contrast).toInt(), -100, 100);
-    m_autoplayPlaylist = settings.value(QStringLiteral("playlist/autoplay"), m_autoplayPlaylist).toBool();
-    m_loopPlaylist = settings.value(QStringLiteral("playlist/loop"), m_loopPlaylist).toBool();
 }
 
 void MainWindow::showControlsDialog() {
@@ -822,7 +818,7 @@ void MainWindow::loadFile(const QString& path) {
     clearAbLoop();
     const QString absolute = QFileInfo(path).absoluteFilePath();
     addToPlaylist(absolute);
-    const int index = m_playlist ? m_playlist->currentRow() : -1;
+    const int index = m_playlistController ? m_playlistController->currentIndex() : -1;
     if (index >= 0) playPlaylistIndex(index);
     else {
         const QByteArray encoded = absolute.toUtf8();
@@ -832,23 +828,27 @@ void MainWindow::loadFile(const QString& path) {
 }
 
 void MainWindow::addToPlaylist(const QString& path) {
-    if (!m_playlist || path.isEmpty()) return;
+    if (!m_playlistController || !m_playlist || path.isEmpty()) return;
     const QString absolute = QFileInfo(path).absoluteFilePath();
-    for (int i = 0; i < m_playlist->count(); ++i) {
-        if (m_playlist->item(i)->data(Qt::UserRole).toString() == absolute) {
-            m_playlist->setCurrentRow(i);
-            return;
-        }
+    const int existingIndex = m_playlistController->indexOf(absolute);
+    if (existingIndex >= 0) {
+        m_playlistController->setCurrentIndex(existingIndex);
+        m_playlist->setCurrentRow(existingIndex);
+        return;
     }
-    const bool wasEmpty = m_playlist->count() == 0;
+    const bool added = m_playlistController->addPath(absolute);
+    if (!added) return;
     auto* item = new QListWidgetItem(QFileInfo(absolute).fileName(), m_playlist);
     item->setToolTip(absolute);
     item->setData(Qt::UserRole, absolute);
-    if (wasEmpty) m_playlist->setCurrentItem(item);
+    if (m_playlistController->count() == 1) {
+        m_playlistController->setCurrentIndex(0);
+        m_playlist->setCurrentRow(0);
+    }
 }
 
 void MainWindow::playPlaylistIndex(int index, bool promptResume) {
-    if (!m_playlist || index < 0 || index >= m_playlist->count()) return;
+    if (!m_playlistController || !m_playlist || index < 0 || index >= m_playlistController->count()) return;
     saveCurrentPlaybackPosition();
 
     // A newly selected file starts with normal hardware decoding and
@@ -864,10 +864,9 @@ void MainWindow::playPlaylistIndex(int index, bool promptResume) {
     const char* resetRotationArgs[] = {"set", "video-rotate", "0", nullptr};
     command(resetRotationArgs);
 
-    auto* item = m_playlist->item(index);
-    const QString path = item->data(Qt::UserRole).toString();
+    const QString path = m_playlistController->pathAt(index);
     if (path.isEmpty() || !QFileInfo::exists(path)) return;
-    m_currentPlaylistIndex = index;
+    m_playlistController->setCurrentIndex(index);
     m_playlist->setCurrentRow(index);
     const QByteArray encoded = path.toUtf8();
     const char* args[] = {"loadfile", encoded.constData(), "replace", nullptr};
@@ -879,7 +878,11 @@ void MainWindow::playPlaylistIndex(int index, bool promptResume) {
 }
 
 void MainWindow::syncPlaylistSelection() {
-    if (m_playlist && m_currentPlaylistIndex >= 0 && m_currentPlaylistIndex < m_playlist->count()) m_playlist->setCurrentRow(m_currentPlaylistIndex);
+    if (m_playlistController && m_playlist &&
+        m_playlistController->currentIndex() >= 0 &&
+        m_playlistController->currentIndex() < m_playlist->count()) {
+        m_playlist->setCurrentRow(m_playlistController->currentIndex());
+    }
 }
 
 void MainWindow::command(const char** args) {
@@ -1369,7 +1372,7 @@ void MainWindow::saveLogReport() {
     out << "\nPlaylist\n--------\n";
     if (m_playlist) {
         out << "Count: " << m_playlist->count() << "\n";
-        out << "Current index: " << m_currentPlaylistIndex << "\n";
+        out << "Current index: " << m_playlistController->currentIndex() << "\n";
         for (int i = 0; i < m_playlist->count(); ++i)
             out << (i + 1) << ": " << m_playlist->item(i)->data(Qt::UserRole).toString() << "\n";
     }
@@ -1758,9 +1761,9 @@ void MainWindow::pumpMpvEvents() {
                 updatePlaybackInhibit(false);
 
                 const bool hasNext = m_playlist &&
-                                     m_currentPlaylistIndex >= 0 &&
-                                     m_currentPlaylistIndex + 1 < m_playlist->count();
-                const bool hasPlaylist = m_playlist && m_playlist->count() > 0;
+                                     m_playlistController &&
+                                     m_playlistController->nextIndex() >= 0;
+                const bool hasPlaylist = m_playlistController && m_playlistController->count() > 0;
                 if (m_autoplayPlaylist && hasNext) {
                     playNext();
                 } else if (m_autoplayPlaylist && m_loopPlaylist && hasPlaylist) {
@@ -1867,45 +1870,69 @@ QString MainWindow::formatTime(double seconds) const { if (!std::isfinite(second
 void MainWindow::openFile() { const QString path = QFileDialog::getOpenFileName(this, QStringLiteral("Open video")); if (!path.isEmpty()) loadFile(path); }
 void MainWindow::addFiles() {
     const QStringList paths = QFileDialog::getOpenFileNames(this, QStringLiteral("Add media files"));
-    if (paths.isEmpty()) return;
-    const int currentIndex = m_playlist ? m_playlist->currentRow() : -1;
-    const bool wasEmpty = m_playlist && m_playlist->count() == 0;
+    if (paths.isEmpty() || !m_playlistController || !m_playlist) return;
+    const int currentIndex = m_playlistController->currentIndex();
+    const bool wasEmpty = m_playlistController->count() == 0;
     for (const QString& path : paths) addToPlaylist(path);
-    if (!m_playlist) return;
-    if (wasEmpty) {
-        if (m_playlist->count() > 0) { m_playlist->setCurrentRow(0); playlistActivated(); }
+    if (wasEmpty && m_playlistController->count() > 0) {
+        m_playlistController->setCurrentIndex(0);
+        m_playlist->setCurrentRow(0);
+        playlistActivated();
     } else if (currentIndex >= 0 && currentIndex < m_playlist->count()) {
+        m_playlistController->setCurrentIndex(currentIndex);
         m_playlist->setCurrentRow(currentIndex);
     }
 }
 void MainWindow::addFolder() {
     const QString path = QFileDialog::getExistingDirectory(this, QStringLiteral("Add media folder"));
-    if (path.isEmpty() || !m_playlist) return;
-    const int currentIndex = m_playlist->currentRow();
-    const bool wasEmpty = m_playlist->count() == 0;
+    if (path.isEmpty() || !m_playlistController || !m_playlist) return;
+    const int currentIndex = m_playlistController->currentIndex();
+    const bool wasEmpty = m_playlistController->count() == 0;
     QDir dir(path);
     const QFileInfoList files = dir.entryInfoList(QDir::Files | QDir::Readable, QDir::Name | QDir::IgnoreCase);
     for (const QFileInfo& info : files) if (isMediaFile(info)) addToPlaylist(info.absoluteFilePath());
-    if (wasEmpty) {
-        if (m_playlist->count() > 0) { m_playlist->setCurrentRow(0); playlistActivated(); }
+    if (wasEmpty && m_playlistController->count() > 0) {
+        m_playlistController->setCurrentIndex(0);
+        m_playlist->setCurrentRow(0);
+        playlistActivated();
     } else if (currentIndex >= 0 && currentIndex < m_playlist->count()) {
+        m_playlistController->setCurrentIndex(currentIndex);
         m_playlist->setCurrentRow(currentIndex);
     }
 }
-void MainWindow::clearPlaylist() { if (m_playlist) m_playlist->clear(); m_currentPlaylistIndex = -1; }
-void MainWindow::playlistActivated() { if (m_playlist && m_playlist->currentItem()) playPlaylistIndex(m_playlist->currentRow()); }
-void MainWindow::playPrevious() { if (!m_playlist || m_playlist->count() == 0) return; int index = m_currentPlaylistIndex >= 0 ? m_currentPlaylistIndex : m_playlist->currentRow(); if (index > 0) playPlaylistIndex(index - 1); }
-void MainWindow::playNext() { if (!m_playlist || m_playlist->count() == 0) return; int index = m_currentPlaylistIndex >= 0 ? m_currentPlaylistIndex : m_playlist->currentRow(); if (index + 1 < m_playlist->count()) playPlaylistIndex(index + 1, false); }
+void MainWindow::clearPlaylist() {
+    if (m_playlist) m_playlist->clear();
+    if (m_playlistController) m_playlistController->clear();
+}
+void MainWindow::playlistActivated() {
+    if (m_playlistController && m_playlist && m_playlist->currentItem()) {
+        m_playlistController->setCurrentIndex(m_playlist->currentRow());
+        playPlaylistIndex(m_playlist->currentRow());
+    }
+}
+void MainWindow::playPrevious() {
+    if (!m_playlistController || m_playlistController->count() == 0) return;
+    const int index = m_playlistController->previousIndex();
+    if (index >= 0) playPlaylistIndex(index);
+}
+void MainWindow::playNext() {
+    if (!m_playlistController || m_playlistController->count() == 0) return;
+    const int index = m_playlistController->nextIndex();
+    if (index >= 0) playPlaylistIndex(index, false);
+}
 void MainWindow::dragEnterEvent(QDragEnterEvent* event) { if (event->mimeData()->hasUrls()) event->acceptProposedAction(); }
 void MainWindow::dropEvent(QDropEvent* event) {
     const auto urls = event->mimeData()->urls();
-    const int currentIndex = m_playlist ? m_playlist->currentRow() : -1;
-    const bool wasEmpty = m_playlist && m_playlist->count() == 0;
+    const int currentIndex = m_playlistController ? m_playlistController->currentIndex() : -1;
+    const bool wasEmpty = m_playlistController && m_playlistController->count() == 0;
     for (const auto& url : urls) if (url.isLocalFile()) addToPlaylist(url.toLocalFile());
     if (m_playlist) {
-        if (wasEmpty) {
-            if (m_playlist->count() > 0) { m_playlist->setCurrentRow(0); playlistActivated(); }
+        if (wasEmpty && m_playlistController->count() > 0) {
+            m_playlistController->setCurrentIndex(0);
+            m_playlist->setCurrentRow(0);
+            playlistActivated();
         } else if (currentIndex >= 0 && currentIndex < m_playlist->count()) {
+            m_playlistController->setCurrentIndex(currentIndex);
             m_playlist->setCurrentRow(currentIndex);
         }
     }
