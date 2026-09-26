@@ -55,6 +55,8 @@ private slots:
     void openFile();
     void addFiles();
     void addFolder();
+    void savePlaylist();
+    void openPlaylist();
     void clearPlaylist();
     void playlistActivated();
     void togglePause();
