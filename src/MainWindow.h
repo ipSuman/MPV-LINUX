@@ -64,9 +64,8 @@ private slots:
     void showTracksMenu();
     void cutAbSelection();
     void rotateVideo90();
-    void toggleMirror();
-    void ensureTransformCopyback();
-    void restoreTransformHardwareMode();
+    void toggleFlipHorizontal();
+    void toggleFlipVertical();
     void applyVideoTransforms();
     void saveLogReport();
     void increaseSubtitleSize();
@@ -137,7 +136,6 @@ private:
     QPushButton* m_seekBackButton = nullptr;
     QPushButton* m_seekForwardButton = nullptr;
     QPushButton* m_cutAbButton = nullptr;
-    QPushButton* m_mirrorButton = nullptr;
     QPushButton* m_rotateButton = nullptr;
     QPushButton* m_logButton = nullptr;
     QCheckBox* m_autoplayCheck = nullptr;
@@ -194,10 +192,9 @@ private:
     QKeySequence m_subtitleSizeDownKey = QKeySequence(Qt::Key_I);
     QKeySequence m_captureScreenshotKey = QKeySequence(Qt::Key_C);
     QKeySequence m_rotateVideoKey = QKeySequence(Qt::Key_R);
-    QKeySequence m_mirrorVideoKey = QKeySequence(Qt::SHIFT | Qt::Key_M);
     int m_videoRotation = 0;
-    bool m_videoMirrored = false;
-    bool m_transformForcedSoftware = false;
+    bool m_flipHorizontal = false;
+    bool m_flipVertical = false;
     int m_saturation = 0;
     int m_brightness = 0;
     int m_contrast = 0;

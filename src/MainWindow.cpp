@@ -321,11 +321,15 @@ void MainWindow::buildUi() {
     connect(m_rotateButton, &QPushButton::clicked, this, &MainWindow::rotateVideo90);
     row->addWidget(m_rotateButton);
 
-    m_mirrorButton = new QPushButton(QStringLiteral("Mirror"), m_controls);
-    m_mirrorButton->setCheckable(true);
-    m_mirrorButton->setToolTip(QStringLiteral("Mirror the video horizontally"));
-    connect(m_mirrorButton, &QPushButton::clicked, this, &MainWindow::toggleMirror);
-    row->addWidget(m_mirrorButton);
+    auto* flipHorizontalButton = new QPushButton(QStringLiteral("Flip H"), m_controls);
+    flipHorizontalButton->setToolTip(QStringLiteral("Flip the video horizontally"));
+    connect(flipHorizontalButton, &QPushButton::clicked, this, &MainWindow::toggleFlipHorizontal);
+    row->addWidget(flipHorizontalButton);
+
+    auto* flipVerticalButton = new QPushButton(QStringLiteral("Flip V"), m_controls);
+    flipVerticalButton->setToolTip(QStringLiteral("Flip the video vertically"));
+    connect(flipVerticalButton, &QPushButton::clicked, this, &MainWindow::toggleFlipVertical);
+    row->addWidget(flipVerticalButton);
     row->addStretch();
     row->addWidget(new QLabel(QStringLiteral("Volume"), m_controls));
     m_volumeSlider = new QSlider(Qt::Horizontal, m_controls);
@@ -447,7 +451,6 @@ void MainWindow::loadControlSettings() {
     m_subtitleSizeDownKey = QKeySequence(settings.value(QStringLiteral("controls/subtitleSizeDown"), m_subtitleSizeDownKey.toString()).toString());
     m_captureScreenshotKey = QKeySequence(settings.value(QStringLiteral("controls/captureScreenshot"), m_captureScreenshotKey.toString()).toString());
     m_rotateVideoKey = QKeySequence(settings.value(QStringLiteral("controls/rotateVideo"), m_rotateVideoKey.toString()).toString());
-    m_mirrorVideoKey = QKeySequence(settings.value(QStringLiteral("controls/mirrorVideo"), m_mirrorVideoKey.toString()).toString());
     m_cutWithZoom = settings.value(QStringLiteral("controls/cutWithZoom"), false).toBool();
     m_saturation = std::clamp(settings.value(QStringLiteral("display/saturation"), m_saturation).toInt(), -100, 100);
     m_brightness = std::clamp(settings.value(QStringLiteral("display/brightness"), m_brightness).toInt(), -100, 100);
@@ -554,8 +557,7 @@ void MainWindow::showControlsDialog() {
     auto* subtitleSizeDown = new QKeySequenceEdit(m_subtitleSizeDownKey, &dialog);
     auto* captureScreenshot = new QKeySequenceEdit(m_captureScreenshotKey, &dialog);
     auto* rotateVideo = new QKeySequenceEdit(m_rotateVideoKey, &dialog);
-    auto* mirrorVideo = new QKeySequenceEdit(m_mirrorVideoKey, &dialog);
-    const QList<QKeySequenceEdit*> edits = {volumeUp, volumeDown, mute, seekBack, seekForward, loopA, loopB, loopClear, zoomIn, zoomOut, zoomReset, frameBack, frameForward, switchSubtitles, subtitlePosUp, subtitlePosDown, subtitleSizeUp, subtitleSizeDown, captureScreenshot, rotateVideo, mirrorVideo};
+    const QList<QKeySequenceEdit*> edits = {volumeUp, volumeDown, mute, seekBack, seekForward, loopA, loopB, loopClear, zoomIn, zoomOut, zoomReset, frameBack, frameForward, switchSubtitles, subtitlePosUp, subtitlePosDown, subtitleSizeUp, subtitleSizeDown, captureScreenshot, rotateVideo};
     for (auto* edit : edits) edit->setClearButtonEnabled(false);
 
     auto addShortcut = [&keyForm, &dialog](const QString& label, QKeySequenceEdit* edit) {
@@ -595,7 +597,6 @@ void MainWindow::showControlsDialog() {
     addShortcut(QStringLiteral("I → Decrease subtitle text size"), subtitleSizeDown);
     addShortcut(QStringLiteral("C → Capture screenshot"), captureScreenshot);
     addShortcut(QStringLiteral("R → Rotate video 90° clockwise"), rotateVideo);
-    addShortcut(QStringLiteral("Shift + M → Mirror video horizontally"), mirrorVideo);
     contentLayout->addLayout(keyForm);
 
     auto* note = new QLabel(QStringLiteral("Seek duration applies to the arrow keys, wheel seek and double-click seek zones. Choose 5, 10 or 30 seconds, or a value from 1 to 120 minutes. The −10s and +10s buttons always seek exactly 10 seconds. Changes are saved for the next launch. Clear a shortcut to disable it. Cut with zoom bakes positive video zoom/pan and the current 90°-step rotation into the A-B output and therefore re-encodes the video."), &dialog);
@@ -639,7 +640,6 @@ void MainWindow::showControlsDialog() {
         subtitleSizeDown->setKeySequence(QKeySequence(Qt::Key_I));
         captureScreenshot->setKeySequence(QKeySequence(Qt::Key_C));
         rotateVideo->setKeySequence(QKeySequence(Qt::Key_R));
-        mirrorVideo->setKeySequence(QKeySequence(Qt::SHIFT | Qt::Key_M));
         cutWithZoomButton->setChecked(false);
     });
 
@@ -680,7 +680,6 @@ void MainWindow::showControlsDialog() {
         m_subtitleSizeDownKey = subtitleSizeDown->keySequence();
         m_captureScreenshotKey = captureScreenshot->keySequence();
         m_rotateVideoKey = rotateVideo->keySequence();
-        m_mirrorVideoKey = mirrorVideo->keySequence();
         m_cutWithZoom = cutWithZoomButton->isChecked();
 
         QSettings settings(QStringLiteral("REX Player"), QStringLiteral("REX Player"));
@@ -711,7 +710,6 @@ void MainWindow::showControlsDialog() {
         settings.setValue(QStringLiteral("controls/subtitleSizeDown"), m_subtitleSizeDownKey.toString());
         settings.setValue(QStringLiteral("controls/captureScreenshot"), m_captureScreenshotKey.toString());
         settings.setValue(QStringLiteral("controls/rotateVideo"), m_rotateVideoKey.toString());
-        settings.setValue(QStringLiteral("controls/mirrorVideo"), m_mirrorVideoKey.toString());
         settings.setValue(QStringLiteral("controls/cutWithZoom"), m_cutWithZoom);
         settings.sync();
         updateSeekButtonLabels();
@@ -870,20 +868,15 @@ void MainWindow::playPlaylistIndex(int index, bool promptResume) {
     if (!m_playlist || index < 0 || index >= m_playlist->count()) return;
     saveCurrentPlaybackPosition();
 
-    // A newly selected file starts with its normal hardware-decoding mode and
-    // no manual rotation/mirror transform. Transform reloads use
-    // video-reload, so they do not pass through this reset path.
+    // A newly selected file starts with normal hardware decoding and
+    // no manual rotation or flip transforms.
     m_videoRotation = 0;
-    m_videoMirrored = false;
-    if (m_mirrorButton) m_mirrorButton->setChecked(false);
-    const char* removeMirrorArgs[] = {"vf-remove", "@rex-mirror", nullptr};
-    appendRuntimeLog(QStringLiteral("TRANSFORM: removing @rex-mirror"));
-    command(removeMirrorArgs);
-    if (m_transformForcedSoftware) {
-        const char* restoreHwdecArgs[] = {"set", "hwdec", "auto", nullptr};
-        command(restoreHwdecArgs);
-        m_transformForcedSoftware = false;
-    }
+    m_flipHorizontal = false;
+    m_flipVertical = false;
+    const char* removeFlipHArgs[] = {"vf-remove", "@rex-flip-h", nullptr};
+    const char* removeFlipVArgs[] = {"vf-remove", "@rex-flip-v", nullptr};
+    command(removeFlipHArgs);
+    command(removeFlipVArgs);
     const char* resetRotationArgs[] = {"set", "video-rotate", "0", nullptr};
     command(resetRotationArgs);
 
@@ -936,15 +929,14 @@ void MainWindow::adjustVideoZoom(double amount) { setPropertyDouble("video-zoom"
 void MainWindow::applyVideoTransforms() {
     if (!m_mpv) return;
 
-    appendRuntimeLog(QStringLiteral("TRANSFORM: apply begin rotation=%1 mirror=%2 hwdec=%3")
+    appendRuntimeLog(QStringLiteral("TRANSFORM: apply rotation=%1 flipH=%2 flipV=%3 hwdec=%4")
         .arg(m_videoRotation)
-        .arg(m_videoMirrored ? QStringLiteral("on") : QStringLiteral("off"))
+        .arg(m_flipHorizontal ? QStringLiteral("on") : QStringLiteral("off"))
+        .arg(m_flipVertical ? QStringLiteral("on") : QStringLiteral("off"))
         .arg(getPropertyString("hwdec-current")));
 
-    // Rotation and mirror are deliberately processed on software-decoded
-    // frames. The AMD/VAAPI copy-back path on the affected system still
-    // produces chroma corruption when the rotated frame is rendered, while
-    // software decoding is known to preserve the original colors.
+    // Keep rotation native in mpv. Do not force software/copy-back decoding:
+    // hardware rotation is supported for the 90° steps used by REX Player.
     const qint64 rotation = m_videoRotation;
     const int rotationResult = mpv_set_property(
         m_mpv, "video-rotate", MPV_FORMAT_INT64, &rotation);
@@ -953,121 +945,56 @@ void MainWindow::applyVideoTransforms() {
         .arg(rotationResult)
         .arg(QString::fromUtf8(mpv_error_string(rotationResult))));
 
-    const char* removeMirrorArgs[] = {"vf-remove", "@rex-mirror", nullptr};
-    const int removeResult = mpv_command(m_mpv, removeMirrorArgs);
-    appendRuntimeLog(QStringLiteral("TRANSFORM: remove @rex-mirror result=%1 (%2)")
-        .arg(removeResult)
-        .arg(QString::fromUtf8(mpv_error_string(removeResult))));
+    const char* removeHArgs[] = {"vf-remove", "@rex-flip-h", nullptr};
+    const int removeHResult = mpv_command(m_mpv, removeHArgs);
+    appendRuntimeLog(QStringLiteral("TRANSFORM: remove @rex-flip-h result=%1 (%2)")
+        .arg(removeHResult).arg(QString::fromUtf8(mpv_error_string(removeHResult))));
 
-    if (m_videoMirrored) {
-        // Use libavfilter explicitly. hflip is a standard FFmpeg filter and
-        // the labelled form lets us remove it without disturbing other filters.
-        const char* addMirrorArgs[] = {"vf-add", "@rex-mirror:lavfi=[hflip]", nullptr};
-        const int addResult = mpv_command(m_mpv, addMirrorArgs);
-        appendRuntimeLog(QStringLiteral("TRANSFORM: add @rex-mirror:lavfi=[hflip] result=%1 (%2)")
-            .arg(addResult)
-            .arg(QString::fromUtf8(mpv_error_string(addResult))));
+    const char* removeVArgs[] = {"vf-remove", "@rex-flip-v", nullptr};
+    const int removeVResult = mpv_command(m_mpv, removeVArgs);
+    appendRuntimeLog(QStringLiteral("TRANSFORM: remove @rex-flip-v result=%1 (%2)")
+        .arg(removeVResult).arg(QString::fromUtf8(mpv_error_string(removeVResult))));
 
-        // If the explicit lavfi form is rejected by a particular libmpv build,
-        // retry with mpv's automatic filter bridge.
-        if (addResult < 0) {
-            const char* fallbackArgs[] = {"vf-add", "@rex-mirror:hflip", nullptr};
-            const int fallbackResult = mpv_command(m_mpv, fallbackArgs);
-            appendRuntimeLog(QStringLiteral("TRANSFORM: fallback add @rex-mirror:hflip result=%1 (%2)")
-                .arg(fallbackResult)
-                .arg(QString::fromUtf8(mpv_error_string(fallbackResult))));
-        }
+    if (m_flipHorizontal) {
+        const char* addHArgs[] = {"vf-add", "@rex-flip-h:lavfi=[hflip]", nullptr};
+        const int result = mpv_command(m_mpv, addHArgs);
+        appendRuntimeLog(QStringLiteral("TRANSFORM: add horizontal flip result=%1 (%2)")
+            .arg(result).arg(QString::fromUtf8(mpv_error_string(result))));
     }
 
-    if (m_mirrorButton) m_mirrorButton->setChecked(m_videoMirrored);
-    appendRuntimeLog(QStringLiteral("TRANSFORM: apply end active hwdec=%1")
+    if (m_flipVertical) {
+        const char* addVArgs[] = {"vf-add", "@rex-flip-v:lavfi=[vflip]", nullptr};
+        const int result = mpv_command(m_mpv, addVArgs);
+        appendRuntimeLog(QStringLiteral("TRANSFORM: add vertical flip result=%1 (%2)")
+            .arg(result).arg(QString::fromUtf8(mpv_error_string(result))));
+    }
+
+    appendRuntimeLog(QStringLiteral("TRANSFORM: apply complete hwdec=%1")
         .arg(getPropertyString("hwdec-current")));
     QTimer::singleShot(100, this, &MainWindow::resizeWindowForVideoAspect);
 }
 
-void MainWindow::ensureTransformCopyback() {
-    if (!m_mpv) return;
-
-    appendRuntimeLog(QStringLiteral("TRANSFORM: ensure software mode begin requested rotation=%1 mirror=%2 active hwdec=%3")
-        .arg(m_videoRotation)
-        .arg(m_videoMirrored ? QStringLiteral("on") : QStringLiteral("off"))
-        .arg(getPropertyString("hwdec-current")));
-
-    const QString current = getPropertyString("hwdec-current").trimmed().toLower();
-    if (current == QStringLiteral("no")) {
-        m_transformForcedSoftware = true;
-        appendRuntimeLog(QStringLiteral("TRANSFORM: software decoding already active; applying transforms"));
-        applyVideoTransforms();
-        return;
-    }
-
-    // Do not use auto-copy here. The affected AMD VAAPI copy-back path still
-    // corrupts colors during rotation. Force the decoder all the way to
-    // software mode, then rebuild the video decoder.
-    const char* setArgs[] = {"set", "hwdec", "no", nullptr};
-    const int setResult = mpv_command(m_mpv, setArgs);
-    appendRuntimeLog(QStringLiteral("TRANSFORM: requesting hwdec=no result=%1 (%2)")
-        .arg(setResult)
-        .arg(QString::fromUtf8(mpv_error_string(setResult))));
-    m_transformForcedSoftware = true;
-
-    const char* reloadArgs[] = {"video-reload", nullptr};
-    const int reloadResult = mpv_command(m_mpv, reloadArgs);
-    appendRuntimeLog(QStringLiteral("TRANSFORM: requesting video-reload for software transform mode result=%1 (%2)")
-        .arg(reloadResult)
-        .arg(QString::fromUtf8(mpv_error_string(reloadResult))));
-
-    appendRuntimeLog(QStringLiteral("TRANSFORM: scheduling transform reapply after decoder reload (500ms)"));
-    QTimer::singleShot(500, this, &MainWindow::applyVideoTransforms);
-}
-
-void MainWindow::restoreTransformHardwareMode() {
-    if (!m_mpv || !m_transformForcedSoftware) return;
-
-    appendRuntimeLog(QStringLiteral("TRANSFORM: restoring normal hardware decoding"));
-
-    const char* setArgs[] = {"set", "hwdec", "auto", nullptr};
-    const int setResult = mpv_command(m_mpv, setArgs);
-    appendRuntimeLog(QStringLiteral("TRANSFORM: requesting hwdec=auto result=%1 (%2)")
-        .arg(setResult)
-        .arg(QString::fromUtf8(mpv_error_string(setResult))));
-
-    const char* reloadArgs[] = {"video-reload", nullptr};
-    const int reloadResult = mpv_command(m_mpv, reloadArgs);
-    appendRuntimeLog(QStringLiteral("TRANSFORM: requesting video-reload to restore hardware path result=%1 (%2)")
-        .arg(reloadResult)
-        .arg(QString::fromUtf8(mpv_error_string(reloadResult))));
-
-    m_transformForcedSoftware = false;
-}
-
 void MainWindow::rotateVideo90() {
     if (!m_mpv) return;
-
     m_videoRotation = (m_videoRotation + 90) % 360;
     appendRuntimeLog(QStringLiteral("USER ACTION: Rotate clicked; new rotation=%1").arg(m_videoRotation));
-
-    if (m_videoRotation != 0 || m_videoMirrored) {
-        ensureTransformCopyback();
-    } else {
-        restoreTransformHardwareMode();
-        applyVideoTransforms();
-    }
+    applyVideoTransforms();
 }
 
-void MainWindow::toggleMirror() {
+void MainWindow::toggleFlipHorizontal() {
     if (!m_mpv) return;
+    m_flipHorizontal = !m_flipHorizontal;
+    appendRuntimeLog(QStringLiteral("USER ACTION: Flip H clicked; new state=%1")
+        .arg(m_flipHorizontal ? QStringLiteral("on") : QStringLiteral("off")));
+    applyVideoTransforms();
+}
 
-    m_videoMirrored = !m_videoMirrored;
-    appendRuntimeLog(QStringLiteral("USER ACTION: Mirror clicked; new state=%1")
-        .arg(m_videoMirrored ? QStringLiteral("on") : QStringLiteral("off")));
-
-    if (m_videoMirrored || m_videoRotation != 0) {
-        ensureTransformCopyback();
-    } else {
-        restoreTransformHardwareMode();
-        applyVideoTransforms();
-    }
+void MainWindow::toggleFlipVertical() {
+    if (!m_mpv) return;
+    m_flipVertical = !m_flipVertical;
+    appendRuntimeLog(QStringLiteral("USER ACTION: Flip V clicked; new state=%1")
+        .arg(m_flipVertical ? QStringLiteral("on") : QStringLiteral("off")));
+    applyVideoTransforms();
 }
 
 void MainWindow::resetVideoTransform() { setPropertyDouble("video-zoom", 0.0); setPropertyDouble("video-pan-x", 0.0); setPropertyDouble("video-pan-y", 0.0); m_videoPanX = 0.0; m_videoPanY = 0.0; }
@@ -1143,7 +1070,7 @@ void MainWindow::cutAbSelection() {
         if (success) {
             QMessageBox::information(
                 this, QStringLiteral("A-B cut complete"),
-                QStringLiteral("Saved:\n%1\n\n%2").arg(output, m_cutWithZoom && (getPropertyDouble("video-zoom") > 0.0001 || std::abs(getPropertyDouble("video-pan-x")) > 0.0001 || std::abs(getPropertyDouble("video-pan-y")) > 0.0001 || std::abs(getPropertyDouble("video-rotate")) > 0.0001 || m_videoMirrored) ? QStringLiteral("The current zoom/pan/rotation/mirror was baked into the video, so the video was re-encoded; audio/subtitles were copied when supported.") : QStringLiteral("Streams were copied without re-encoding. Because this is stream-copy cutting, the start may align to a nearby keyframe.")));
+                QStringLiteral("Saved:\n%1\n\n%2").arg(output, m_cutWithZoom && (getPropertyDouble("video-zoom") > 0.0001 || std::abs(getPropertyDouble("video-pan-x")) > 0.0001 || std::abs(getPropertyDouble("video-pan-y")) > 0.0001 || std::abs(getPropertyDouble("video-rotate")) > 0.0001 || m_flipHorizontal || m_flipVertical) ? QStringLiteral("The current zoom/pan/rotation/flip was baked into the video, so the video was re-encoded; audio/subtitles were copied when supported.") : QStringLiteral("Streams were copied without re-encoding. Because this is stream-copy cutting, the start may align to a nearby keyframe.")));
         } else {
             if (QFileInfo::exists(output)) QFile::remove(output);
             const QString detail = error.isEmpty() ? QStringLiteral("FFmpeg exited with code %1.").arg(exitCode) : error;
@@ -1184,9 +1111,11 @@ void MainWindow::cutAbSelection() {
     // explicitly filtered here.
     const bool bakeRotation = m_cutWithZoom && sourceWidth > 0 && sourceHeight > 0 &&
                                m_videoRotation != 0;
-    const bool bakeMirror = m_cutWithZoom && sourceWidth > 0 && sourceHeight > 0 &&
-                             m_videoMirrored;
-    const bool bakeTransform = bakeZoom || bakeRotation || bakeMirror;
+    const bool bakeFlipHorizontal = m_cutWithZoom && sourceWidth > 0 && sourceHeight > 0 &&
+                                     m_flipHorizontal;
+    const bool bakeFlipVertical = m_cutWithZoom && sourceWidth > 0 && sourceHeight > 0 &&
+                                   m_flipVertical;
+    const bool bakeTransform = bakeZoom || bakeRotation || bakeFlipHorizontal || bakeFlipVertical;
 
     if (bakeTransform) {
         // mpv rotates first, then applies zoom/pan to the displayed video.
@@ -1205,8 +1134,11 @@ void MainWindow::cutAbSelection() {
         } else if (m_videoRotation == 270) {
             filters << QStringLiteral("transpose=cclock");
         }
-        if (bakeMirror) {
+        if (bakeFlipHorizontal) {
             filters << QStringLiteral("hflip");
+        }
+        if (bakeFlipVertical) {
+            filters << QStringLiteral("vflip");
         }
 
         if (bakeZoom) {
@@ -1571,8 +1503,7 @@ void MainWindow::pumpMpvEvents() {
             // Transform state is reset by playPlaylistIndex() when a genuinely
             // new file is selected. Do not reset it here: video-reload is also
             // used to rebuild the decoder for transform mode, and that reload
-            // must preserve the requested rotation/mirror state.
-            if (m_mirrorButton) m_mirrorButton->setChecked(m_videoMirrored);
+            // Preserve the requested rotation and flip state.
             applyVideoTransforms();
             // The video viewport is embedded in the Qt window, so mpv cannot
             // resize the parent window itself. Resize the normal window here
@@ -1791,7 +1722,6 @@ void MainWindow::keyPressEvent(QKeyEvent* event) {
     if (keyMatches(event, m_subtitleSizeDownKey)) { decreaseSubtitleSize(); event->accept(); return; }
     if (keyMatches(event, m_captureScreenshotKey)) { captureScreenshot(); event->accept(); return; }
     if (keyMatches(event, m_rotateVideoKey)) { rotateVideo90(); event->accept(); return; }
-    if (keyMatches(event, m_mirrorVideoKey)) { toggleMirror(); event->accept(); return; }
     if (keyMatches(event, m_volumeUpKey)) { volumeUp(); event->accept(); return; }
     if (keyMatches(event, m_volumeDownKey)) { volumeDown(); event->accept(); return; }
     if (keyMatches(event, m_muteKey)) { toggleMute(); event->accept(); return; }
