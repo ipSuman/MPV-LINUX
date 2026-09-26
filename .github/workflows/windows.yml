@@ -106,6 +106,8 @@ jobs:
         shell: powershell
         run: |
           choco install nsis -y --no-progress
+          $iconBase64 = (Get-Content "assets\\rex-player.ico.b64" -Raw).Trim()
+          [IO.File]::WriteAllBytes("assets\\rex-player.ico", [Convert]::FromBase64String($iconBase64))
           New-Item -ItemType Directory -Force -Path release | Out-Null
           & "C:\Program Files (x86)\NSIS\makensis.exe" "packaging\windows\REX-Player.nsi"
           if ($LASTEXITCODE -ne 0) {
