@@ -28,6 +28,7 @@ class PlaybackPositionManager;
 class PlaylistController;
 class VideoTransformer;
 class TrackController;
+class PlaybackInhibitor;
 
 struct mpv_handle;
 
@@ -110,7 +111,6 @@ private:
     void showDisplayDialog();
     void captureScreenshot();
     void loadControlSettings();
-    void updatePlaybackInhibit(bool active);
     bool keyMatches(QKeyEvent* event, const QKeySequence& sequence) const;
     void saveCurrentPlaybackPosition();
     QString mpvEventName(int eventId) const;
@@ -147,8 +147,7 @@ private:
     PlaylistController* m_playlistController = nullptr;
     VideoTransformer* m_videoTransformer = nullptr;
     TrackController* m_trackController = nullptr;
-    QProcess* m_powerInhibitProcess = nullptr;
-    bool m_playbackInhibited = false;
+    PlaybackInhibitor* m_playbackInhibitor = nullptr;
     std::atomic_bool m_mpvWakeQueued{false};
     QString m_cutOutputPath;
     bool m_seeking = false;
