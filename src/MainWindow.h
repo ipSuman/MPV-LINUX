@@ -29,6 +29,7 @@ class PlaylistController;
 class VideoTransformer;
 class TrackController;
 class PlaybackInhibitor;
+class DiagnosticReporter;
 
 struct mpv_handle;
 
@@ -71,7 +72,6 @@ private slots:
     void showTracksMenu();
     void saveSelectedAudioTrack();
     void cutAbSelection();
-    void saveLogReport();
     void increaseSubtitleSize();
     void decreaseSubtitleSize();
     void cycleSubtitles();
@@ -148,6 +148,7 @@ private:
     VideoTransformer* m_videoTransformer = nullptr;
     TrackController* m_trackController = nullptr;
     PlaybackInhibitor* m_playbackInhibitor = nullptr;
+    DiagnosticReporter* m_diagnosticReporter = nullptr;
     std::atomic_bool m_mpvWakeQueued{false};
     QString m_cutOutputPath;
     bool m_seeking = false;
