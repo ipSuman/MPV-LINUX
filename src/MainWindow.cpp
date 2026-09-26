@@ -115,7 +115,7 @@ MainWindow::MainWindow(const QString& mediaPath, QWidget* parent)
     buildUi();
 
     m_runtimeLogger = new RuntimeLogger(this);
-    m_videoTransformer = new VideoTransformer(m_mpv, m_runtimeLogger);
+    m_videoTransformer = new VideoTransformer(m_mpv, m_runtimeLogger, this);
     m_playbackPositions = new PlaybackPositionManager(this);
     m_audioExporter = new AudioExporter(this);
     connect(m_audioExporter, &AudioExporter::logMessage,
@@ -187,7 +187,6 @@ MainWindow::MainWindow(const QString& mediaPath, QWidget* parent)
 
 MainWindow::~MainWindow() {
     m_uiTimer.stop();
-    delete m_videoTransformer;
     m_videoTransformer = nullptr;
     delete m_playlistController;
     m_playlistController = nullptr;
