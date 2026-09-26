@@ -10,6 +10,8 @@
 #include <QTextStream>
 #include <QWidget>
 
+#include <utility>
+
 #include "MpvNodeUtils.h"
 #include "PlaylistController.h"
 #include "RuntimeLogger.h"
