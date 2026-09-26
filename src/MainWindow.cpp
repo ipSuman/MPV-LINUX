@@ -937,7 +937,11 @@ void MainWindow::cutAbSelection() {
     const int normalizedRotation = ((rotation % 360) + 360) % 360;
     const double zoomFactor = std::pow(2.0, std::max(0.0, zoom));
     const bool bakeZoom = m_cutWithZoom && sourceWidth > 0 && sourceHeight > 0 && zoom > 0.0001;
-    const bool bakeRotation = m_cutWithZoom && sourceWidth > 0 && sourceHeight > 0 && normalizedRotation != 0;
+    // FFmpeg already applies the file's native rotation metadata during
+    // transcoding. Only the user's additional manual rotation must be
+    // explicitly filtered here.
+    const bool bakeRotation = m_cutWithZoom && sourceWidth > 0 && sourceHeight > 0 &&
+                               m_videoRotation != 0;
     const bool bakeTransform = bakeZoom || bakeRotation;
 
     if (bakeTransform) {
@@ -950,11 +954,11 @@ void MainWindow::cutAbSelection() {
             ? sourceWidth : sourceHeight;
 
         QStringList filters;
-        if (normalizedRotation == 90) {
+        if (m_videoRotation == 90) {
             filters << QStringLiteral("transpose=clock");
-        } else if (normalizedRotation == 180) {
+        } else if (m_videoRotation == 180) {
             filters << QStringLiteral("hflip") << QStringLiteral("vflip");
-        } else if (normalizedRotation == 270) {
+        } else if (m_videoRotation == 270) {
             filters << QStringLiteral("transpose=cclock");
         }
 
