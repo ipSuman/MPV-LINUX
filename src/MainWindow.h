@@ -67,11 +67,13 @@ private slots:
     void showControlsDialog();
     void playPrevious();
     void playNext();
+    void showTracksMenu();
     void saveSelectedAudioTrack();
     void cutAbSelection();
     void saveLogReport();
     void increaseSubtitleSize();
     void decreaseSubtitleSize();
+    void cycleSubtitles();
     void increaseSubtitlePosition();
     void decreaseSubtitlePosition();
 
