@@ -870,6 +870,7 @@ void MainWindow::playPlaylistIndex(int index, bool promptResume) {
 
     // A newly selected file starts with normal hardware decoding and
     // no manual rotation or flip transforms.
+    clearFlipHardwareOverride();
     m_videoRotation = 0;
     m_flipHorizontal = false;
     m_flipVertical = false;
@@ -926,17 +927,80 @@ void MainWindow::setPropertyDouble(const char* name, double value) {
 }
 void MainWindow::updateSeekButtonLabels() { if (!m_seekBackButton || !m_seekForwardButton) return; m_seekBackButton->setText(QStringLiteral("−10s")); m_seekForwardButton->setText(QStringLiteral("+10s")); }
 void MainWindow::adjustVideoZoom(double amount) { setPropertyDouble("video-zoom", std::clamp(getPropertyDouble("video-zoom") + amount, -2.0, 3.0)); }
+void MainWindow::clearFlipHardwareOverride() {
+    if (!m_mpv || !m_flipHwdecOverride) return;
+
+    const QString currentHwdec = getPropertyString("hwdec").trimmed();
+    appendRuntimeLog(QStringLiteral("FLIP HWDEC: clearing override; current=%1 saved=%2")
+        .arg(currentHwdec, m_flipPreHwdec));
+
+    // Restore the user's previous hwdec choice only if it is still the
+    // copy-back value we installed for the flip session. This mirrors
+    // REX Player's behaviour and avoids overwriting a manual user change.
+    if (currentHwdec == QStringLiteral("auto-copy")) {
+        QByteArray saved = m_flipPreHwdec.toUtf8();
+        char* value = saved.data();
+        const int result = mpv_set_property(
+            m_mpv, "hwdec", MPV_FORMAT_STRING, value);
+        appendRuntimeLog(QStringLiteral("FLIP HWDEC: restore %1 result=%2 (%3)")
+            .arg(m_flipPreHwdec)
+            .arg(result)
+            .arg(QString::fromUtf8(mpv_error_string(result))));
+    }
+
+    m_flipPreHwdec.clear();
+    m_flipHwdecOverride = false;
+}
+
 void MainWindow::applyVideoTransforms() {
     if (!m_mpv) return;
 
-    appendRuntimeLog(QStringLiteral("TRANSFORM: apply rotation=%1 flipH=%2 flipV=%3 hwdec=%4")
+    const bool flipsActive = m_flipHorizontal || m_flipVertical;
+    appendRuntimeLog(QStringLiteral("TRANSFORM: apply rotation=%1 flipH=%2 flipV=%3 hwdec=%4 hwdec-current=%5")
         .arg(m_videoRotation)
         .arg(m_flipHorizontal ? QStringLiteral("on") : QStringLiteral("off"))
         .arg(m_flipVertical ? QStringLiteral("on") : QStringLiteral("off"))
+        .arg(getPropertyString("hwdec"))
         .arg(getPropertyString("hwdec-current")));
 
-    // Keep rotation native in mpv. Do not force software/copy-back decoding:
-    // hardware rotation is supported for the 90° steps used by REX Player.
+    // Keep rotation native in mpv. Flip filters are CPU-frame filters, so
+    // when hardware decoding is active we temporarily switch to mpv's
+    // copy-back mode. This is the same basic approach used by REX Player.
+    if (flipsActive && !m_flipHwdecOverride) {
+        const QString activeHwdec = getPropertyString("hwdec-current").trimmed();
+        const QString configuredHwdec = getPropertyString("hwdec").trimmed();
+        const bool hardwareActive =
+            !activeHwdec.isEmpty() &&
+            activeHwdec != QStringLiteral("no") &&
+            activeHwdec != QStringLiteral("none");
+        const bool alreadyCopyBack =
+            activeHwdec == QStringLiteral("auto-copy") ||
+            activeHwdec.endsWith(QStringLiteral("-copy"));
+
+        if (hardwareActive && !alreadyCopyBack) {
+            m_flipPreHwdec = configuredHwdec.isEmpty() ? QStringLiteral("auto") : configuredHwdec;
+
+            QByteArray copyMode = QByteArrayLiteral("auto-copy");
+            char* value = copyMode.data();
+            const int result = mpv_set_property(
+                m_mpv, "hwdec", MPV_FORMAT_STRING, value);
+            appendRuntimeLog(QStringLiteral("FLIP HWDEC: %1 -> auto-copy result=%2 (%3)")
+                .arg(m_flipPreHwdec)
+                .arg(result)
+                .arg(QString::fromUtf8(mpv_error_string(result))));
+
+            if (result >= 0) {
+                m_flipHwdecOverride = true;
+            } else {
+                m_flipPreHwdec.clear();
+            }
+        }
+    }
+
+    if (!flipsActive) {
+        clearFlipHardwareOverride();
+    }
+
     qint64 rotation = m_videoRotation;
     const int rotationResult = mpv_set_property(
         m_mpv, "video-rotate", MPV_FORMAT_INT64, &rotation);
@@ -945,31 +1009,35 @@ void MainWindow::applyVideoTransforms() {
         .arg(rotationResult)
         .arg(QString::fromUtf8(mpv_error_string(rotationResult))));
 
-    const char* removeHArgs[] = {"vf-remove", "@rex-flip-h", nullptr};
+    // Use mpv's native hflip/vflip filters, as REX Player does. The
+    // previous lavfi=[hflip]/lavfi=[vflip] form can fail when the decoded
+    // frames remain hardware-backed.
+    const char* removeHArgs[] = {"vf", "remove", "@rex-flip-h", nullptr};
     const int removeHResult = mpv_command(m_mpv, removeHArgs);
     appendRuntimeLog(QStringLiteral("TRANSFORM: remove @rex-flip-h result=%1 (%2)")
         .arg(removeHResult).arg(QString::fromUtf8(mpv_error_string(removeHResult))));
 
-    const char* removeVArgs[] = {"vf-remove", "@rex-flip-v", nullptr};
+    const char* removeVArgs[] = {"vf", "remove", "@rex-flip-v", nullptr};
     const int removeVResult = mpv_command(m_mpv, removeVArgs);
     appendRuntimeLog(QStringLiteral("TRANSFORM: remove @rex-flip-v result=%1 (%2)")
         .arg(removeVResult).arg(QString::fromUtf8(mpv_error_string(removeVResult))));
 
     if (m_flipHorizontal) {
-        const char* addHArgs[] = {"vf-add", "@rex-flip-h:lavfi=[hflip]", nullptr};
+        const char* addHArgs[] = {"vf", "add", "@rex-flip-h:hflip", nullptr};
         const int result = mpv_command(m_mpv, addHArgs);
         appendRuntimeLog(QStringLiteral("TRANSFORM: add horizontal flip result=%1 (%2)")
             .arg(result).arg(QString::fromUtf8(mpv_error_string(result))));
     }
 
     if (m_flipVertical) {
-        const char* addVArgs[] = {"vf-add", "@rex-flip-v:lavfi=[vflip]", nullptr};
+        const char* addVArgs[] = {"vf", "add", "@rex-flip-v:vflip", nullptr};
         const int result = mpv_command(m_mpv, addVArgs);
         appendRuntimeLog(QStringLiteral("TRANSFORM: add vertical flip result=%1 (%2)")
             .arg(result).arg(QString::fromUtf8(mpv_error_string(result))));
     }
 
-    appendRuntimeLog(QStringLiteral("TRANSFORM: apply complete hwdec=%1")
+    appendRuntimeLog(QStringLiteral("TRANSFORM: apply complete hwdec=%1 hwdec-current=%2")
+        .arg(getPropertyString("hwdec"))
         .arg(getPropertyString("hwdec-current")));
     QTimer::singleShot(100, this, &MainWindow::resizeWindowForVideoAspect);
 }
