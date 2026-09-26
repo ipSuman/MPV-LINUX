@@ -5,7 +5,6 @@
 #include <QCloseEvent>
 #include <QCheckBox>
 #include <QCoreApplication>
-#include <QCryptographicHash>
 #include <QCursor>
 #include <QComboBox>
 #include <QDir>
