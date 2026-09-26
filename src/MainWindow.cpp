@@ -788,7 +788,6 @@ QString MainWindow::mpvEventName(int eventId) const {
     case MPV_EVENT_GET_PROPERTY_REPLY: return QStringLiteral("GET_PROPERTY_REPLY");
     case MPV_EVENT_SET_PROPERTY_REPLY: return QStringLiteral("SET_PROPERTY_REPLY");
     case MPV_EVENT_COMMAND_REPLY: return QStringLiteral("COMMAND_REPLY");
-    case MPV_EVENT_START_FILE: return QStringLiteral("START_FILE");
     default: return QStringLiteral("EVENT_%1").arg(eventId);
     }
 }
