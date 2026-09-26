@@ -1357,12 +1357,12 @@ void MainWindow::saveLogReport() {
             const mpv_node* track = &tracks.u.list->values[i];
             out << "Track " << (i + 1)
                 << ": type=" << MpvNodeUtils::nodeString(MpvNodeUtils::mapValue(track->u.list, "type"))
-                << ", id=" << MpvNodeUtils::nodeInt(mapValue(track->u.list, "id"))
-                << ", lang=" << nodeString(mapValue(track->u.list, "lang"))
-                << ", title=" << nodeString(mapValue(track->u.list, "title"))
-                << ", codec=" << nodeString(mapValue(track->u.list, "codec"))
-                << ", external=" << nodeString(mapValue(track->u.list, "external-filename"))
-                << ", selected=" << (MpvNodeUtils::nodeFlag(mapValue(track->u.list, "selected")) ? "yes" : "no") << "\n";
+                << ", id=" << MpvNodeUtils::nodeInt(MpvNodeUtils::mapValue(track->u.list, "id"))
+                << ", lang=" << MpvNodeUtils::nodeString(MpvNodeUtils::mapValue(track->u.list, "lang"))
+                << ", title=" << MpvNodeUtils::nodeString(MpvNodeUtils::mapValue(track->u.list, "title"))
+                << ", codec=" << MpvNodeUtils::nodeString(MpvNodeUtils::mapValue(track->u.list, "codec"))
+                << ", external=" << MpvNodeUtils::nodeString(MpvNodeUtils::mapValue(track->u.list, "external-filename"))
+                << ", selected=" << (MpvNodeUtils::nodeFlag(MpvNodeUtils::mapValue(track->u.list, "selected")) ? "yes" : "no") << "\n";
         }
         mpv_free_node_contents(&tracks);
     } else {
@@ -1522,13 +1522,13 @@ void MainWindow::showTracksMenu() {
     for (int i = 0; i < list->num; ++i) {
         const mpv_node& track = list->values[i];
         if (track.format != MPV_FORMAT_NODE_MAP || !track.u.list) continue;
-        const QString type = nodeString(mapValue(track.u.list, "type"));
-        const int id = nodeInt(mapValue(track.u.list, "id"));
+        const QString type = MpvNodeUtils::nodeString(MpvNodeUtils::mapValue(track.u.list, "type"));
+        const int id = MpvNodeUtils::nodeInt(MpvNodeUtils::mapValue(track.u.list, "id"));
         if (id < 0) continue;
-        const QString lang = nodeString(mapValue(track.u.list, "lang"));
-        const QString title = nodeString(mapValue(track.u.list, "title"));
-        const QString external = nodeString(mapValue(track.u.list, "external-filename"));
-        const bool selected = nodeFlag(mapValue(track.u.list, "selected"));
+        const QString lang = MpvNodeUtils::nodeString(MpvNodeUtils::mapValue(track.u.list, "lang"));
+        const QString title = MpvNodeUtils::nodeString(MpvNodeUtils::mapValue(track.u.list, "title"));
+        const QString external = MpvNodeUtils::nodeString(MpvNodeUtils::mapValue(track.u.list, "external-filename"));
+        const bool selected = MpvNodeUtils::nodeFlag(MpvNodeUtils::mapValue(track.u.list, "selected"));
         QString label = title;
         if (label.isEmpty()) label = lang;
         if (label.isEmpty() && !external.isEmpty()) label = QFileInfo(external).fileName();
@@ -1858,9 +1858,9 @@ void MainWindow::cycleSubtitles() {
         for (int i = 0; i < tracks.u.list->num; ++i) {
             const mpv_node& track = tracks.u.list->values[i];
             if (track.format != MPV_FORMAT_NODE_MAP || !track.u.list) continue;
-            const QString type = nodeString(mapValue(track.u.list, "type"));
+            const QString type = MpvNodeUtils::nodeString(MpvNodeUtils::mapValue(track.u.list, "type"));
             if (type != QStringLiteral("sub")) continue;
-            const int id = nodeInt(mapValue(track.u.list, "id"));
+            const int id = MpvNodeUtils::nodeInt(MpvNodeUtils::mapValue(track.u.list, "id"));
             if (id >= 0) subtitleIds.append(id);
         }
     }
@@ -2202,14 +2202,14 @@ void MainWindow::toggleControls() {
             for (int i = 0; i < tracks.u.list->num; ++i) {
                 const mpv_node& track = tracks.u.list->values[i];
                 if (track.format != MPV_FORMAT_NODE_MAP || !track.u.list) continue;
-                const QString type = nodeString(mapValue(track.u.list, "type"));
-                const int id = nodeInt(mapValue(track.u.list, "id"));
+                const QString type = MpvNodeUtils::nodeString(MpvNodeUtils::mapValue(track.u.list, "type"));
+                const int id = MpvNodeUtils::nodeInt(MpvNodeUtils::mapValue(track.u.list, "id"));
                 if (id < 0) continue;
-                QString label = nodeString(mapValue(track.u.list, "title"));
-                const QString lang = nodeString(mapValue(track.u.list, "lang"));
-                const QString codec = nodeString(mapValue(track.u.list, "codec"));
-                const QString external = nodeString(mapValue(track.u.list, "external-filename"));
-                const bool selected = nodeFlag(mapValue(track.u.list, "selected"));
+                QString label = MpvNodeUtils::nodeString(MpvNodeUtils::mapValue(track.u.list, "title"));
+                const QString lang = MpvNodeUtils::nodeString(MpvNodeUtils::mapValue(track.u.list, "lang"));
+                const QString codec = MpvNodeUtils::nodeString(MpvNodeUtils::mapValue(track.u.list, "codec"));
+                const QString external = MpvNodeUtils::nodeString(MpvNodeUtils::mapValue(track.u.list, "external-filename"));
+                const bool selected = MpvNodeUtils::nodeFlag(MpvNodeUtils::mapValue(track.u.list, "selected"));
                 if (label.isEmpty()) label = lang;
                 if (label.isEmpty()) label = external.isEmpty() ? QStringLiteral("Track") : QFileInfo(external).fileName();
                 if (label.isEmpty()) label = QStringLiteral("Track");
