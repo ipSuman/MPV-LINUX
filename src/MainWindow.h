@@ -32,6 +32,7 @@ class PlaybackInhibitor;
 class DiagnosticReporter;
 class DisplayController;
 class ScreenshotController;
+class ControlSettings;
 
 struct mpv_handle;
 
@@ -154,6 +155,7 @@ private:
     DiagnosticReporter* m_diagnosticReporter = nullptr;
     DisplayController* m_displayController = nullptr;
     ScreenshotController* m_screenshotController = nullptr;
+    ControlSettings* m_controlSettings = nullptr;
     std::atomic_bool m_mpvWakeQueued{false};
     QString m_cutOutputPath;
     bool m_seeking = false;
