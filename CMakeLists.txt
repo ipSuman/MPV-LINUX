@@ -69,6 +69,8 @@ add_executable(rex-player
     src/DisplayController.h
     src/ScreenshotController.cpp
     src/ScreenshotController.h
+    src/ControlSettings.cpp
+    src/ControlSettings.h
     assets/rex-player.qrc
 )
 
