@@ -938,14 +938,11 @@ void MainWindow::clearFlipHardwareOverride() {
     // copy-back value we installed for the flip session. This mirrors
     // REX Player's behaviour and avoids overwriting a manual user change.
     if (currentHwdec == QStringLiteral("auto-copy")) {
-        QByteArray saved = m_flipPreHwdec.toUtf8();
-        char* value = saved.data();
-        const int result = mpv_set_property(
-            m_mpv, "hwdec", MPV_FORMAT_STRING, value);
-        appendRuntimeLog(QStringLiteral("FLIP HWDEC: restore %1 result=%2 (%3)")
-            .arg(m_flipPreHwdec)
-            .arg(result)
-            .arg(QString::fromUtf8(mpv_error_string(result))));
+        const QByteArray saved = m_flipPreHwdec.toUtf8();
+        const char* args[] = {"set", "hwdec", saved.constData(), nullptr};
+        command(args);
+        appendRuntimeLog(QStringLiteral("FLIP HWDEC: queued restore %1")
+            .arg(m_flipPreHwdec));
     }
 
     m_flipPreHwdec.clear();
@@ -980,20 +977,11 @@ void MainWindow::applyVideoTransforms() {
         if (hardwareActive && !alreadyCopyBack) {
             m_flipPreHwdec = configuredHwdec.isEmpty() ? QStringLiteral("auto") : configuredHwdec;
 
-            QByteArray copyMode = QByteArrayLiteral("auto-copy");
-            char* value = copyMode.data();
-            const int result = mpv_set_property(
-                m_mpv, "hwdec", MPV_FORMAT_STRING, value);
-            appendRuntimeLog(QStringLiteral("FLIP HWDEC: %1 -> auto-copy result=%2 (%3)")
-                .arg(m_flipPreHwdec)
-                .arg(result)
-                .arg(QString::fromUtf8(mpv_error_string(result))));
-
-            if (result >= 0) {
-                m_flipHwdecOverride = true;
-            } else {
-                m_flipPreHwdec.clear();
-            }
+            const char* args[] = {"set", "hwdec", "auto-copy", nullptr};
+            command(args);
+            appendRuntimeLog(QStringLiteral("FLIP HWDEC: queued %1 -> auto-copy")
+                .arg(m_flipPreHwdec));
+            m_flipHwdecOverride = true;
         }
     }
 
@@ -1012,6 +1000,13 @@ void MainWindow::applyVideoTransforms() {
     // Use mpv's native hflip/vflip filters, as REX Player does. The
     // previous lavfi=[hflip]/lavfi=[vflip] form can fail when the decoded
     // frames remain hardware-backed.
+    const bool waitForCopyBack = flipsActive && m_flipHwdecOverride;
+    if (waitForCopyBack && getPropertyString("hwdec-current").trimmed() != QStringLiteral("auto-copy")) {
+        appendRuntimeLog(QStringLiteral("TRANSFORM: waiting for hwdec copy-back before installing flip filters"));
+        QTimer::singleShot(100, this, &MainWindow::applyVideoTransforms);
+        return;
+    }
+
     const char* removeHArgs[] = {"vf", "remove", "@rex-flip-h", nullptr};
     const int removeHResult = mpv_command(m_mpv, removeHArgs);
     appendRuntimeLog(QStringLiteral("TRANSFORM: remove @rex-flip-h result=%1 (%2)")
