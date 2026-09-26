@@ -77,13 +77,13 @@ void DisplayController::showDialog() {
 
     auto* saturation = makeSlider(
         QStringLiteral("Saturation"), currentSaturation, "saturation",
-        &m_values->saturation, "display/saturation");
+        m_saturation, "display/saturation");
     auto* brightness = makeSlider(
         QStringLiteral("Brightness"), currentBrightness, "brightness",
-        &m_values->brightness, "display/brightness");
+        m_brightness, "display/brightness");
     auto* contrast = makeSlider(
         QStringLiteral("Contrast"), currentContrast, "contrast",
-        &m_values->contrast, "display/contrast");
+        m_contrast, "display/contrast");
 
     layout->addLayout(form);
 
