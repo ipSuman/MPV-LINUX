@@ -1276,9 +1276,7 @@ QString MainWindow::diagnosticControlState() const {
     return state;
 }
 
-void MainWindow::saveLogReport() {
-    if (m_diagnosticReporter) m_diagnosticReporter->saveReport();
-}
+
 
 void MainWindow::updatePlaybackInhibit(bool active) {
     if (m_playbackInhibitor) m_playbackInhibitor->setActive(active);
@@ -1549,9 +1547,7 @@ void MainWindow::pumpMpvEvents() {
     }
 }
 
-void MainWindow::updatePlaybackInhibit(bool active) {
-    if (m_playbackInhibitor) m_playbackInhibitor->setActive(active);
-}
+
 
 void MainWindow::updatePlaybackUi() {
     if (!m_mpv) return;
@@ -1751,3 +1747,456 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* event) {
             QStyleOptionSlider opt;
             opt.initFrom(m_seekSlider);
             opt.orientation = Qt::Horizontal;
+            opt.minimum = m_seekSlider->minimum();
+            opt.maximum = m_seekSlider->maximum();
+            opt.sliderPosition = m_seekSlider->sliderPosition();
+            const QRect handle = m_seekSlider->style()->subControlRect(
+                QStyle::CC_Slider, &opt, QStyle::SC_SliderHandle, m_seekSlider);
+            if (!handle.contains(e->position().toPoint())) {
+                const QRect groove = m_seekSlider->style()->subControlRect(
+                    QStyle::CC_Slider, &opt, QStyle::SC_SliderGroove, m_seekSlider);
+                const int span = std::max(1, groove.width());
+                const int x = static_cast<int>(e->position().x());
+                const int position = std::clamp(x - groove.left(), 0, span);
+                const int value = QStyle::sliderValueFromPosition(
+                    opt.minimum, opt.maximum, position, span, opt.upsideDown);
+                m_seekSlider->setValue(value);
+                m_seeking = false;
+                seekTo(value);
+                return true;
+            }
+        }
+        return QMainWindow::eventFilter(watched, event);
+    }
+
+    if (watched != m_videoWidget) return QMainWindow::eventFilter(watched, event);
+
+    if (event->type() == QEvent::MouseButtonDblClick) {
+        const auto* e = static_cast<QMouseEvent*>(event);
+        if (m_doubleClickZones && m_doubleClickButton != Qt::NoButton && e->button() == m_doubleClickButton) {
+            const qreal x = e->position().x();
+            const qreal width = m_videoWidget->width();
+            if (x < width / 3.0) seekBackward();
+            else if (x > width * 2.0 / 3.0) seekForward();
+            else togglePause();
+            return true;
+        }
+    }
+
+    if (event->type() == QEvent::MouseButtonPress) {
+        const auto* e = static_cast<QMouseEvent*>(event);
+        const Qt::KeyboardModifiers modifiers = e->modifiers() & (Qt::ShiftModifier | Qt::ControlModifier | Qt::AltModifier | Qt::MetaModifier);
+        if (e->button() == Qt::LeftButton &&
+            modifiers == (Qt::AltModifier | Qt::ControlModifier)) {
+            m_panningVideo = true;
+            m_panStart = e->position();
+            m_videoPanX = getPropertyDouble("video-pan-x");
+            m_videoPanY = getPropertyDouble("video-pan-y");
+            return true;
+        }
+    }
+
+    if (event->type() == QEvent::MouseMove && m_panningVideo) {
+        const auto* e = static_cast<QMouseEvent*>(event);
+        const QPointF delta = e->position() - m_panStart;
+        const double width = std::max(1, m_videoWidget->width());
+        const double height = std::max(1, m_videoWidget->height());
+        m_videoPanX = std::clamp(m_videoPanX + delta.x() / width, -1.0, 1.0);
+        m_videoPanY = std::clamp(m_videoPanY + delta.y() / height, -1.0, 1.0);
+        setPropertyDouble("video-pan-x", m_videoPanX);
+        setPropertyDouble("video-pan-y", m_videoPanY);
+        m_panStart = e->position();
+        return true;
+    }
+
+    if (event->type() == QEvent::MouseButtonRelease) {
+        const auto* e = static_cast<QMouseEvent*>(event);
+        if (e->button() == Qt::LeftButton && m_panningVideo) {
+            m_panningVideo = false;
+            return true;
+        }
+    }
+
+    if (event->type() == QEvent::Wheel) {
+        const auto* e = static_cast<QWheelEvent*>(event);
+        const int delta = !e->angleDelta().isNull() ? e->angleDelta().y() : e->pixelDelta().y();
+        if (delta == 0) return false;
+        const Qt::KeyboardModifiers modifiers = e->modifiers() & (Qt::ShiftModifier | Qt::ControlModifier | Qt::AltModifier | Qt::MetaModifier);
+        if (wheelModeMatches(m_zoomWheelMode, modifiers)) {
+            adjustVideoZoom(delta > 0 ? 0.1 : -0.1);
+            return true;
+        }
+        if (wheelModeMatches(m_volumeWheelMode, modifiers)) {
+            m_volumeSlider->setValue(std::clamp(m_volumeSlider->value() + (delta > 0 ? 5 : -5), 0, 100));
+            return true;
+        }
+        if (wheelModeMatches(m_seekWheelMode, modifiers)) {
+            if (delta > 0) seekForward();
+            else seekBackward();
+            return true;
+        }
+        return false;
+    }
+
+    return QMainWindow::eventFilter(watched, event);
+}
+
+void MainWindow::toggleControls() {
+    QDialog dialog(this);
+    dialog.setWindowTitle(QStringLiteral("Video Information"));
+    dialog.setModal(true);
+    dialog.resize(720, 700);
+
+    auto* mainLayout = new QVBoxLayout(&dialog);
+    auto* scrollArea = new QScrollArea(&dialog);
+    scrollArea->setWidgetResizable(true);
+    auto* content = new QWidget(scrollArea);
+    auto* layout = new QVBoxLayout(content);
+    layout->setContentsMargins(12, 12, 12, 12);
+    layout->setSpacing(8);
+
+    auto valueOrDash = [this](const char* property) {
+        const QString value = getPropertyString(property).trimmed();
+        return value.isEmpty() ? QStringLiteral("—") : value;
+    };
+    auto numberOrDash = [this](const char* property, int decimals = 2) {
+        const double value = getPropertyDouble(property);
+        return value > 0.0 ? QString::number(value, 'f', decimals) : QStringLiteral("—");
+    };
+    auto addSection = [&layout](const QString& title) {
+        auto* label = new QLabel(title, layout->parentWidget());
+        label->setStyleSheet(QStringLiteral("font-weight:600; font-size:14px; margin-top:6px;"));
+        layout->addWidget(label);
+    };
+    auto addRow = [&layout](const QString& name, const QString& value) {
+        auto* row = new QFormLayout();
+        row->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
+        auto* label = new QLabel(value, layout->parentWidget());
+        label->setTextInteractionFlags(Qt::TextSelectableByMouse);
+        label->setWordWrap(true);
+        row->addRow(name, label);
+        layout->addLayout(row);
+    };
+
+    if (!m_mpv || getPropertyString("filename").isEmpty()) {
+        layout->addWidget(new QLabel(QStringLiteral("No media is currently loaded."), content));
+    } else {
+        addSection(QStringLiteral("File"));
+        addRow(QStringLiteral("File name"), valueOrDash("filename"));
+        addRow(QStringLiteral("Title"), valueOrDash("media-title"));
+        addRow(QStringLiteral("Path"), valueOrDash("path"));
+        addRow(QStringLiteral("Container"), valueOrDash("file-format"));
+        addRow(QStringLiteral("File size"), valueOrDash("file-size"));
+        addRow(QStringLiteral("Duration"), formatTime(getPropertyDouble("duration")));
+        addRow(QStringLiteral("Overall bitrate"), valueOrDash("bitrate"));
+
+        addSection(QStringLiteral("Video"));
+        addRow(QStringLiteral("Codec"), valueOrDash("video-codec"));
+        addRow(QStringLiteral("Format"), valueOrDash("video-format"));
+        addRow(QStringLiteral("Resolution"), QStringLiteral("%1 × %2").arg(numberOrDash("width", 0), numberOrDash("height", 0)));
+        addRow(QStringLiteral("FPS"), valueOrDash("container-fps"));
+        addRow(QStringLiteral("Bitrate"), valueOrDash("video-bitrate"));
+        addRow(QStringLiteral("Pixel format"), valueOrDash("video-params/pixelformat"));
+        addRow(QStringLiteral("Chroma location"), valueOrDash("video-params/chroma-location"));
+        addRow(QStringLiteral("Color matrix"), valueOrDash("video-params/colormatrix"));
+        addRow(QStringLiteral("Color primaries"), valueOrDash("video-params/primaries"));
+        addRow(QStringLiteral("Transfer"), valueOrDash("video-params/transfer"));
+        addRow(QStringLiteral("Rotation"), valueOrDash("video-params/rotate"));
+        addRow(QStringLiteral("Aspect ratio"), valueOrDash("video-params/aspect"));
+        addRow(QStringLiteral("HW decoder"), valueOrDash("hwdec-current"));
+
+        addSection(QStringLiteral("Audio"));
+        addRow(QStringLiteral("Codec"), valueOrDash("audio-codec-name"));
+        addRow(QStringLiteral("Format"), valueOrDash("audio-format"));
+        addRow(QStringLiteral("Sample rate"), valueOrDash("audio-params/samplerate"));
+        addRow(QStringLiteral("Channels"), valueOrDash("audio-params/channel-count"));
+        addRow(QStringLiteral("Channel layout"), valueOrDash("audio-params/channel-layout"));
+        addRow(QStringLiteral("Bitrate"), valueOrDash("audio-bitrate"));
+
+        addSection(QStringLiteral("Tracks"));
+        mpv_node tracks{};
+        bool haveTracks = false;
+        if (mpv_get_property(m_mpv, "track-list", MPV_FORMAT_NODE, &tracks) >= 0 &&
+            tracks.format == MPV_FORMAT_NODE_ARRAY && tracks.u.list) {
+            for (int i = 0; i < tracks.u.list->num; ++i) {
+                const mpv_node& track = tracks.u.list->values[i];
+                if (track.format != MPV_FORMAT_NODE_MAP || !track.u.list) continue;
+                const QString type = nodeString(mapValue(track.u.list, "type"));
+                const int id = nodeInt(mapValue(track.u.list, "id"));
+                if (id < 0) continue;
+                QString label = nodeString(mapValue(track.u.list, "title"));
+                const QString lang = nodeString(mapValue(track.u.list, "lang"));
+                const QString codec = nodeString(mapValue(track.u.list, "codec"));
+                const QString external = nodeString(mapValue(track.u.list, "external-filename"));
+                const bool selected = nodeFlag(mapValue(track.u.list, "selected"));
+                if (label.isEmpty()) label = lang;
+                if (label.isEmpty()) label = external.isEmpty() ? QStringLiteral("Track") : QFileInfo(external).fileName();
+                if (label.isEmpty()) label = QStringLiteral("Track");
+                QString details = QStringLiteral("#%1 — %2").arg(id).arg(label);
+                if (!lang.isEmpty() && label != lang) details += QStringLiteral(" [%1]").arg(lang);
+                if (!codec.isEmpty()) details += QStringLiteral(" • %1").arg(codec);
+                if (!external.isEmpty()) details += QStringLiteral(" • %1").arg(QFileInfo(external).fileName());
+                if (selected) details += QStringLiteral("  ✓ Active");
+                const QString section = type == QStringLiteral("video") ? QStringLiteral("Video track")
+                    : type == QStringLiteral("audio") ? QStringLiteral("Audio track")
+                    : type == QStringLiteral("sub") ? QStringLiteral("Subtitle track")
+                    : QStringLiteral("Other track");
+                addRow(section, details);
+                haveTracks = true;
+            }
+        }
+        mpv_free_node_contents(&tracks);
+        if (!haveTracks) addRow(QStringLiteral("Available"), QStringLiteral("No track information available."));
+
+        addSection(QStringLiteral("Playback / Output"));
+        addRow(QStringLiteral("Position"), QStringLiteral("%1 / %2").arg(formatTime(getPropertyDouble("time-pos")), formatTime(getPropertyDouble("duration"))));
+        addRow(QStringLiteral("Speed"), numberOrDash("speed"));
+        addRow(QStringLiteral("Pause"), valueOrDash("pause"));
+        addRow(QStringLiteral("Video output"), valueOrDash("vo"));
+        addRow(QStringLiteral("GPU API"), valueOrDash("gpu-api"));
+        addRow(QStringLiteral("Hardware decoding"), valueOrDash("hwdec-current"));
+    }
+
+    scrollArea->setWidget(content);
+    mainLayout->addWidget(scrollArea, 1);
+    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Close, &dialog);
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    mainLayout->addWidget(buttons);
+    dialog.exec();
+}
+
+void MainWindow::toggleFullscreen() {
+    if (isFullScreen()) {
+        m_fullscreenHideTimer.stop();
+        if (m_rootWidget && m_controls) {
+            setControlsVisible(true);
+            m_controls->setParent(m_rootWidget);
+            m_controls->show();
+            auto* rootLayout = qobject_cast<QVBoxLayout*>(m_rootWidget->layout());
+            if (rootLayout) {
+                rootLayout->addWidget(m_controls);
+            }
+        }
+        if (m_playlistDock) m_playlistDock->setVisible(m_playlistWasVisibleBeforeFullscreen);
+        showNormal();
+        return;
+    }
+
+    m_playlistWasVisibleBeforeFullscreen = m_playlistDock && m_playlistDock->isVisible();
+    if (m_playlistDock) m_playlistDock->hide();
+
+    // Keep the video viewport at the full-screen size. The controls are an
+    // overlay rather than part of the vertical layout, so showing/hiding them
+    // cannot change the video's scale.
+    if (m_rootWidget && m_controls) {
+        auto* rootLayout = qobject_cast<QVBoxLayout*>(m_rootWidget->layout());
+        if (rootLayout) rootLayout->removeWidget(m_controls);
+        m_controls->setParent(m_rootWidget);
+        m_controls->raise();
+        m_controls->setGeometry(0, std::max(0, m_rootWidget->height() - m_controls->sizeHint().height()),
+                                 m_rootWidget->width(), m_controls->sizeHint().height());
+    }
+    setControlsVisible(false);
+    showFullScreen();
+    if (m_rootWidget && m_controls) {
+        m_controls->setGeometry(0, std::max(0, m_rootWidget->height() - m_controls->sizeHint().height()),
+                                 m_rootWidget->width(), m_controls->sizeHint().height());
+        m_controls->raise();
+    }
+}
+
+void MainWindow::resizeWindowForVideoAspect() {
+    if (!m_mpv || isFullScreen() || isMaximized() || isMinimized() || !m_videoWidget) return;
+
+    int64_t displayWidth = 0;
+    int64_t displayHeight = 0;
+
+    // Use mpv's display dimensions first. Unlike raw coded dimensions, these
+    // already account for the video's display aspect ratio (including
+    // non-square pixels and rotation handled by mpv).
+    const bool haveDisplayWidth =
+        mpv_get_property(m_mpv, "video-out-params/dw", MPV_FORMAT_INT64, &displayWidth) >= 0;
+    const bool haveDisplayHeight =
+        mpv_get_property(m_mpv, "video-out-params/dh", MPV_FORMAT_INT64, &displayHeight) >= 0;
+
+    if (!haveDisplayWidth || !haveDisplayHeight || displayWidth <= 0 || displayHeight <= 0) {
+        mpv_get_property(m_mpv, "video-params/w", MPV_FORMAT_INT64, &displayWidth);
+        mpv_get_property(m_mpv, "video-params/h", MPV_FORMAT_INT64, &displayHeight);
+    }
+
+    if (displayWidth <= 0 || displayHeight <= 0) return;
+
+    const double aspect = static_cast<double>(displayWidth) /
+                          static_cast<double>(displayHeight);
+    if (!std::isfinite(aspect) || aspect <= 0.0) return;
+
+    QScreen* currentScreen = screen();
+    if (!currentScreen) currentScreen = QGuiApplication::primaryScreen();
+    if (!currentScreen) return;
+
+    const QRect available = currentScreen->availableGeometry();
+    const int screenMargin = 32;
+    const int controlsHeight = m_controls ? m_controls->sizeHint().height() : 0;
+    const int maxVideoWidth = std::max(320, available.width() - screenMargin * 2);
+    const int maxVideoHeight = std::max(180, available.height() - controlsHeight - screenMargin * 2);
+
+    // Keep the current window width as the preferred viewing size, but never
+    // allow the automatically chosen size to exceed the available screen.
+    const int preferredWidth = std::clamp(m_videoWidget->width(), 640, 1400);
+    int videoWidth = std::min(preferredWidth, maxVideoWidth);
+    int videoHeight = static_cast<int>(std::lround(videoWidth / aspect));
+
+    // Portrait/tall videos need to be reduced to fit above the controls.
+    if (videoHeight > maxVideoHeight) {
+        videoHeight = maxVideoHeight;
+        videoWidth = static_cast<int>(std::lround(videoHeight * aspect));
+    }
+
+    videoWidth = std::clamp(videoWidth, 320, maxVideoWidth);
+    videoHeight = std::clamp(
+        static_cast<int>(std::lround(videoWidth / aspect)),
+        180,
+        maxVideoHeight);
+
+    // Recalculate once after clamping so the video viewport itself keeps the
+    // exact display aspect ratio. The controls are outside that viewport.
+    videoWidth = std::min(
+        videoWidth,
+        static_cast<int>(std::lround(videoHeight * aspect)));
+    videoHeight = static_cast<int>(std::lround(videoWidth / aspect));
+
+    const int targetHeight = videoHeight + controlsHeight;
+    if (targetHeight <= 0 || videoWidth <= 0) return;
+
+    resize(videoWidth, targetHeight);
+}
+
+void MainWindow::captureScreenshot() {
+    if (!m_mpv || getPropertyString("filename").isEmpty()) {
+        showError(QStringLiteral("REX Player — No video is currently loaded"));
+        return;
+    }
+
+    const QString picturesPath = QStandardPaths::writableLocation(QStandardPaths::PicturesLocation);
+    if (picturesPath.isEmpty()) {
+        showError(QStringLiteral("REX Player — Could not locate the Pictures folder"));
+        return;
+    }
+
+    const QString screenshotDir = QDir(picturesPath).filePath(QStringLiteral("REX Player"));
+    if (!QDir().mkpath(screenshotDir)) {
+        showError(QStringLiteral("REX Player — Could not create the screenshot folder"));
+        return;
+    }
+
+    // mpv's screenshot command captures the currently rendered video frame,
+    // including the active video presentation and subtitles. Use a unique
+    // template so existing screenshots are never overwritten.
+    const QByteArray dirUtf8 = QDir::toNativeSeparators(screenshotDir).toUtf8();
+    const char* setDirArgs[] = {"set", "screenshot-dir", dirUtf8.constData(), nullptr};
+    if (mpv_command(m_mpv, setDirArgs) < 0) {
+        showError(QStringLiteral("REX Player — Could not configure screenshot folder"));
+        return;
+    }
+
+    const QString videoTitle = windowTitle();
+    const QString videoPath = getPropertyString("path");
+
+    const char* screenshotArgs[] = {"screenshot", nullptr};
+    if (mpv_command(m_mpv, screenshotArgs) < 0) {
+        showError(QStringLiteral("REX Player — Screenshot failed"));
+        return;
+    }
+
+    showError(QStringLiteral("REX Player — Screenshot captured"));
+
+    // Keep the capture confirmation visible briefly, then restore the title
+    // of the video that was playing when the screenshot was taken. Guard the
+    // delayed restore so it cannot overwrite the title of a newly loaded video.
+    QTimer::singleShot(2000, this, [this, videoTitle, videoPath] {
+        if (!m_mpv || getPropertyString("path") != videoPath) return;
+        setWindowTitle(videoTitle);
+    });
+}
+
+void MainWindow::showDisplayDialog() {
+    QDialog dialog(this);
+    dialog.setWindowTitle(QStringLiteral("Display"));
+    dialog.setModal(true);
+    dialog.resize(460, 280);
+
+    auto* layout = new QVBoxLayout(&dialog);
+    auto* form = new QFormLayout();
+    form->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
+
+    const int currentSaturation = std::clamp(static_cast<int>(std::lround(getPropertyDouble("saturation"))), -100, 100);
+    const int currentBrightness = std::clamp(static_cast<int>(std::lround(getPropertyDouble("brightness"))), -100, 100);
+    const int currentContrast = std::clamp(static_cast<int>(std::lround(getPropertyDouble("contrast"))), -100, 100);
+
+    auto makeSlider = [&](const QString& name, int value, const char* property, int* storedValue, const char* settingKey) {
+        auto* row = new QWidget(&dialog);
+        auto* rowLayout = new QHBoxLayout(row);
+        rowLayout->setContentsMargins(0, 0, 0, 0);
+        auto* slider = new QSlider(Qt::Horizontal, row);
+        slider->setRange(-100, 100);
+        slider->setValue(value);
+        auto* valueLabel = new QLabel(QString::number(value), row);
+        valueLabel->setMinimumWidth(42);
+        valueLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        rowLayout->addWidget(slider, 1);
+        rowLayout->addWidget(valueLabel);
+        connect(slider, &QSlider::valueChanged, &dialog, [this, property, storedValue, settingKey, valueLabel](int v) {
+            valueLabel->setText(QString::number(v));
+            *storedValue = v;
+            setPropertyDouble(property, v);
+            QSettings settings(QStringLiteral("REX Player"), QStringLiteral("REX Player"));
+            settings.setValue(QString::fromUtf8(settingKey), v);
+            settings.sync();
+        });
+        form->addRow(name, row);
+        return slider;
+    };
+
+    auto* saturation = makeSlider(QStringLiteral("Saturation"), currentSaturation, "saturation", &m_saturation, "display/saturation");
+    auto* brightness = makeSlider(QStringLiteral("Brightness"), currentBrightness, "brightness", &m_brightness, "display/brightness");
+    auto* contrast = makeSlider(QStringLiteral("Contrast"), currentContrast, "contrast", &m_contrast, "display/contrast");
+    layout->addLayout(form);
+
+    auto* note = new QLabel(QStringLiteral("Range: −100 to +100. Changes are applied and remembered immediately."), &dialog);
+    note->setWordWrap(true);
+    layout->addWidget(note);
+
+    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Close, &dialog);
+    auto* reset = buttons->addButton(QStringLiteral("Reset defaults"), QDialogButtonBox::ResetRole);
+    layout->addWidget(buttons);
+    connect(reset, &QPushButton::clicked, &dialog, [&] {
+        saturation->setValue(0);
+        brightness->setValue(0);
+        contrast->setValue(0);
+    });
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::accept);
+
+    dialog.adjustSize();
+    const int margin = 16;
+    const QSize size = dialog.size();
+    const QPoint global = mapToGlobal(QPoint(
+        std::max(margin, width() - size.width() - margin),
+        std::max(margin, height() - size.height() - margin)));
+    dialog.move(global);
+    dialog.exec();
+}
+void MainWindow::setControlsVisible(bool visible) { if (m_controls) m_controls->setVisible(visible); }
+void MainWindow::togglePlaylist() { if (m_playlistDock) m_playlistDock->setVisible(!m_playlistDock->isVisible()); }
+void MainWindow::resizeEvent(QResizeEvent* event) {
+    QMainWindow::resizeEvent(event);
+    if (isFullScreen() && m_rootWidget && m_controls && m_controls->parentWidget() == m_rootWidget) {
+        const int height = m_controls->sizeHint().height();
+        m_controls->setGeometry(0, std::max(0, m_rootWidget->height() - height),
+                                 m_rootWidget->width(), height);
+        m_controls->raise();
+    }
+}
+
+void MainWindow::closeEvent(QCloseEvent* event) { saveCurrentPlaybackPosition(); if (m_mpv) { const char* args[] = {"quit", nullptr}; mpv_command(m_mpv, args); } QMainWindow::closeEvent(event); }
+void MainWindow::showError(const QString& message) { setWindowTitle(QStringLiteral("REX Player — %1").arg(message)); }
