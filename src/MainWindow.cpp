@@ -860,7 +860,7 @@ void MainWindow::toggleMirror() {
     // video-scale-x is not an mpv property. Use a labelled hflip filter,
     // which can be added/removed at runtime without disturbing other filters.
     if (m_videoMirrored) {
-        const char* args[] = {"vf-add", "@rex-mirror:hflip", nullptr};
+        const char* args[] = {"vf-add", "@rex-mirror:lavfi=hflip", nullptr};
         command(args);
     } else {
         const char* args[] = {"vf-remove", "@rex-mirror", nullptr};
