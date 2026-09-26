@@ -52,6 +52,7 @@
 
 #include "MpvNodeUtils.h"
 #include "AudioExporter.h"
+#include "RuntimeLogger.h"
 
 #include <algorithm>
 #include <cmath>
@@ -110,9 +111,10 @@ MainWindow::MainWindow(const QString& mediaPath, QWidget* parent)
     loadControlSettings();
     buildUi();
 
+    m_runtimeLogger = new RuntimeLogger(this);
     m_audioExporter = new AudioExporter(this);
     connect(m_audioExporter, &AudioExporter::logMessage,
-            this, &MainWindow::appendRuntimeLog);
+            m_runtimeLogger, &RuntimeLogger::append);
     connect(m_audioExporter, &AudioExporter::finished, this,
             [this](bool success, const QString& output, const QString& errorMessage,
                    const QString& stderrText, const QString&, int, QProcess::ExitStatus) {
@@ -746,38 +748,6 @@ void MainWindow::mpvWakeupCallback(void* context) {
     }
 }
 
-void MainWindow::initializeRuntimeLog() {
-    const QString base = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
-    if (base.isEmpty()) return;
-    QDir().mkpath(base);
-    m_runtimeLogPath = QDir(base).filePath(QStringLiteral("REX_Player_Runtime.log"));
-
-    QFile file(m_runtimeLogPath);
-    if (file.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Append)) {
-        QTextStream out(&file);
-        out << "\n===== REX Player session started "
-            << QDateTime::currentDateTime().toString(Qt::ISODateWithMs)
-            << " =====\n";
-        out << "Application: " << QCoreApplication::applicationName()
-            << " " << QCoreApplication::applicationVersion() << "\n";
-        out << "OS: " << QSysInfo::prettyProductName()
-            << " | Kernel: " << QSysInfo::kernelVersion()
-            << " | CPU: " << QSysInfo::currentCpuArchitecture() << "\n";
-        out.flush();
-    }
-}
-
-void MainWindow::appendRuntimeLog(const QString& message) {
-    if (m_runtimeLogPath.isEmpty()) return;
-    QFile file(m_runtimeLogPath);
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Append)) return;
-    QTextStream out(&file);
-    out << QDateTime::currentDateTime().toString(Qt::ISODateWithMs)
-        << " | " << message << "\n";
-    out.flush();
-    file.flush();
-}
-
 QString MainWindow::mpvEventName(int eventId) const {
     switch (eventId) {
     case MPV_EVENT_NONE: return QStringLiteral("NONE");
@@ -803,8 +773,8 @@ QString MainWindow::mpvEventName(int eventId) const {
 }
 
 bool MainWindow::initializeMpv() {
-    initializeRuntimeLog();
-    appendRuntimeLog(QStringLiteral("initializeMpv: creating libmpv instance"));
+    if (m_runtimeLogger) m_runtimeLogger->initialize();
+    m_runtimeLogger->append(QStringLiteral("initializeMpv: creating libmpv instance"));
     std::setlocale(LC_NUMERIC, "C");
     m_mpv = mpv_create();
     if (!m_mpv) { showError(QStringLiteral("Could not create libmpv instance.")); return false; }
@@ -833,12 +803,12 @@ bool MainWindow::initializeMpv() {
         showError(QStringLiteral("Could not configure libmpv.")); return false;
     }
     if (mpv_initialize(m_mpv) < 0) {
-        appendRuntimeLog(QStringLiteral("initializeMpv: mpv_initialize FAILED"));
+        m_runtimeLogger->append(QStringLiteral("initializeMpv: mpv_initialize FAILED"));
         showError(QStringLiteral("Could not initialize libmpv.")); return false;
     }
-    appendRuntimeLog(QStringLiteral("initializeMpv: mpv_initialize succeeded"));
+    m_runtimeLogger->append(QStringLiteral("initializeMpv: mpv_initialize succeeded"));
     const int logResult = mpv_request_log_messages(m_mpv, "info");
-    appendRuntimeLog(QStringLiteral("initializeMpv: requested mpv info logs, result=%1").arg(logResult));
+    m_runtimeLogger->append(QStringLiteral("initializeMpv: requested mpv info logs, result=%1").arg(logResult));
     setPropertyDouble("saturation", m_saturation);
     setPropertyDouble("brightness", m_brightness);
     setPropertyDouble("contrast", m_contrast);
@@ -915,10 +885,10 @@ void MainWindow::command(const char** args) {
     if (!m_mpv || !args) return;
     QStringList parts;
     for (int i = 0; args[i] != nullptr; ++i) parts << QString::fromUtf8(args[i]);
-    appendRuntimeLog(QStringLiteral("COMMAND async: %1").arg(parts.join(QStringLiteral(" | "))));
+    m_runtimeLogger->append(QStringLiteral("COMMAND async: %1").arg(parts.join(QStringLiteral(" | "))));
     const int result = mpv_command_async(m_mpv, 0, args);
     if (result < 0) {
-        appendRuntimeLog(QStringLiteral("COMMAND submit FAILED: %1").arg(result));
+        m_runtimeLogger->append(QStringLiteral("COMMAND submit FAILED: %1").arg(result));
     }
 }
 void MainWindow::togglePause() { const char* args[] = {"cycle", "pause", nullptr}; command(args); }
@@ -933,9 +903,9 @@ double MainWindow::getPropertyDouble(const char* name) const { if (!m_mpv) retur
 QString MainWindow::getPropertyString(const char* name) const { if (!m_mpv) return {}; char* value = nullptr; if (mpv_get_property(m_mpv, name, MPV_FORMAT_STRING, &value) < 0 || !value) return {}; const QString result = QString::fromUtf8(value); mpv_free(value); return result; }
 void MainWindow::setPropertyDouble(const char* name, double value) {
     if (!m_mpv) return;
-    appendRuntimeLog(QStringLiteral("SET_PROPERTY async: %1=%2").arg(QString::fromUtf8(name)).arg(QString::number(value, 'g', 12)));
+    m_runtimeLogger->append(QStringLiteral("SET_PROPERTY async: %1=%2").arg(QString::fromUtf8(name)).arg(QString::number(value, 'g', 12)));
     const int result = mpv_set_property_async(m_mpv, 0, name, MPV_FORMAT_DOUBLE, &value);
-    if (result < 0) appendRuntimeLog(QStringLiteral("SET_PROPERTY submit FAILED: %1 result=%2").arg(QString::fromUtf8(name)).arg(result));
+    if (result < 0) m_runtimeLogger->append(QStringLiteral("SET_PROPERTY submit FAILED: %1 result=%2").arg(QString::fromUtf8(name)).arg(result));
 }
 void MainWindow::updateSeekButtonLabels() { if (!m_seekBackButton || !m_seekForwardButton) return; m_seekBackButton->setText(QStringLiteral("−10s")); m_seekForwardButton->setText(QStringLiteral("+10s")); }
 void MainWindow::adjustVideoZoom(double amount) { setPropertyDouble("video-zoom", std::clamp(getPropertyDouble("video-zoom") + amount, -2.0, 3.0)); }
@@ -943,7 +913,7 @@ void MainWindow::clearFlipHardwareOverride() {
     if (!m_mpv || !m_flipHwdecOverride) return;
 
     const QString currentHwdec = getPropertyString("hwdec").trimmed();
-    appendRuntimeLog(QStringLiteral("FLIP HWDEC: clearing override; current=%1 saved=%2")
+    m_runtimeLogger->append(QStringLiteral("FLIP HWDEC: clearing override; current=%1 saved=%2")
         .arg(currentHwdec, m_flipPreHwdec));
 
     // Restore the user's previous hwdec choice only if it is still the
@@ -953,7 +923,7 @@ void MainWindow::clearFlipHardwareOverride() {
         const QByteArray saved = m_flipPreHwdec.toUtf8();
         const char* args[] = {"set", "hwdec", saved.constData(), nullptr};
         command(args);
-        appendRuntimeLog(QStringLiteral("FLIP HWDEC: queued restore %1")
+        m_runtimeLogger->append(QStringLiteral("FLIP HWDEC: queued restore %1")
             .arg(m_flipPreHwdec));
     }
 
@@ -965,7 +935,7 @@ void MainWindow::applyVideoTransforms() {
     if (!m_mpv) return;
 
     const bool flipsActive = m_flipHorizontal || m_flipVertical;
-    appendRuntimeLog(QStringLiteral("TRANSFORM: apply rotation=%1 flipH=%2 flipV=%3 hwdec=%4 hwdec-current=%5")
+    m_runtimeLogger->append(QStringLiteral("TRANSFORM: apply rotation=%1 flipH=%2 flipV=%3 hwdec=%4 hwdec-current=%5")
         .arg(m_videoRotation)
         .arg(m_flipHorizontal ? QStringLiteral("on") : QStringLiteral("off"))
         .arg(m_flipVertical ? QStringLiteral("on") : QStringLiteral("off"))
@@ -991,7 +961,7 @@ void MainWindow::applyVideoTransforms() {
 
             const char* args[] = {"set", "hwdec", "auto-copy", nullptr};
             command(args);
-            appendRuntimeLog(QStringLiteral("FLIP HWDEC: queued %1 -> auto-copy")
+            m_runtimeLogger->append(QStringLiteral("FLIP HWDEC: queued %1 -> auto-copy")
                 .arg(m_flipPreHwdec));
             m_flipHwdecOverride = true;
         }
@@ -1004,7 +974,7 @@ void MainWindow::applyVideoTransforms() {
     qint64 rotation = m_videoRotation;
     const int rotationResult = mpv_set_property(
         m_mpv, "video-rotate", MPV_FORMAT_INT64, &rotation);
-    appendRuntimeLog(QStringLiteral("TRANSFORM: video-rotate=%1 result=%2 (%3)")
+    m_runtimeLogger->append(QStringLiteral("TRANSFORM: video-rotate=%1 result=%2 (%3)")
         .arg(m_videoRotation)
         .arg(rotationResult)
         .arg(QString::fromUtf8(mpv_error_string(rotationResult))));
@@ -1024,7 +994,7 @@ void MainWindow::applyVideoTransforms() {
             activeHwdec == QStringLiteral("no") ||
             activeHwdec == QStringLiteral("none");
         if (!copyBackReady) {
-            appendRuntimeLog(QStringLiteral("TRANSFORM: waiting for hwdec copy-back; current=%1")
+            m_runtimeLogger->append(QStringLiteral("TRANSFORM: waiting for hwdec copy-back; current=%1")
                 .arg(activeHwdec.isEmpty() ? QStringLiteral("<empty>") : activeHwdec));
             QTimer::singleShot(100, this, &MainWindow::applyVideoTransforms);
             return;
@@ -1033,29 +1003,29 @@ void MainWindow::applyVideoTransforms() {
 
     const char* removeHArgs[] = {"vf", "remove", "@rex-flip-h", nullptr};
     const int removeHResult = mpv_command(m_mpv, removeHArgs);
-    appendRuntimeLog(QStringLiteral("TRANSFORM: remove @rex-flip-h result=%1 (%2)")
+    m_runtimeLogger->append(QStringLiteral("TRANSFORM: remove @rex-flip-h result=%1 (%2)")
         .arg(removeHResult).arg(QString::fromUtf8(mpv_error_string(removeHResult))));
 
     const char* removeVArgs[] = {"vf", "remove", "@rex-flip-v", nullptr};
     const int removeVResult = mpv_command(m_mpv, removeVArgs);
-    appendRuntimeLog(QStringLiteral("TRANSFORM: remove @rex-flip-v result=%1 (%2)")
+    m_runtimeLogger->append(QStringLiteral("TRANSFORM: remove @rex-flip-v result=%1 (%2)")
         .arg(removeVResult).arg(QString::fromUtf8(mpv_error_string(removeVResult))));
 
     if (m_flipHorizontal) {
         const char* addHArgs[] = {"vf", "add", "@rex-flip-h:hflip", nullptr};
         const int result = mpv_command(m_mpv, addHArgs);
-        appendRuntimeLog(QStringLiteral("TRANSFORM: add horizontal flip result=%1 (%2)")
+        m_runtimeLogger->append(QStringLiteral("TRANSFORM: add horizontal flip result=%1 (%2)")
             .arg(result).arg(QString::fromUtf8(mpv_error_string(result))));
     }
 
     if (m_flipVertical) {
         const char* addVArgs[] = {"vf", "add", "@rex-flip-v:vflip", nullptr};
         const int result = mpv_command(m_mpv, addVArgs);
-        appendRuntimeLog(QStringLiteral("TRANSFORM: add vertical flip result=%1 (%2)")
+        m_runtimeLogger->append(QStringLiteral("TRANSFORM: add vertical flip result=%1 (%2)")
             .arg(result).arg(QString::fromUtf8(mpv_error_string(result))));
     }
 
-    appendRuntimeLog(QStringLiteral("TRANSFORM: apply complete hwdec=%1 hwdec-current=%2")
+    m_runtimeLogger->append(QStringLiteral("TRANSFORM: apply complete hwdec=%1 hwdec-current=%2")
         .arg(getPropertyString("hwdec"))
         .arg(getPropertyString("hwdec-current")));
     QTimer::singleShot(100, this, &MainWindow::resizeWindowForVideoAspect);
@@ -1064,14 +1034,14 @@ void MainWindow::applyVideoTransforms() {
 void MainWindow::rotateVideo90() {
     if (!m_mpv) return;
     m_videoRotation = (m_videoRotation + 90) % 360;
-    appendRuntimeLog(QStringLiteral("USER ACTION: Rotate clicked; new rotation=%1").arg(m_videoRotation));
+    m_runtimeLogger->append(QStringLiteral("USER ACTION: Rotate clicked; new rotation=%1").arg(m_videoRotation));
     applyVideoTransforms();
 }
 
 void MainWindow::toggleFlipHorizontal() {
     if (!m_mpv) return;
     m_flipHorizontal = !m_flipHorizontal;
-    appendRuntimeLog(QStringLiteral("USER ACTION: Flip H clicked; new state=%1")
+    m_runtimeLogger->append(QStringLiteral("USER ACTION: Flip H clicked; new state=%1")
         .arg(m_flipHorizontal ? QStringLiteral("on") : QStringLiteral("off")));
     applyVideoTransforms();
 }
@@ -1079,7 +1049,7 @@ void MainWindow::toggleFlipHorizontal() {
 void MainWindow::toggleFlipVertical() {
     if (!m_mpv) return;
     m_flipVertical = !m_flipVertical;
-    appendRuntimeLog(QStringLiteral("USER ACTION: Flip V clicked; new state=%1")
+    m_runtimeLogger->append(QStringLiteral("USER ACTION: Flip V clicked; new state=%1")
         .arg(m_flipVertical ? QStringLiteral("on") : QStringLiteral("off")));
     applyVideoTransforms();
 }
@@ -1568,7 +1538,7 @@ void MainWindow::saveSelectedAudioTrack() {
     if (mpv_get_property(m_mpv, "track-list", MPV_FORMAT_NODE, &tracks) < 0 ||
         tracks.format != MPV_FORMAT_NODE_ARRAY || !tracks.u.list) {
         mpv_free_node_contents(&tracks);
-        appendRuntimeLog(QStringLiteral("AUDIO SAVE: could not read track-list"));
+        m_runtimeLogger->append(QStringLiteral("AUDIO SAVE: could not read track-list"));
         QMessageBox::warning(this, QStringLiteral("Save Audio"),
                              QStringLiteral("Could not read the current audio track."));
         return;
@@ -1609,7 +1579,7 @@ void MainWindow::saveSelectedAudioTrack() {
     mpv_free_node_contents(&tracks);
 
     if (selectedId < 0) {
-        appendRuntimeLog(QStringLiteral("AUDIO SAVE: no selected audio track"));
+        m_runtimeLogger->append(QStringLiteral("AUDIO SAVE: no selected audio track"));
         QMessageBox::information(this, QStringLiteral("Save Audio"),
                                  QStringLiteral("No audio track is currently selected."));
         return;
@@ -1621,7 +1591,7 @@ void MainWindow::saveSelectedAudioTrack() {
     if (inputUrl.isLocalFile()) inputPath = inputUrl.toLocalFile();
 
     if (inputPath.isEmpty()) {
-        appendRuntimeLog(QStringLiteral("AUDIO SAVE: selected track %1 has no source path").arg(selectedId));
+        m_runtimeLogger->append(QStringLiteral("AUDIO SAVE: selected track %1 has no source path").arg(selectedId));
         QMessageBox::warning(this, QStringLiteral("Save Audio"),
                              QStringLiteral("The selected audio track has no accessible source."));
         return;
@@ -1663,7 +1633,7 @@ void MainWindow::saveSelectedAudioTrack() {
     const QString outputPath = QFileDialog::getSaveFileName(
         this, QStringLiteral("Save selected audio track"), defaultName, filter);
     if (outputPath.isEmpty()) {
-        appendRuntimeLog(QStringLiteral("AUDIO SAVE: user cancelled save dialog"));
+        m_runtimeLogger->append(QStringLiteral("AUDIO SAVE: user cancelled save dialog"));
         return;
     }
 
@@ -1684,7 +1654,7 @@ void MainWindow::saveSelectedAudioTrack() {
 
     const QString ffmpeg = QStandardPaths::findExecutable(QStringLiteral("ffmpeg"));
     if (ffmpeg.isEmpty()) {
-        appendRuntimeLog(QStringLiteral("AUDIO SAVE: ffmpeg not found"));
+        m_runtimeLogger->append(QStringLiteral("AUDIO SAVE: ffmpeg not found"));
         QMessageBox::warning(
             this, QStringLiteral("Save Audio"),
             QStringLiteral("FFmpeg is required to save the selected audio track. "
@@ -1696,14 +1666,14 @@ void MainWindow::saveSelectedAudioTrack() {
         ? QStringLiteral("0:%1").arg(ffIndex)
         : QStringLiteral("0:a:%1").arg(std::max(0, selectedAudioIndex));
 
-    appendRuntimeLog(QStringLiteral(
+    m_runtimeLogger->append(QStringLiteral(
         "AUDIO SAVE: selected id=%1 audio-index=%2 ff-index=%3 codec=%4 external=%5")
         .arg(selectedId)
         .arg(selectedAudioIndex)
         .arg(ffIndex)
         .arg(codec.isEmpty() ? QStringLiteral("<unknown>") : codec)
         .arg(externalFilename.isEmpty() ? QStringLiteral("no") : externalFilename));
-    appendRuntimeLog(QStringLiteral("AUDIO SAVE: input=%1 output=%2 map=%3")
+    m_runtimeLogger->append(QStringLiteral("AUDIO SAVE: input=%1 output=%2 map=%3")
                          .arg(sourcePath, outputPath, mapSpecifier));
 
     m_saveAudioButton->setEnabled(false);
@@ -1740,10 +1710,10 @@ void MainWindow::pumpMpvEvents() {
         mpv_event* event = mpv_wait_event(m_mpv, 0);
         if (!event || event->event_id == MPV_EVENT_NONE) break;
 
-        appendRuntimeLog(QStringLiteral("MPV_EVENT: %1 (%2)").arg(mpvEventName(event->event_id)).arg(event->event_id));
+        m_runtimeLogger->append(QStringLiteral("MPV_EVENT: %1 (%2)").arg(mpvEventName(event->event_id)).arg(event->event_id));
         if (event->event_id == MPV_EVENT_LOG_MESSAGE && event->data) {
             const auto* log = static_cast<mpv_event_log_message*>(event->data);
-            appendRuntimeLog(QStringLiteral("MPV_LOG [%1] %2: %3")
+            m_runtimeLogger->append(QStringLiteral("MPV_LOG [%1] %2: %3")
                 .arg(QString::fromUtf8(log->level ? log->level : ""))
                 .arg(QString::fromUtf8(log->prefix ? log->prefix : ""))
                 .arg(QString::fromUtf8(log->text ? log->text : "").trimmed()));
