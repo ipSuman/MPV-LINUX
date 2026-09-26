@@ -857,9 +857,8 @@ void MainWindow::toggleMirror() {
     if (!m_mpv) return;
     m_videoMirrored = !m_videoMirrored;
 
-    // Keep the labelled hflip filter in the video-filter list and use mpv's
-    // documented runtime toggle mechanism. This avoids repeatedly adding and
-    // removing a lavfi filter while video is already playing.
+    // Use mpv's native hflip filter. mpv documents hflip as a
+    // runtime-toggleable video filter, avoiding the libavfilter bridge.
     const char* args[] = {"vf", "toggle", "@rex-mirror", nullptr};
     command(args);
 
@@ -1363,7 +1362,7 @@ void MainWindow::pumpMpvEvents() {
             // Install the mirror filter once in a disabled state. mpv's
             // documented vf toggle command then enables/disables it without
             // disturbing any other filters.
-            const char* mirrorFilterArgs[] = {"vf-add", "@rex-mirror:!lavfi=[hflip]", nullptr};
+            const char* mirrorFilterArgs[] = {"vf-add", "@rex-mirror:!hflip", nullptr};
             command(mirrorFilterArgs);
             if (m_mirrorButton) m_mirrorButton->setChecked(false);
             // The video viewport is embedded in the Qt window, so mpv cannot
