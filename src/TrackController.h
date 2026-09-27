@@ -2,7 +2,6 @@
 
 #include <QObject>
 #include <QString>
-#include <functional>
 
 class RuntimeLogger;
 class QMenu;
@@ -14,7 +13,6 @@ public:
     TrackController(mpv_handle* mpv, RuntimeLogger* logger, QObject* parent = nullptr);
 
     void showMenu(QWidget* anchor = nullptr);
-    void setSaveAudioCallback(std::function<void()> callback);
     void cycleSubtitles();
 
 private:
@@ -22,5 +20,4 @@ private:
 
     mpv_handle* m_mpv = nullptr;
     RuntimeLogger* m_logger = nullptr;
-    std::function<void()> m_saveAudioCallback;
 };
