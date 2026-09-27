@@ -498,6 +498,15 @@ void MainWindow::buildUi() {
     playlistButtons->setContentsMargins(0, 0, 0, 0);
     playlistButtons->setSpacing(4);
 
+    m_autoplayCheck = new QCheckBox(QStringLiteral("Autoplay"), playlistPanel);
+    m_autoplayCheck->setChecked(m_playlistController && m_playlistController->autoplay());
+    m_autoplayCheck->setToolTip(
+        QStringLiteral("Automatically play the next playlist item when the current item reaches the end."));
+    connect(m_autoplayCheck, &QCheckBox::toggled, this, [this](bool enabled) {
+        if (m_playlistController) m_playlistController->setAutoplay(enabled);
+    });
+    playlistButtons->addWidget(m_autoplayCheck);
+
     auto* savePlaylistButton = new QPushButton(QStringLiteral("Save Playlist"), playlistPanel);
     connect(savePlaylistButton, &QPushButton::clicked, this, &MainWindow::savePlaylist);
     playlistButtons->addWidget(savePlaylistButton);
