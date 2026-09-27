@@ -260,11 +260,11 @@ void MainWindow::buildUi() {
     m_controls->setObjectName(QStringLiteral("controls"));
     m_controls->setStyleSheet(QStringLiteral(
         "QWidget#controls{background:#171717;color:#eee;}"
-        "QPushButton{background:transparent;color:#eee;border:0;padding:4px 6px;font-size:11px;}"
+        "QPushButton{background:transparent;color:#eee;border:0;padding:4px 6px;}"
         "QPushButton:hover{background:#303030;border-radius:5px;}"
         "QSlider::groove:horizontal{height:4px;background:#555;border-radius:2px;}"
         "QSlider::handle:horizontal{width:12px;margin:-4px 0;border-radius:6px;background:#ddd;}"
-        "QLabel{color:#ddd;font-size:11px;}"));
+        "QLabel{color:#ddd;}"));
     auto* controlsLayout = new QVBoxLayout(m_controls);
     controlsLayout->setContentsMargins(8, 5, 8, 6);
     controlsLayout->setSpacing(3);
@@ -544,6 +544,16 @@ void MainWindow::applyInterfaceFont(const QString& fontPath, const QString& font
     if (pointSize > 0) font.setPointSize(pointSize);
 
     QApplication::setFont(font);
+
+    // QApplication::setFont() updates the application default, but existing
+    // top-level windows and widgets can retain an explicit/style-derived font.
+    // Reapply the selected font to every existing widget so buttons, labels,
+    // combo boxes, editors and dialog controls all change immediately.
+    const auto widgets = QApplication::allWidgets();
+    for (QWidget* widget : widgets) {
+        if (widget) widget->setFont(font);
+    }
+
     if (m_runtimeLogger) m_runtimeLogger->append(
         QStringLiteral("FONT: applied family=%1 size=%2")
             .arg(font.family())
@@ -717,7 +727,7 @@ void MainWindow::showControlsDialog() {
         clearButton->setToolTip(QStringLiteral("Clear shortcut"));
         clearButton->setFixedSize(28, 28);
         clearButton->setAutoRaise(true);
-        clearButton->setStyleSheet(QStringLiteral("QToolButton{font-size:18px;font-weight:600;color:#ddd;border:0;}QToolButton:hover{background:#3a3a3a;border-radius:4px;}"));
+        clearButton->setStyleSheet(QStringLiteral("QToolButton{font-weight:600;color:#ddd;border:0;}QToolButton:hover{background:#3a3a3a;border-radius:4px;}"));
         QObject::connect(clearButton, &QToolButton::clicked, edit, &QKeySequenceEdit::clear);
         rowLayout->addWidget(clearButton);
         keyForm->addRow(label, row);
@@ -2068,7 +2078,7 @@ void MainWindow::toggleControls() {
     };
     auto addSection = [&layout](const QString& title) {
         auto* label = new QLabel(title, layout->parentWidget());
-        label->setStyleSheet(QStringLiteral("font-weight:600; font-size:14px; margin-top:6px;"));
+        label->setStyleSheet(QStringLiteral("font-weight:600; margin-top:6px;"));
         layout->addWidget(label);
     };
     auto addRow = [&layout](const QString& name, const QString& value) {
