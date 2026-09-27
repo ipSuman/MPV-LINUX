@@ -10,6 +10,7 @@ public:
     bool initialize();
     void append(const QString& message);
     QString path() const;
+    QString contents() const;
 
 private:
     QString m_path;
