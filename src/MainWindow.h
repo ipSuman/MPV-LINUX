@@ -6,6 +6,7 @@
 #include <QKeySequence>
 #include <QTimer>
 #include <QDateTime>
+#include <QFont>
 
 class QLabel;
 class QListWidget;
