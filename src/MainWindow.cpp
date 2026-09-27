@@ -274,12 +274,6 @@ void MainWindow::buildUi() {
     progressRow->setContentsMargins(0, 0, 0, 0);
     progressRow->setSpacing(6);
 
-    auto* fullscreenButton = new QPushButton(QStringLiteral("⛶"), m_controls);
-    fullscreenButton->setToolTip(QStringLiteral("Toggle fullscreen"));
-    fullscreenButton->setFixedWidth(32);
-    connect(fullscreenButton, &QPushButton::clicked, this, &MainWindow::toggleFullscreen);
-    progressRow->addWidget(fullscreenButton);
-
     m_currentTimeLabel = new QLabel(QStringLiteral("00:00"), m_controls);
     m_currentTimeLabel->setFixedWidth(64);
     m_currentTimeLabel->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
@@ -314,6 +308,12 @@ void MainWindow::buildUi() {
     auto* row1 = new QHBoxLayout();
     row1->setContentsMargins(0, 0, 0, 0);
     row1->setSpacing(4);
+
+    auto* fullscreenButton = new QPushButton(QStringLiteral("⛶"), m_controls);
+    fullscreenButton->setToolTip(QStringLiteral("Toggle fullscreen"));
+    fullscreenButton->setFixedWidth(32);
+    connect(fullscreenButton, &QPushButton::clicked, this, &MainWindow::toggleFullscreen);
+    row1->addWidget(fullscreenButton);
 
     auto* open = new QPushButton(QStringLiteral("Open"), m_controls);
     connect(open, &QPushButton::clicked, this, &MainWindow::openFile);
@@ -456,7 +456,273 @@ void MainWindow::buildUi() {
     m_timeLabel->installEventFilter(this);
 
     updateSeekButtonLabels();
-reenshot"), captureScreenshot);
+}
+
+void MainWindow::loadControlSettings() {
+    if (!m_controlSettings) return;
+    m_controlSettings->load();
+
+    m_seekWheelMode = m_controlSettings->seekWheelMode;
+    m_zoomWheelMode = m_controlSettings->zoomWheelMode;
+    m_volumeWheelMode = m_controlSettings->volumeWheelMode;
+    m_timerBesideProgress = m_controlSettings->timerBesideProgress;
+    m_panButton = m_controlSettings->panButton;
+    m_doubleClickButton = m_controlSettings->doubleClickButton;
+    m_seekDurationSeconds = m_controlSettings->seekDurationSeconds;
+    applyInterfaceFont(m_controlSettings->fontPath, m_controlSettings->fontFamily, m_controlSettings->fontSize);
+    m_volumeUpKey = m_controlSettings->volumeUpKey;
+    m_volumeDownKey = m_controlSettings->volumeDownKey;
+    m_muteKey = m_controlSettings->muteKey;
+    m_seekBackwardKey = m_controlSettings->seekBackwardKey;
+    m_seekForwardKey = m_controlSettings->seekForwardKey;
+    m_loopAKey = m_controlSettings->loopAKey;
+    m_loopBKey = m_controlSettings->loopBKey;
+    m_loopClearKey = m_controlSettings->loopClearKey;
+    m_zoomInKey = m_controlSettings->zoomInKey;
+    m_zoomOutKey = m_controlSettings->zoomOutKey;
+    m_zoomResetKey = m_controlSettings->zoomResetKey;
+    m_frameBackKey = m_controlSettings->frameBackKey;
+    m_frameForwardKey = m_controlSettings->frameForwardKey;
+    m_switchSubtitlesKey = m_controlSettings->switchSubtitlesKey;
+    m_subtitlePosUpKey = m_controlSettings->subtitlePosUpKey;
+    m_subtitlePosDownKey = m_controlSettings->subtitlePosDownKey;
+    m_subtitleSizeUpKey = m_controlSettings->subtitleSizeUpKey;
+    m_subtitleSizeDownKey = m_controlSettings->subtitleSizeDownKey;
+    m_captureScreenshotKey = m_controlSettings->captureScreenshotKey;
+    m_rotateVideoKey = m_controlSettings->rotateVideoKey;
+    m_cutWithZoom = m_controlSettings->cutWithZoom;
+
+    QSettings settings(QStringLiteral("REX Player"), QStringLiteral("REX Player"));
+    m_saturation = std::clamp(settings.value(QStringLiteral("display/saturation"), m_saturation).toInt(), -100, 100);
+    m_brightness = std::clamp(settings.value(QStringLiteral("display/brightness"), m_brightness).toInt(), -100, 100);
+    m_contrast = std::clamp(settings.value(QStringLiteral("display/contrast"), m_contrast).toInt(), -100, 100);
+}
+
+void MainWindow::applyInterfaceFont(const QString& fontPath, const QString& fontFamily, int pointSize) {
+    QFont font = m_defaultApplicationFont;
+
+    QString family = fontFamily.trimmed();
+    if (!fontPath.trimmed().isEmpty() && QFileInfo::exists(fontPath)) {
+        const int fontId = QFontDatabase::addApplicationFont(fontPath);
+        if (fontId >= 0) {
+            const QStringList families = QFontDatabase::applicationFontFamilies(fontId);
+            if (!families.isEmpty()) family = families.first();
+            if (m_runtimeLogger) m_runtimeLogger->append(
+                QStringLiteral("FONT: loaded custom font file=%1 family=%2")
+                    .arg(fontPath, family));
+        } else {
+            if (m_runtimeLogger) m_runtimeLogger->append(
+                QStringLiteral("FONT: failed to load custom font file=%1")
+                    .arg(fontPath));
+        }
+    }
+
+    if (!family.isEmpty()) font.setFamily(family);
+    if (pointSize > 0) font.setPointSize(pointSize);
+
+    QApplication::setFont(font);
+    if (m_runtimeLogger) m_runtimeLogger->append(
+        QStringLiteral("FONT: applied family=%1 size=%2")
+            .arg(font.family())
+            .arg(font.pointSizeF()));
+}
+
+void MainWindow::showControlsDialog() {
+    QDialog dialog(this);
+    dialog.setWindowTitle(QStringLiteral("Controls"));
+    dialog.setModal(true);
+    dialog.resize(460, 560);
+    dialog.setMinimumSize(380, 420);
+    dialog.setSizeGripEnabled(true);
+
+    auto* mainLayout = new QVBoxLayout(&dialog);
+    auto* scrollArea = new QScrollArea(&dialog);
+    scrollArea->setWidgetResizable(true);
+    scrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    auto* content = new QWidget(scrollArea);
+    auto* contentLayout = new QVBoxLayout(content);
+    contentLayout->setContentsMargins(8, 8, 8, 8);
+    auto* form = new QFormLayout();
+    form->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
+
+    QString selectedFontPath = m_controlSettings ? m_controlSettings->fontPath : QString();
+    QString selectedFontFamily = m_controlSettings ? m_controlSettings->fontFamily : QString();
+    if (selectedFontFamily.isEmpty()) selectedFontFamily = QApplication::font().family();
+
+    auto* chooseFontButton = new QPushButton(
+        selectedFontFamily.isEmpty() ? QStringLiteral("System default") : selectedFontFamily, &dialog);
+    chooseFontButton->setToolTip(QStringLiteral("Load a downloaded TrueType, OpenType or TrueType Collection font file."));
+    connect(chooseFontButton, &QPushButton::clicked, &dialog, [&, chooseFontButton] {
+        const QString path = QFileDialog::getOpenFileName(
+            &dialog, QStringLiteral("Choose font file"), QDir::homePath(),
+            QStringLiteral("Font files (*.ttf *.otf *.ttc);;All files (*)"));
+        if (path.isEmpty()) return;
+
+        const int fontId = QFontDatabase::addApplicationFont(path);
+        if (fontId < 0) {
+            QMessageBox::warning(
+                &dialog, QStringLiteral("Choose font"),
+                QStringLiteral("Could not load this font file."));
+            return;
+        }
+
+        const QStringList families = QFontDatabase::applicationFontFamilies(fontId);
+        if (families.isEmpty()) {
+            QMessageBox::warning(
+                &dialog, QStringLiteral("Choose font"),
+                QStringLiteral("The font file did not expose a usable font family."));
+            return;
+        }
+
+        selectedFontPath = path;
+        selectedFontFamily = families.first();
+        chooseFontButton->setText(selectedFontFamily);
+        if (m_runtimeLogger) m_runtimeLogger->append(
+            QStringLiteral("FONT: selected custom font file=%1 family=%2")
+                .arg(selectedFontPath, selectedFontFamily));
+    });
+    form->addRow(QStringLiteral("Choose font"), chooseFontButton);
+
+    auto* fontSize = new QSpinBox(&dialog);
+    fontSize->setRange(8, 32);
+    const int currentFontSize = QApplication::font().pointSize() > 0
+        ? QApplication::font().pointSize()
+        : 10;
+    fontSize->setValue(m_controlSettings && m_controlSettings->fontSize > 0
+        ? m_controlSettings->fontSize
+        : currentFontSize);
+    fontSize->setSuffix(QStringLiteral(" pt"));
+    form->addRow(QStringLiteral("Font size"), fontSize);
+
+    auto* seekDuration = new QComboBox(&dialog);
+    for (int seconds : {5, 10, 30})
+        seekDuration->addItem(QStringLiteral("%1 seconds").arg(seconds), seconds);
+    for (int minutes = 1; minutes <= 120; ++minutes)
+        seekDuration->addItem(QStringLiteral("%1 min").arg(minutes), minutes * 60);
+    selectData(seekDuration, m_seekDurationSeconds);
+    form->addRow(QStringLiteral("Seek duration"), seekDuration);
+
+    auto* seekWheel = new QComboBox(&dialog);
+    addWheelModes(seekWheel);
+    selectData(seekWheel, m_seekWheelMode);
+    form->addRow(QStringLiteral("Touchpad / wheel → Seek"), seekWheel);
+
+    auto* zoomWheel = new QComboBox(&dialog);
+    addWheelModes(zoomWheel);
+    selectData(zoomWheel, m_zoomWheelMode);
+    form->addRow(QStringLiteral("Wheel → Zoom"), zoomWheel);
+
+    auto* volumeWheel = new QComboBox(&dialog);
+    addWheelModes(volumeWheel);
+    selectData(volumeWheel, m_volumeWheelMode);
+    form->addRow(QStringLiteral("Wheel → Volume"), volumeWheel);
+
+    auto* panButton = new QComboBox(&dialog);
+    panButton->addItem(QStringLiteral("Left button"), static_cast<int>(Qt::LeftButton));
+    panButton->addItem(QStringLiteral("Middle button"), static_cast<int>(Qt::MiddleButton));
+    panButton->addItem(QStringLiteral("Right button"), static_cast<int>(Qt::RightButton));
+    panButton->addItem(QStringLiteral("Disabled"), static_cast<int>(Qt::NoButton));
+    selectData(panButton, static_cast<int>(m_panButton));
+    form->addRow(QStringLiteral("Alt + Ctrl + drag → Pan"), panButton);
+
+    auto* timerPositionButton = new QPushButton(
+        m_timerBesideProgress ? QStringLiteral("Timer: Progress bar") : QStringLiteral("Timer: Controls"),
+        &dialog);
+    timerPositionButton->setCheckable(true);
+    timerPositionButton->setChecked(m_timerBesideProgress);
+    timerPositionButton->setToolTip(QStringLiteral("Switch the timer between the playback controls and the progress bar."));
+    connect(timerPositionButton, &QPushButton::toggled, &dialog, [timerPositionButton](bool checked) {
+        timerPositionButton->setText(checked ? QStringLiteral("Timer: Progress bar") : QStringLiteral("Timer: Controls"));
+    });
+    form->addRow(QStringLiteral("Timer position"), timerPositionButton);
+
+    auto* cutWithZoomButton = new QPushButton(
+        m_cutWithZoom ? QStringLiteral("Cut with zoom: On") : QStringLiteral("Cut with zoom: Off"),
+        &dialog);
+    cutWithZoomButton->setCheckable(true);
+    cutWithZoomButton->setChecked(m_cutWithZoom);
+    cutWithZoomButton->setToolTip(QStringLiteral("When enabled, Cut AB bakes the current video zoom and pan into the exported video. This requires video re-encoding; audio and subtitles are copied when possible."));
+    connect(cutWithZoomButton, &QPushButton::toggled, &dialog, [cutWithZoomButton](bool checked) {
+        cutWithZoomButton->setText(checked ? QStringLiteral("Cut with zoom: On") : QStringLiteral("Cut with zoom: Off"));
+    });
+    form->addRow(QStringLiteral("A-B cutting"), cutWithZoomButton);
+
+    auto* doubleClickButton = new QComboBox(&dialog);
+    doubleClickButton->addItem(QStringLiteral("Left button"), static_cast<int>(Qt::LeftButton));
+    doubleClickButton->addItem(QStringLiteral("Middle button"), static_cast<int>(Qt::MiddleButton));
+    doubleClickButton->addItem(QStringLiteral("Right button"), static_cast<int>(Qt::RightButton));
+    doubleClickButton->addItem(QStringLiteral("Disabled"), static_cast<int>(Qt::NoButton));
+    selectData(doubleClickButton, static_cast<int>(m_doubleClickButton));
+    form->addRow(QStringLiteral("Double-click zones"), doubleClickButton);
+
+    // Place the Mouse / touchpad heading directly after the Font size row.
+    auto* mouseTouchpadHeading = new QLabel(QStringLiteral("Mouse / touchpad"), content);
+    mouseTouchpadHeading->setStyleSheet(QStringLiteral("font-weight:600;"));
+    form->insertRow(2, mouseTouchpadHeading);
+
+    contentLayout->addLayout(form);
+    contentLayout->addWidget(new QLabel(QStringLiteral("Keyboard shortcuts"), content));
+
+    auto* keyForm = new QFormLayout();
+    auto* volumeUp = new QKeySequenceEdit(m_volumeUpKey, &dialog);
+    auto* volumeDown = new QKeySequenceEdit(m_volumeDownKey, &dialog);
+    auto* mute = new QKeySequenceEdit(m_muteKey, &dialog);
+    auto* seekBack = new QKeySequenceEdit(m_seekBackwardKey, &dialog);
+    auto* seekForward = new QKeySequenceEdit(m_seekForwardKey, &dialog);
+    auto* loopA = new QKeySequenceEdit(m_loopAKey, &dialog);
+    auto* loopB = new QKeySequenceEdit(m_loopBKey, &dialog);
+    auto* loopClear = new QKeySequenceEdit(m_loopClearKey, &dialog);
+    auto* zoomIn = new QKeySequenceEdit(m_zoomInKey, &dialog);
+    auto* zoomOut = new QKeySequenceEdit(m_zoomOutKey, &dialog);
+    auto* zoomReset = new QKeySequenceEdit(m_zoomResetKey, &dialog);
+    auto* frameBack = new QKeySequenceEdit(m_frameBackKey, &dialog);
+    auto* frameForward = new QKeySequenceEdit(m_frameForwardKey, &dialog);
+    auto* switchSubtitles = new QKeySequenceEdit(m_switchSubtitlesKey, &dialog);
+    auto* subtitlePosUp = new QKeySequenceEdit(m_subtitlePosUpKey, &dialog);
+    auto* subtitlePosDown = new QKeySequenceEdit(m_subtitlePosDownKey, &dialog);
+    auto* subtitleSizeUp = new QKeySequenceEdit(m_subtitleSizeUpKey, &dialog);
+    auto* subtitleSizeDown = new QKeySequenceEdit(m_subtitleSizeDownKey, &dialog);
+    auto* captureScreenshot = new QKeySequenceEdit(m_captureScreenshotKey, &dialog);
+    auto* rotateVideo = new QKeySequenceEdit(m_rotateVideoKey, &dialog);
+    const QList<QKeySequenceEdit*> edits = {volumeUp, volumeDown, mute, seekBack, seekForward, loopA, loopB, loopClear, zoomIn, zoomOut, zoomReset, frameBack, frameForward, switchSubtitles, subtitlePosUp, subtitlePosDown, subtitleSizeUp, subtitleSizeDown, captureScreenshot, rotateVideo};
+    for (auto* edit : edits) edit->setClearButtonEnabled(false);
+
+    auto addShortcut = [&keyForm, &dialog](const QString& label, QKeySequenceEdit* edit) {
+        auto* row = new QWidget(&dialog);
+        auto* rowLayout = new QHBoxLayout(row);
+        rowLayout->setContentsMargins(0, 0, 0, 0);
+        rowLayout->setSpacing(4);
+        rowLayout->addWidget(edit, 1);
+        auto* clearButton = new QToolButton(row);
+        clearButton->setText(QStringLiteral("×"));
+        clearButton->setToolTip(QStringLiteral("Clear shortcut"));
+        clearButton->setFixedSize(28, 28);
+        clearButton->setAutoRaise(true);
+        clearButton->setStyleSheet(QStringLiteral("QToolButton{font-weight:600;color:#ddd;border:0;}QToolButton:hover{background:#3a3a3a;border-radius:4px;}"));
+        QObject::connect(clearButton, &QToolButton::clicked, edit, &QKeySequenceEdit::clear);
+        rowLayout->addWidget(clearButton);
+        keyForm->addRow(label, row);
+    };
+
+    addShortcut(QStringLiteral("Shift + V → Volume +"), volumeUp);
+    addShortcut(QStringLiteral("V → Volume −"), volumeDown);
+    addShortcut(QStringLiteral("M → Mute / unmute"), mute);
+    addShortcut(QStringLiteral("Left Arrow → Seek backward"), seekBack);
+    addShortcut(QStringLiteral("Right Arrow → Seek forward"), seekForward);
+    addShortcut(QStringLiteral("A → Loop start"), loopA);
+    addShortcut(QStringLiteral("B → Loop end"), loopB);
+    addShortcut(QStringLiteral("L → Clear loop"), loopClear);
+    addShortcut(QStringLiteral("+ → Zoom in"), zoomIn);
+    addShortcut(QStringLiteral("− → Zoom out"), zoomOut);
+    addShortcut(QStringLiteral("Z → Reset zoom / pan"), zoomReset);
+    addShortcut(QStringLiteral(", → Previous frame"), frameBack);
+    addShortcut(QStringLiteral(". → Next frame"), frameForward);
+    addShortcut(QStringLiteral("S → Switch subtitles"), switchSubtitles);
+    addShortcut(QStringLiteral("Ctrl + Up → Lift subtitles upward"), subtitlePosUp);
+    addShortcut(QStringLiteral("Ctrl + Down → Lift subtitles downward"), subtitlePosDown);
+    addShortcut(QStringLiteral("Shift + I → Increase subtitle text size"), subtitleSizeUp);
+    addShortcut(QStringLiteral("I → Decrease subtitle text size"), subtitleSizeDown);
+    addShortcut(QStringLiteral("C → Capture screenshot"), captureScreenshot);
     addShortcut(QStringLiteral("R → Rotate video 90° clockwise"), rotateVideo);
     contentLayout->addLayout(keyForm);
 
@@ -1389,9 +1655,10 @@ void MainWindow::updatePlaybackUi() {
     m_timeLabel->setText(QStringLiteral("%1 / %2").arg(currentText, rightTime));
     m_currentTimeLabel->setText(currentText);
     m_progressTimeLabel->setText(rightTime);
-    m_timeLabel->setVisible(!m_timerBesideProgress);
-    m_currentTimeLabel->setVisible(m_timerBesideProgress);
-    m_progressTimeLabel->setVisible(m_timerBesideProgress);
+    // The progress row is now the permanent timer location.
+    m_timeLabel->setVisible(false);
+    m_currentTimeLabel->setVisible(true);
+    m_progressTimeLabel->setVisible(true);
     updatePlayButton(paused != 0);
     updateHardwareButton();
     updatePlaybackInhibit(paused == 0 && !getPropertyString("path").isEmpty());
