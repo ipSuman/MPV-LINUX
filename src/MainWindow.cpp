@@ -456,6 +456,8 @@ void MainWindow::buildUi() {
     controlsLayout->addLayout(row1);
     controlsLayout->addLayout(row2);
 
+    setCentralWidget(root);
+
     updateSeekButtonLabels();
 }
 
