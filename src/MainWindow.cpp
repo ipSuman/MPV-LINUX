@@ -568,6 +568,55 @@ void MainWindow::showControlsDialog() {
     auto* form = new QFormLayout();
     form->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
 
+    QString selectedFontPath = m_controlSettings ? m_controlSettings->fontPath : QString();
+    QString selectedFontFamily = m_controlSettings ? m_controlSettings->fontFamily : QString();
+    if (selectedFontFamily.isEmpty()) selectedFontFamily = QApplication::font().family();
+
+    auto* chooseFontButton = new QPushButton(
+        selectedFontFamily.isEmpty() ? QStringLiteral("System default") : selectedFontFamily, &dialog);
+    chooseFontButton->setToolTip(QStringLiteral("Load a downloaded TrueType, OpenType or TrueType Collection font file."));
+    connect(chooseFontButton, &QPushButton::clicked, &dialog, [&, chooseFontButton] {
+        const QString path = QFileDialog::getOpenFileName(
+            &dialog, QStringLiteral("Choose font file"), QDir::homePath(),
+            QStringLiteral("Font files (*.ttf *.otf *.ttc);;All files (*)"));
+        if (path.isEmpty()) return;
+
+        const int fontId = QFontDatabase::addApplicationFont(path);
+        if (fontId < 0) {
+            QMessageBox::warning(
+                &dialog, QStringLiteral("Choose font"),
+                QStringLiteral("Could not load this font file."));
+            return;
+        }
+
+        const QStringList families = QFontDatabase::applicationFontFamilies(fontId);
+        if (families.isEmpty()) {
+            QMessageBox::warning(
+                &dialog, QStringLiteral("Choose font"),
+                QStringLiteral("The font file did not expose a usable font family."));
+            return;
+        }
+
+        selectedFontPath = path;
+        selectedFontFamily = families.first();
+        chooseFontButton->setText(selectedFontFamily);
+        m_runtimeLogger->append(
+            QStringLiteral("FONT: selected custom font file=%1 family=%2")
+                .arg(selectedFontPath, selectedFontFamily));
+    });
+    form->addRow(QStringLiteral("Choose font"), chooseFontButton);
+
+    auto* fontSize = new QSpinBox(&dialog);
+    fontSize->setRange(8, 32);
+    const int currentFontSize = QApplication::font().pointSize() > 0
+        ? QApplication::font().pointSize()
+        : 10;
+    fontSize->setValue(m_controlSettings && m_controlSettings->fontSize > 0
+        ? m_controlSettings->fontSize
+        : currentFontSize);
+    fontSize->setSuffix(QStringLiteral(" pt"));
+    form->addRow(QStringLiteral("Font size"), fontSize);
+
     auto* seekDuration = new QComboBox(&dialog);
     for (int seconds : {5, 10, 30})
         seekDuration->addItem(QStringLiteral("%1 seconds").arg(seconds), seconds);
@@ -711,6 +760,10 @@ void MainWindow::showControlsDialog() {
     mainLayout->addWidget(buttons);
 
     connect(reset, &QPushButton::clicked, &dialog, [&] {
+        selectedFontPath.clear();
+        selectedFontFamily = m_defaultApplicationFont.family();
+        chooseFontButton->setText(QStringLiteral("System default"));
+        fontSize->setValue(m_defaultApplicationFont.pointSize() > 0 ? m_defaultApplicationFont.pointSize() : 10);
         selectData(seekDuration, 60);
         selectData(seekWheel, QStringLiteral("wheel"));
         selectData(zoomWheel, QStringLiteral("alt-wheel"));
@@ -752,6 +805,8 @@ void MainWindow::showControlsDialog() {
                 }
             }
         }
+        selectedFontFamily = selectedFontFamily.trimmed();
+        const int selectedFontSize = fontSize->value();
         m_seekDurationSeconds = seekDuration->currentData().toInt();
         m_seekWheelMode = seekWheel->currentData().toString();
         m_zoomWheelMode = zoomWheel->currentData().toString();
@@ -783,6 +838,9 @@ void MainWindow::showControlsDialog() {
 
         if (m_controlSettings) {
             m_controlSettings->seekDurationSeconds = m_seekDurationSeconds;
+            m_controlSettings->fontPath = selectedFontPath;
+            m_controlSettings->fontFamily = selectedFontFamily == m_defaultApplicationFont.family() && selectedFontPath.isEmpty() ? QString() : selectedFontFamily;
+            m_controlSettings->fontSize = selectedFontSize;
             m_controlSettings->seekWheelMode = m_seekWheelMode;
             m_controlSettings->zoomWheelMode = m_zoomWheelMode;
             m_controlSettings->volumeWheelMode = m_volumeWheelMode;
@@ -811,6 +869,7 @@ void MainWindow::showControlsDialog() {
             m_controlSettings->rotateVideoKey = m_rotateVideoKey;
             m_controlSettings->cutWithZoom = m_cutWithZoom;
             m_controlSettings->save();
+            applyInterfaceFont(m_controlSettings->fontPath, m_controlSettings->fontFamily, m_controlSettings->fontSize);
         }
         updateSeekButtonLabels();
         dialog.accept();
