@@ -455,7 +455,7 @@ void MainWindow::buildUi() {
         QMessageBox::about(
             this,
             QStringLiteral("About REX Player"),
-            QStringLiteral("REX Player 2.1.0\\n\\nA libmpv-based video player."));
+            QStringLiteral("REX Player 2.1.0\n\nA libmpv-based video player."));
     });
     row2->addWidget(aboutButton);
 
