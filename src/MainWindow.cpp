@@ -122,6 +122,11 @@ MainWindow::MainWindow(const QString& mediaPath, QWidget* parent)
     m_playlistController = new PlaylistController();
     buildUi();
 
+    m_toastTimer.setSingleShot(true);
+    connect(&m_toastTimer, &QTimer::timeout, this, [this] {
+        if (m_toastLabel) m_toastLabel->hide();
+    });
+
     m_runtimeLogger = new RuntimeLogger(this);
     m_playbackPositions = new PlaybackPositionManager(this);
     m_audioExporter = new AudioExporter(this);
@@ -203,7 +208,7 @@ MainWindow::MainWindow(const QString& mediaPath, QWidget* parent)
     connect(m_screenshotController, &ScreenshotController::errorMessage,
             this, &MainWindow::showError);
     connect(m_screenshotController, &ScreenshotController::successMessage,
-            this, [this](const QString& message, const QString&) { showError(message); });
+            this, [this](const QString& message, const QString&) { showToast(message); });
     connect(m_screenshotController, &ScreenshotController::logMessage,
             m_runtimeLogger, &RuntimeLogger::append);
     connect(m_screenshotController, &ScreenshotController::restoreTitleRequested,
@@ -243,6 +248,15 @@ void MainWindow::buildUi() {
     m_rootWidget = root;
     root->setObjectName(QStringLiteral("root"));
     root->setStyleSheet(QStringLiteral("QWidget#root{background:#000;}"));
+
+    m_toastLabel = new QLabel(root);
+    m_toastLabel->setObjectName(QStringLiteral("toastLabel"));
+    m_toastLabel->setAlignment(Qt::AlignCenter);
+    m_toastLabel->setStyleSheet(QStringLiteral(
+        "QLabel#toastLabel{background:#222;color:#fff;border:1px solid #555;"
+        "border-radius:6px;padding:7px 14px;font-weight:600;}"));
+    m_toastLabel->setAttribute(Qt::WA_TransparentForMouseEvents);
+    m_toastLabel->hide();
     auto* layout = new QVBoxLayout(root);
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(0);
@@ -1006,7 +1020,7 @@ void MainWindow::playPlaylistIndex(int index, bool promptResume) {
     if (m_mpv) mpv_command_async(m_mpv, 0, args);
     m_promptResumeNextLoad = promptResume;
     m_pendingResumePath = path;
-    setWindowTitle(QStringLiteral("%1 — REX Player").arg(QFileInfo(path).fileName()));
+    setWindowTitle(QStringLiteral("%1 - Rex Player").arg(QFileInfo(path).fileName()));
 }
 
 void MainWindow::syncPlaylistSelection() {
@@ -2215,4 +2229,23 @@ void MainWindow::resizeEvent(QResizeEvent* event) {
 }
 
 void MainWindow::closeEvent(QCloseEvent* event) { saveCurrentPlaybackPosition(); if (m_mpv) { const char* args[] = {"quit", nullptr}; mpv_command(m_mpv, args); } QMainWindow::closeEvent(event); }
+void MainWindow::showToast(const QString& message) {
+    if (!m_toastLabel || !m_rootWidget) return;
+
+    m_toastLabel->setText(message);
+    m_toastLabel->adjustSize();
+
+    const int controlsHeight =
+        (m_controls && m_controls->isVisible()) ? m_controls->height() : 0;
+    const int bottomMargin = controlsHeight + 16;
+    const int x = std::max(0, (m_rootWidget->width() - m_toastLabel->width()) / 2);
+    const int y = std::max(0, m_rootWidget->height() -
+                              bottomMargin - m_toastLabel->height());
+
+    m_toastLabel->move(x, y);
+    m_toastLabel->raise();
+    m_toastLabel->show();
+    m_toastTimer.start(1800);
+}
+
 void MainWindow::showError(const QString& message) { setWindowTitle(QStringLiteral("REX Player — %1").arg(message)); }
