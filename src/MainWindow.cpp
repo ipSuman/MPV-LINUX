@@ -260,7 +260,7 @@ void MainWindow::buildUi() {
     m_controls->setObjectName(QStringLiteral("controls"));
     m_controls->setStyleSheet(QStringLiteral(
         "QWidget#controls{background:#171717;color:#eee;}"
-        "QPushButton{background:transparent;color:#eee;border:0;padding:4px 6px;}"
+        "QPushButton{background:transparent;color:#eee;border:0;padding:5px 7px;}"
         "QPushButton:hover{background:#303030;border-radius:5px;}"
         "QSlider::groove:horizontal{height:4px;background:#555;border-radius:2px;}"
         "QSlider::handle:horizontal{width:12px;margin:-4px 0;border-radius:6px;background:#ddd;}"
@@ -300,16 +300,26 @@ void MainWindow::buildUi() {
     // button text collide or get clipped.
     auto* row1 = new QHBoxLayout();
     row1->setContentsMargins(0, 0, 0, 0);
-    row1->setSpacing(4);
+    row1->setSpacing(2);
+
+    // Keep first-row buttons compact instead of letting the layout stretch
+    // them across the available width. The slightly larger stylesheet padding
+    // provides comfortable click targets without creating large gaps.
+    auto compactRow1Button = [](QPushButton* button) {
+        if (!button) return;
+        button->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Fixed);
+    };
 
     auto* open = new QPushButton(QStringLiteral("Open"), m_controls);
     connect(open, &QPushButton::clicked, this, &MainWindow::openFile);
+    compactRow1Button(open);
     row1->addWidget(open);
 
     m_previousButton = new QPushButton(QStringLiteral("⏮"), m_controls);
     m_previousButton->setToolTip(QStringLiteral("Previous item"));
     m_previousButton->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
     connect(m_previousButton, &QPushButton::clicked, this, &MainWindow::playPrevious);
+    compactRow1Button(m_previousButton);
     row1->addWidget(m_previousButton);
 
     m_seekBackButton = new QPushButton(QStringLiteral("−10s"), m_controls);
@@ -318,11 +328,13 @@ void MainWindow::buildUi() {
         const char* args[] = {"seek", "-10", "relative", "exact", nullptr};
         command(args);
     });
+    compactRow1Button(m_seekBackButton);
     row1->addWidget(m_seekBackButton);
 
     m_playButton = new QPushButton(QStringLiteral("▶"), m_controls);
     m_playButton->setToolTip(QStringLiteral("Play / pause"));
     connect(m_playButton, &QPushButton::clicked, this, &MainWindow::togglePause);
+    compactRow1Button(m_playButton);
     row1->addWidget(m_playButton);
 
     m_seekForwardButton = new QPushButton(QStringLiteral("+10s"), m_controls);
@@ -331,12 +343,14 @@ void MainWindow::buildUi() {
         const char* args[] = {"seek", "10", "relative", "exact", nullptr};
         command(args);
     });
+    compactRow1Button(m_seekForwardButton);
     row1->addWidget(m_seekForwardButton);
 
     m_nextButton = new QPushButton(QStringLiteral("⏭"), m_controls);
     m_nextButton->setToolTip(QStringLiteral("Next item"));
     m_nextButton->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
     connect(m_nextButton, &QPushButton::clicked, this, &MainWindow::playNext);
+    compactRow1Button(m_nextButton);
     row1->addWidget(m_nextButton);
 
     m_timeLabel = new QLabel(QStringLiteral("00:00 / 00:00"), m_controls);
@@ -356,26 +370,30 @@ void MainWindow::buildUi() {
     m_cutAbButton = new QPushButton(QStringLiteral("Cut AB"), m_controls);
     m_cutAbButton->setToolTip(QStringLiteral("Cut the current A-B selection with FFmpeg without re-encoding"));
     connect(m_cutAbButton, &QPushButton::clicked, this, &MainWindow::cutAbSelection);
+    compactRow1Button(m_cutAbButton);
     row1->addWidget(m_cutAbButton);
 
     m_hwButton = new QPushButton(QStringLiteral("SW"), m_controls);
     m_hwButton->setToolTip(QStringLiteral("Software decoding. Click to enable hardware decoding when supported."));
     connect(m_hwButton, &QPushButton::clicked, this, &MainWindow::toggleHardwareDecoding);
+    compactRow1Button(m_hwButton);
     row1->addWidget(m_hwButton);
 
     auto* controlsButton = new QPushButton(QStringLiteral("Controls"), m_controls);
     controlsButton->setToolTip(QStringLiteral("Customize mouse and keyboard controls"));
     connect(controlsButton, &QPushButton::clicked, this, &MainWindow::showControlsDialog);
+    compactRow1Button(controlsButton);
     row1->addWidget(controlsButton);
 
     auto* displayButton = new QPushButton(QStringLiteral("Display"), m_controls);
     displayButton->setToolTip(QStringLiteral("Adjust brightness, contrast and saturation"));
     connect(displayButton, &QPushButton::clicked, this, &MainWindow::showDisplayDialog);
+    compactRow1Button(displayButton);
     row1->addWidget(displayButton);
 
     auto* row2 = new QHBoxLayout();
     row2->setContentsMargins(0, 0, 0, 0);
-    row2->setSpacing(4);
+    row2->setSpacing(3);
 
     auto* captureButton = new QPushButton(QStringLiteral("Capture"), m_controls);
     captureButton->setToolTip(QStringLiteral("Save the current video frame as a screenshot"));
