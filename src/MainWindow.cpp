@@ -5,6 +5,7 @@
 #include <QCloseEvent>
 #include <QCheckBox>
 #include <QCoreApplication>
+#include <QApplication>
 #include <QCursor>
 #include <QComboBox>
 #include <QDir>
@@ -16,6 +17,7 @@
 #include <QDropEvent>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QFontDatabase>
 #include <QFormLayout>
 #include <QGuiApplication>
 #include <QHBoxLayout>
@@ -109,6 +111,7 @@ void selectData(QComboBox* combo, const QVariant& value) {
 
 MainWindow::MainWindow(const QString& mediaPath, QWidget* parent)
     : QMainWindow(parent) {
+    m_defaultApplicationFont = QApplication::font();
     setWindowTitle(QStringLiteral("REX Player"));
     resize(1200, 760);
     setAcceptDrops(true);
@@ -489,6 +492,7 @@ void MainWindow::loadControlSettings() {
     m_panButton = m_controlSettings->panButton;
     m_doubleClickButton = m_controlSettings->doubleClickButton;
     m_seekDurationSeconds = m_controlSettings->seekDurationSeconds;
+    applyInterfaceFont(m_controlSettings->fontPath, m_controlSettings->fontFamily, m_controlSettings->fontSize);
     m_volumeUpKey = m_controlSettings->volumeUpKey;
     m_volumeDownKey = m_controlSettings->volumeDownKey;
     m_muteKey = m_controlSettings->muteKey;
@@ -515,6 +519,35 @@ void MainWindow::loadControlSettings() {
     m_saturation = std::clamp(settings.value(QStringLiteral("display/saturation"), m_saturation).toInt(), -100, 100);
     m_brightness = std::clamp(settings.value(QStringLiteral("display/brightness"), m_brightness).toInt(), -100, 100);
     m_contrast = std::clamp(settings.value(QStringLiteral("display/contrast"), m_contrast).toInt(), -100, 100);
+}
+
+void MainWindow::applyInterfaceFont(const QString& fontPath, const QString& fontFamily, int pointSize) {
+    QFont font = m_defaultApplicationFont;
+
+    QString family = fontFamily.trimmed();
+    if (!fontPath.trimmed().isEmpty() && QFileInfo::exists(fontPath)) {
+        const int fontId = QFontDatabase::addApplicationFont(fontPath);
+        if (fontId >= 0) {
+            const QStringList families = QFontDatabase::applicationFontFamilies(fontId);
+            if (!families.isEmpty()) family = families.first();
+            m_runtimeLogger->append(
+                QStringLiteral("FONT: loaded custom font file=%1 family=%2")
+                    .arg(fontPath, family));
+        } else {
+            m_runtimeLogger->append(
+                QStringLiteral("FONT: failed to load custom font file=%1")
+                    .arg(fontPath));
+        }
+    }
+
+    if (!family.isEmpty()) font.setFamily(family);
+    if (pointSize > 0) font.setPointSize(pointSize);
+
+    QApplication::setFont(font);
+    m_runtimeLogger->append(
+        QStringLiteral("FONT: applied family=%1 size=%2")
+            .arg(font.family())
+            .arg(font.pointSizeF()));
 }
 
 void MainWindow::showControlsDialog() {
