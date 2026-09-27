@@ -9,7 +9,7 @@ public:
     QString seekWheelMode = QStringLiteral("wheel");
     QString zoomWheelMode = QStringLiteral("alt-wheel");
     QString volumeWheelMode = QStringLiteral("ctrl-wheel");
-    bool timerBesideProgress = false;
+    bool timerBesideProgress = true;
     Qt::MouseButton panButton = Qt::MiddleButton;
     Qt::MouseButton doubleClickButton = Qt::LeftButton;
     int seekDurationSeconds = 60;
