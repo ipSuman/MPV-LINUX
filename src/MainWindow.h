@@ -141,7 +141,6 @@ private:
     QLabel* m_currentTimeLabel = nullptr;
     QLabel* m_progressTimeLabel = nullptr;
     QLabel* m_abLoopLabel = nullptr;
-    QLabel* m_titleLabel = nullptr;
     QPushButton* m_playButton = nullptr;
     QPushButton* m_hwButton = nullptr;
     QPushButton* m_previousButton = nullptr;
