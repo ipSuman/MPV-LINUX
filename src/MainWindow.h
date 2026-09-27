@@ -113,6 +113,7 @@ private:
     void updateAbLoopLabel();
     void stepFrame(bool forward);
     void showError(const QString& message);
+    void showToast(const QString& message);
     QString formatTime(double seconds) const;
     void setControlsVisible(bool visible);
     void toggleFullscreen();
@@ -141,6 +142,7 @@ private:
     QLabel* m_currentTimeLabel = nullptr;
     QLabel* m_progressTimeLabel = nullptr;
     QLabel* m_abLoopLabel = nullptr;
+    QLabel* m_toastLabel = nullptr;
     QPushButton* m_playButton = nullptr;
     QPushButton* m_hwButton = nullptr;
     QPushButton* m_previousButton = nullptr;
@@ -214,5 +216,6 @@ private:
     int m_contrast = 0;
     QTimer m_fullscreenHideTimer;
     QTimer m_cursorHideTimer;
+    QTimer m_toastTimer;
     bool m_playlistWasVisibleBeforeFullscreen = false;
 };
