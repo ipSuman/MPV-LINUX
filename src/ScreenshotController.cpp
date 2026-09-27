@@ -2,14 +2,13 @@
 
 #include <QDir>
 #include <QStandardPaths>
-#include <QTimer>
 
 #include <mpv/client.h>
 
 ScreenshotController::ScreenshotController(mpv_handle* mpv, QObject* parent)
     : QObject(parent), m_mpv(mpv) {}
 
-void ScreenshotController::capture(const QString& currentTitle, const QString& currentPath) {
+void ScreenshotController::capture(const QString&, const QString& currentPath) {
     emit logMessage(QStringLiteral("SCREENSHOT: capture requested; path=%1").arg(currentPath));
     if (!m_mpv) {
         emit errorMessage(QStringLiteral("REX Player — Screenshot failed"));
@@ -51,9 +50,4 @@ void ScreenshotController::capture(const QString& currentTitle, const QString& c
     emit logMessage(QStringLiteral("SCREENSHOT: mpv accepted screenshot command"));
     emit successMessage(QStringLiteral("Screenshot Saved"), currentPath);
 
-    QTimer::singleShot(2000, this, [this, currentTitle, currentPath] {
-        if (!m_mpv) return;
-        emit logMessage(QStringLiteral("SCREENSHOT: restoring window title if media is unchanged"));
-        emit restoreTitleRequested(currentTitle, currentPath);
-    });
 }
