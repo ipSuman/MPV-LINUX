@@ -333,10 +333,7 @@ void MainWindow::buildUi() {
     connect(m_cutAbButton, &QPushButton::clicked, this, &MainWindow::cutAbSelection);
     row1->addWidget(m_cutAbButton);
 
-    m_saveAudioButton = new QPushButton(m_controls);
-    m_saveAudioButton->setIcon(QIcon(QStringLiteral(":/icons/headphones.svg")));
-    m_saveAudioButton->setIconSize(QSize(18, 18));
-    m_saveAudioButton->setFixedWidth(32);
+    m_saveAudioButton = new QPushButton(QStringLiteral("Save Audio"), m_controls);
     m_saveAudioButton->setToolTip(QStringLiteral("Save the selected audio track"));
     connect(m_saveAudioButton, &QPushButton::clicked, this, &MainWindow::saveSelectedAudioTrack);
     row1->addWidget(m_saveAudioButton);
