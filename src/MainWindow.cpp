@@ -456,6 +456,10 @@ void MainWindow::buildUi() {
     controlsLayout->addLayout(row1);
     controlsLayout->addLayout(row2);
 
+    // Keep the control bar in the root vertical layout so it stays at the
+    // bottom of the window in normal mode.
+    layout->addWidget(m_controls);
+
     setCentralWidget(root);
 
     updateSeekButtonLabels();
