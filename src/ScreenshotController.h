@@ -14,7 +14,6 @@ public:
 signals:
     void errorMessage(const QString& message);
     void successMessage(const QString& message, const QString& mediaPath);
-    void restoreTitleRequested(const QString& title, const QString& mediaPath);
     void logMessage(const QString& message);
 
 private:
