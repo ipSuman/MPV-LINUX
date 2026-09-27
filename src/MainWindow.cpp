@@ -688,7 +688,11 @@ void MainWindow::showControlsDialog() {
     selectData(doubleClickButton, static_cast<int>(m_doubleClickButton));
     form->addRow(QStringLiteral("Double-click zones"), doubleClickButton);
 
-    contentLayout->addWidget(new QLabel(QStringLiteral("Mouse / touchpad"), content));
+    // Place the Mouse / touchpad heading directly after the Font size row.
+    auto* mouseTouchpadHeading = new QLabel(QStringLiteral("Mouse / touchpad"), content);
+    mouseTouchpadHeading->setStyleSheet(QStringLiteral("font-weight:600;"));
+    form->insertRow(2, mouseTouchpadHeading);
+
     contentLayout->addLayout(form);
     contentLayout->addWidget(new QLabel(QStringLiteral("Keyboard shortcuts"), content));
 
