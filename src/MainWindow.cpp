@@ -307,68 +307,44 @@ void MainWindow::buildUi() {
     progressRow->setAlignment(Qt::AlignVCenter);
     controlsLayout->addLayout(progressRow);
 
-    // Single horizontal control row matching the reference layout:
-    // Open, decoder, A-B/cut, settings, transforms, playback, volume,
-    // tracks, playlist, About and the information menu.
-    auto* controlRow = new QHBoxLayout();
-    controlRow->setContentsMargins(0, 0, 0, 0);
-    controlRow->setSpacing(4);
+    // Two control rows matching the reference layout exactly.
+    // Row 1: fullscreen/open/decoder/A-B, playback cluster, volume/tracks/playlist/menu.
+    // Row 2: settings/capture/transforms on the left and About on the right.
+    auto* row1 = new QHBoxLayout();
+    row1->setContentsMargins(0, 0, 0, 0);
+    row1->setSpacing(4);
+
+    auto* fullscreenButton = new QPushButton(QStringLiteral("⛶"), m_controls);
+    fullscreenButton->setToolTip(QStringLiteral("Toggle fullscreen"));
+    fullscreenButton->setFixedWidth(32);
+    connect(fullscreenButton, &QPushButton::clicked, this, &MainWindow::toggleFullscreen);
+    row1->addWidget(fullscreenButton);
 
     auto* open = new QPushButton(QStringLiteral("Open"), m_controls);
     connect(open, &QPushButton::clicked, this, &MainWindow::openFile);
-    controlRow->addWidget(open);
+    row1->addWidget(open);
 
     m_hwButton = new QPushButton(QStringLiteral("SW"), m_controls);
     m_hwButton->setToolTip(QStringLiteral("Software decoding. Click to enable hardware decoding when supported."));
     connect(m_hwButton, &QPushButton::clicked, this, &MainWindow::toggleHardwareDecoding);
-    controlRow->addWidget(m_hwButton);
+    row1->addWidget(m_hwButton);
 
-    m_abLoopLabel = new QLabel(QStringLiteral("A-B: Off"), m_controls);
+    m_abLoopLabel = new QLabel(QStringLiteral("AB Off"), m_controls);
     m_abLoopLabel->setToolTip(QStringLiteral("A: set loop start, B: set loop end, L: clear loop"));
-    controlRow->addWidget(m_abLoopLabel);
+    row1->addWidget(m_abLoopLabel);
 
-    m_cutAbButton = new QPushButton(QStringLiteral("Cut AB"), m_controls);
+    m_cutAbButton = new QPushButton(QStringLiteral("AB Cut"), m_controls);
     m_cutAbButton->setToolTip(QStringLiteral("Cut the current A-B selection with FFmpeg without re-encoding"));
     connect(m_cutAbButton, &QPushButton::clicked, this, &MainWindow::cutAbSelection);
-    controlRow->addWidget(m_cutAbButton);
+    row1->addWidget(m_cutAbButton);
 
-    auto* controlsButton = new QPushButton(QStringLiteral("Controls"), m_controls);
-    controlsButton->setToolTip(QStringLiteral("Customize mouse and keyboard controls"));
-    connect(controlsButton, &QPushButton::clicked, this, &MainWindow::showControlsDialog);
-    controlRow->addWidget(controlsButton);
-
-    auto* displayButton = new QPushButton(QStringLiteral("Display"), m_controls);
-    displayButton->setToolTip(QStringLiteral("Adjust brightness, contrast and saturation"));
-    connect(displayButton, &QPushButton::clicked, this, &MainWindow::showDisplayDialog);
-    controlRow->addWidget(displayButton);
-
-    auto* captureButton = new QPushButton(QStringLiteral("Capture"), m_controls);
-    captureButton->setToolTip(QStringLiteral("Save the current video frame as a screenshot"));
-    connect(captureButton, &QPushButton::clicked, this, &MainWindow::captureScreenshot);
-    controlRow->addWidget(captureButton);
-
-    m_rotateButton = new QPushButton(QStringLiteral("Rotate"), m_controls);
-    m_rotateButton->setToolTip(QStringLiteral("Rotate the video 90° clockwise"));
-    connect(m_rotateButton, &QPushButton::clicked, this, &MainWindow::rotateVideo90);
-    controlRow->addWidget(m_rotateButton);
-
-    auto* flipHorizontalButton = new QPushButton(QStringLiteral("Flip H"), m_controls);
-    flipHorizontalButton->setToolTip(QStringLiteral("Flip the video horizontally"));
-    connect(flipHorizontalButton, &QPushButton::clicked, this, &MainWindow::toggleFlipHorizontal);
-    controlRow->addWidget(flipHorizontalButton);
-
-    auto* flipVerticalButton = new QPushButton(QStringLiteral("Flip V"), m_controls);
-    flipVerticalButton->setToolTip(QStringLiteral("Flip the video vertically"));
-    connect(flipVerticalButton, &QPushButton::clicked, this, &MainWindow::toggleFlipVertical);
-    controlRow->addWidget(flipVerticalButton);
-
-    controlRow->addStretch(1);
+    row1->addStretch(1);
 
     m_previousButton = new QPushButton(QStringLiteral("⏮"), m_controls);
     m_previousButton->setToolTip(QStringLiteral("Previous item"));
     m_previousButton->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
     connect(m_previousButton, &QPushButton::clicked, this, &MainWindow::playPrevious);
-    controlRow->addWidget(m_previousButton);
+    row1->addWidget(m_previousButton);
 
     m_seekBackButton = new QPushButton(QStringLiteral("−10s"), m_controls);
     m_seekBackButton->setToolTip(QStringLiteral("Seek backward 10 seconds"));
@@ -376,12 +352,12 @@ void MainWindow::buildUi() {
         const char* args[] = {"seek", "-10", "relative", "exact", nullptr};
         command(args);
     });
-    controlRow->addWidget(m_seekBackButton);
+    row1->addWidget(m_seekBackButton);
 
     m_playButton = new QPushButton(QStringLiteral("▶"), m_controls);
     m_playButton->setToolTip(QStringLiteral("Play / pause"));
     connect(m_playButton, &QPushButton::clicked, this, &MainWindow::togglePause);
-    controlRow->addWidget(m_playButton);
+    row1->addWidget(m_playButton);
 
     m_seekForwardButton = new QPushButton(QStringLiteral("+10s"), m_controls);
     m_seekForwardButton->setToolTip(QStringLiteral("Seek forward 10 seconds"));
@@ -389,35 +365,74 @@ void MainWindow::buildUi() {
         const char* args[] = {"seek", "10", "relative", "exact", nullptr};
         command(args);
     });
-    controlRow->addWidget(m_seekForwardButton);
+    row1->addWidget(m_seekForwardButton);
 
     m_nextButton = new QPushButton(QStringLiteral("⏭"), m_controls);
     m_nextButton->setToolTip(QStringLiteral("Next item"));
     m_nextButton->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
     connect(m_nextButton, &QPushButton::clicked, this, &MainWindow::playNext);
-    controlRow->addWidget(m_nextButton);
+    row1->addWidget(m_nextButton);
 
-    controlRow->addStretch(1);
+    row1->addStretch(1);
 
-    auto* volumeLabel = new QLabel(QStringLiteral("Volume"), m_controls);
-    controlRow->addWidget(volumeLabel);
-
+    row1->addWidget(new QLabel(QStringLiteral("Volume"), m_controls));
     m_volumeSlider = new QSlider(Qt::Horizontal, m_controls);
     m_volumeSlider->setRange(0, 100);
     m_volumeSlider->setValue(60);
     m_volumeSlider->setFixedWidth(100);
     connect(m_volumeSlider, &QSlider::valueChanged, this, &MainWindow::setVolume);
-    controlRow->addWidget(m_volumeSlider);
+    row1->addWidget(m_volumeSlider);
 
     auto* tracks = new QPushButton(QStringLiteral("Tracks"), m_controls);
     tracks->setToolTip(QStringLiteral("Select audio and subtitle tracks"));
     connect(tracks, &QPushButton::clicked, this, &MainWindow::showTracksMenu);
-    controlRow->addWidget(tracks);
+    row1->addWidget(tracks);
 
     auto* playlistButton = new QPushButton(QStringLiteral("Playlist"), m_controls);
     playlistButton->setToolTip(QStringLiteral("Show or hide playlist"));
     connect(playlistButton, &QPushButton::clicked, this, &MainWindow::togglePlaylist);
-    controlRow->addWidget(playlistButton);
+    row1->addWidget(playlistButton);
+
+    auto* menu = new QPushButton(QStringLiteral("☰"), m_controls);
+    menu->setToolTip(QStringLiteral("Show video information"));
+    connect(menu, &QPushButton::clicked, this, &MainWindow::toggleControls);
+    row1->addWidget(menu);
+
+    auto* row2 = new QHBoxLayout();
+    row2->setContentsMargins(0, 0, 0, 0);
+    row2->setSpacing(4);
+
+    auto* controlsButton = new QPushButton(QStringLiteral("Controls"), m_controls);
+    controlsButton->setToolTip(QStringLiteral("Customize mouse and keyboard controls"));
+    connect(controlsButton, &QPushButton::clicked, this, &MainWindow::showControlsDialog);
+    row2->addWidget(controlsButton);
+
+    auto* displayButton = new QPushButton(QStringLiteral("Display"), m_controls);
+    displayButton->setToolTip(QStringLiteral("Adjust brightness, contrast and saturation"));
+    connect(displayButton, &QPushButton::clicked, this, &MainWindow::showDisplayDialog);
+    row2->addWidget(displayButton);
+
+    auto* captureButton = new QPushButton(QStringLiteral("Capture"), m_controls);
+    captureButton->setToolTip(QStringLiteral("Save the current video frame as a screenshot"));
+    connect(captureButton, &QPushButton::clicked, this, &MainWindow::captureScreenshot);
+    row2->addWidget(captureButton);
+
+    m_rotateButton = new QPushButton(QStringLiteral("Rotate"), m_controls);
+    m_rotateButton->setToolTip(QStringLiteral("Rotate the video 90° clockwise"));
+    connect(m_rotateButton, &QPushButton::clicked, this, &MainWindow::rotateVideo90);
+    row2->addWidget(m_rotateButton);
+
+    auto* flipHorizontalButton = new QPushButton(QStringLiteral("Flip H"), m_controls);
+    flipHorizontalButton->setToolTip(QStringLiteral("Flip the video horizontally"));
+    connect(flipHorizontalButton, &QPushButton::clicked, this, &MainWindow::toggleFlipHorizontal);
+    row2->addWidget(flipHorizontalButton);
+
+    auto* flipVerticalButton = new QPushButton(QStringLiteral("Flip V"), m_controls);
+    flipVerticalButton->setToolTip(QStringLiteral("Flip the video vertically"));
+    connect(flipVerticalButton, &QPushButton::clicked, this, &MainWindow::toggleFlipVertical);
+    row2->addWidget(flipVerticalButton);
+
+    row2->addStretch(1);
 
     auto* aboutButton = new QPushButton(QStringLiteral("About"), m_controls);
     aboutButton->setToolTip(QStringLiteral("About REX Player"));
@@ -427,13 +442,10 @@ void MainWindow::buildUi() {
             QStringLiteral("About REX Player"),
             QStringLiteral("REX Player 2.1.0\\n\\nA libmpv-based video player."));
     });
-    controlRow->addWidget(aboutButton);
+    row2->addWidget(aboutButton);
 
-    auto* menu = new QPushButton(QStringLiteral("☰"), m_controls);
-    menu->setToolTip(QStringLiteral("Show video information"));
-    connect(menu, &QPushButton::clicked, this, &MainWindow::toggleControls);
-    controlRow->addWidget(menu);
-
+    controlsLayout->addLayout(row1);
+    controlsLayout->addLayout(row2);
     m_timeLabel = new QLabel(QStringLiteral("00:00 / 00:00"), m_controls);
     m_timeLabel->setVisible(false);
     m_timeLabel->setToolTip(QStringLiteral("Click to switch between elapsed / total and elapsed / remaining time"));
