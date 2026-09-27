@@ -31,16 +31,6 @@ void setWindowsFullscreenBorder(MainWindow& window, bool fullscreen) {
 }
 #endif
 
-void toggleFullscreenFromButton(MainWindow& window) {
-    QKeyEvent event(QEvent::KeyPress, Qt::Key_F11, Qt::NoModifier);
-    QApplication::sendEvent(&window, &event);
-
-    // Qt fullscreen already requests a borderless, screen-sized window.
-    // Do not combine WindowFullScreen with WindowMaximized here: on Windows 11
-    // that can make DWM retain a one-pixel accent-colored non-client border.
-    // showFullScreen() is the correct native fullscreen state for this mode.
-}
-
 }
 
 int main(int argc, char* argv[]) {
@@ -74,31 +64,6 @@ int main(int argc, char* argv[]) {
     });
     fullscreenBorderTimer->start(100);
 #endif
-
-    // Add the fullscreen button immediately to the left of the existing Open
-    // button without disturbing the existing MainWindow layout or controls.
-    if (QWidget* controls = window.findChild<QWidget*>(QStringLiteral("controls"))) {
-        if (QVBoxLayout* controlsLayout = qobject_cast<QVBoxLayout*>(controls->layout())) {
-            QLayout* rowLayout = controlsLayout->itemAt(1)
-                ? controlsLayout->itemAt(1)->layout() : nullptr;
-            if (auto* buttonRow = qobject_cast<QBoxLayout*>(rowLayout)) {
-                const auto buttons = controls->findChildren<QPushButton*>();
-                for (QPushButton* button : buttons) {
-                    if (button->text() == QStringLiteral("Open")) {
-                        auto* fullscreenButton = new QPushButton(QStringLiteral("⛶"), controls);
-                        fullscreenButton->setFixedWidth(48);
-                        fullscreenButton->setToolTip(QStringLiteral("Fullscreen"));
-                        QObject::connect(fullscreenButton, &QPushButton::clicked, &window,
-                                         [&window] { toggleFullscreenFromButton(window); });
-                        const int openIndex = buttonRow->indexOf(button);
-                        buttonRow->insertWidget(openIndex >= 0 ? openIndex : 0, fullscreenButton);
-                        break;
-                    }
-                }
-            }
-        }
-    }
-
 
     window.show();
     return app.exec();
