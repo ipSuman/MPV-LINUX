@@ -1,5 +1,6 @@
 <RCC>
   <qresource prefix="/icons">
     <file>rex-player.svg</file>
+    <file>headphones.svg</file>
   </qresource>
 </RCC>
