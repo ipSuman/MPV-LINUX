@@ -149,7 +149,6 @@ private:
     QPushButton* m_seekForwardButton = nullptr;
     QPushButton* m_cutAbButton = nullptr;
     QPushButton* m_rotateButton = nullptr;
-    QPushButton* m_saveAudioButton = nullptr;
     QCheckBox* m_autoplayCheck = nullptr;
     QPushButton* m_loopPlaylistButton = nullptr;
     QProcess* m_cutProcess = nullptr;
