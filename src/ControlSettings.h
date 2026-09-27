@@ -13,6 +13,9 @@ public:
     Qt::MouseButton panButton = Qt::MiddleButton;
     Qt::MouseButton doubleClickButton = Qt::LeftButton;
     int seekDurationSeconds = 60;
+    QString fontPath;
+    QString fontFamily;
+    int fontSize = -1;
 
     QKeySequence volumeUpKey = QKeySequence(Qt::SHIFT | Qt::Key_V);
     QKeySequence volumeDownKey = QKeySequence(Qt::Key_V);
