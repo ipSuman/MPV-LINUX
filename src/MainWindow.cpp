@@ -1042,7 +1042,6 @@ void MainWindow::playPlaylistIndex(int index, bool promptResume) {
     if (m_mpv) mpv_command_async(m_mpv, 0, args);
     m_promptResumeNextLoad = promptResume;
     m_pendingResumePath = path;
-    m_titleLabel->setText(QFileInfo(path).fileName());
     setWindowTitle(QStringLiteral("%1 — REX Player").arg(QFileInfo(path).fileName()));
 }
 
