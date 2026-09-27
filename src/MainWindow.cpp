@@ -468,6 +468,54 @@ void MainWindow::buildUi() {
 
     setCentralWidget(root);
 
+    // Playlist panel. Keep it as a real QDockWidget so the Playlist button
+    // always has a concrete widget to show/hide.
+    m_playlistDock = new QDockWidget(QStringLiteral("Playlist"), this);
+    m_playlistDock->setObjectName(QStringLiteral("playlistDock"));
+    m_playlistDock->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
+    m_playlistDock->setFeatures(QDockWidget::DockWidgetClosable |
+                                QDockWidget::DockWidgetMovable);
+
+    auto* playlistPanel = new QWidget(m_playlistDock);
+    playlistPanel->setStyleSheet(QStringLiteral(
+        "QWidget{background:#171717;color:#eee;}"
+        "QListWidget{background:#111;color:#eee;border:0;}"
+        "QPushButton{background:#252525;color:#eee;border:0;padding:6px 9px;}"
+        "QPushButton:hover{background:#353535;border-radius:4px;}"));
+    auto* playlistLayout = new QVBoxLayout(playlistPanel);
+    playlistLayout->setContentsMargins(6, 6, 6, 6);
+    playlistLayout->setSpacing(6);
+
+    m_playlist = new QListWidget(playlistPanel);
+    m_playlist->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_playlist->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    m_playlist->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
+    connect(m_playlist, &QListWidget::itemDoubleClicked,
+            this, [this](QListWidgetItem*) { playlistActivated(); });
+    playlistLayout->addWidget(m_playlist, 1);
+
+    auto* playlistButtons = new QHBoxLayout();
+    playlistButtons->setContentsMargins(0, 0, 0, 0);
+    playlistButtons->setSpacing(4);
+
+    auto* savePlaylistButton = new QPushButton(QStringLiteral("Save Playlist"), playlistPanel);
+    connect(savePlaylistButton, &QPushButton::clicked, this, &MainWindow::savePlaylist);
+    playlistButtons->addWidget(savePlaylistButton);
+
+    auto* openPlaylistButton = new QPushButton(QStringLiteral("Open Playlist"), playlistPanel);
+    connect(openPlaylistButton, &QPushButton::clicked, this, &MainWindow::openPlaylist);
+    playlistButtons->addWidget(openPlaylistButton);
+
+    auto* clearPlaylistButton = new QPushButton(QStringLiteral("Clear"), playlistPanel);
+    connect(clearPlaylistButton, &QPushButton::clicked, this, &MainWindow::clearPlaylist);
+    playlistButtons->addWidget(clearPlaylistButton);
+
+    playlistLayout->addLayout(playlistButtons);
+
+    m_playlistDock->setWidget(playlistPanel);
+    addDockWidget(Qt::RightDockWidgetArea, m_playlistDock);
+    m_playlistDock->hide();
+
     updateSeekButtonLabels();
 }
 
