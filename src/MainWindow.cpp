@@ -521,6 +521,15 @@ void MainWindow::applyInterfaceFont(const QString& fontPath, const QString& font
     if (pointSize > 0) font.setPointSize(pointSize);
 
     QApplication::setFont(font);
+
+    // QApplication::setFont() updates the application default, but existing
+    // widgets may retain an explicit/style-derived font. Reapply the selected
+    // font to all current widgets so buttons, labels and dialogs update too.
+    const auto widgets = QApplication::allWidgets();
+    for (QWidget* widget : widgets) {
+        if (widget) widget->setFont(font);
+    }
+
     if (m_runtimeLogger) m_runtimeLogger->append(
         QStringLiteral("FONT: applied family=%1 size=%2")
             .arg(font.family())
