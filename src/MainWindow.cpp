@@ -278,6 +278,10 @@ void MainWindow::buildUi() {
     progressRow->addWidget(m_currentTimeLabel);
     m_seekSlider = new QSlider(Qt::Horizontal, m_controls);
     m_seekSlider->setRange(0, 1000);
+    // Keep the timer labels vertically centered with the seek bar. This is
+    // especially important when a larger/custom interface font is selected.
+    const int progressControlHeight = std::max(20, m_seekSlider->sizeHint().height());
+    m_currentTimeLabel->setFixedHeight(progressControlHeight);
     m_seekSlider->setTracking(false);
     m_seekSlider->installEventFilter(this);
     connect(m_seekSlider, &QSlider::sliderPressed, this, [this] { m_seeking = true; });
@@ -288,7 +292,8 @@ void MainWindow::buildUi() {
     progressRow->addWidget(m_seekSlider, 1);
     m_progressTimeLabel = new QLabel(QStringLiteral("00:00"), m_controls);
     m_progressTimeLabel->setFixedWidth(64);
-    m_progressTimeLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    m_progressTimeLabel->setFixedHeight(progressControlHeight);
+    m_progressTimeLabel->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
     m_progressTimeLabel->setToolTip(QStringLiteral("Click to switch between total and remaining time"));
     m_progressTimeLabel->setCursor(Qt::PointingHandCursor);
     m_progressTimeLabel->installEventFilter(this);
