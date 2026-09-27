@@ -168,6 +168,15 @@ void DiagnosticReporter::saveReport() {
         out << "Control state unavailable.\n";
     }
 
+    out << "\nRuntime Log\n-----------\n";
+    if (m_logger) {
+        const QString runtimeLog = m_logger->contents();
+        if (!runtimeLog.isEmpty()) out << runtimeLog;
+        else out << "Runtime log unavailable or empty.\n";
+    } else {
+        out << "Runtime logger unavailable.\n";
+    }
+
     out << "\nEnd of report\n";
     file.close();
 
