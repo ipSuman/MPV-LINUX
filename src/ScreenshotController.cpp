@@ -49,7 +49,7 @@ void ScreenshotController::capture(const QString& currentTitle, const QString& c
     }
 
     emit logMessage(QStringLiteral("SCREENSHOT: mpv accepted screenshot command"));
-    emit successMessage(QStringLiteral("REX Player — Screenshot captured"), currentPath);
+    emit successMessage(QStringLiteral("Screenshot Saved"), currentPath);
 
     QTimer::singleShot(2000, this, [this, currentTitle, currentPath] {
         if (!m_mpv) return;
