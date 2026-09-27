@@ -20,6 +20,7 @@
 #include <QFontDatabase>
 #include <QFormLayout>
 #include <QGuiApplication>
+#include <QIcon>
 #include <QHBoxLayout>
 #include <QKeyEvent>
 #include <QKeySequenceEdit>
@@ -146,6 +147,7 @@ MainWindow::MainWindow(const QString& mediaPath, QWidget* parent)
                              : details));
             if (!output.isEmpty()) QFile::remove(output);
         }
+        if (m_saveAudioButton) m_saveAudioButton->setEnabled(true);
 
     });
 
@@ -314,12 +316,6 @@ void MainWindow::buildUi() {
     row1->setContentsMargins(0, 0, 0, 0);
     row1->setSpacing(4);
 
-    auto* fullscreenButton = new QPushButton(QStringLiteral("⛶"), m_controls);
-    fullscreenButton->setToolTip(QStringLiteral("Toggle fullscreen"));
-    fullscreenButton->setFixedWidth(32);
-    connect(fullscreenButton, &QPushButton::clicked, this, &MainWindow::toggleFullscreen);
-    row1->addWidget(fullscreenButton);
-
     auto* open = new QPushButton(QStringLiteral("Open"), m_controls);
     connect(open, &QPushButton::clicked, this, &MainWindow::openFile);
     row1->addWidget(open);
@@ -337,6 +333,14 @@ void MainWindow::buildUi() {
     m_cutAbButton->setToolTip(QStringLiteral("Cut the current A-B selection with FFmpeg without re-encoding"));
     connect(m_cutAbButton, &QPushButton::clicked, this, &MainWindow::cutAbSelection);
     row1->addWidget(m_cutAbButton);
+
+    m_saveAudioButton = new QPushButton(m_controls);
+    m_saveAudioButton->setIcon(QIcon(QStringLiteral(":/icons/headphones.svg")));
+    m_saveAudioButton->setIconSize(QSize(18, 18));
+    m_saveAudioButton->setFixedWidth(32);
+    m_saveAudioButton->setToolTip(QStringLiteral("Save the selected audio track"));
+    connect(m_saveAudioButton, &QPushButton::clicked, this, &MainWindow::saveSelectedAudioTrack);
+    row1->addWidget(m_saveAudioButton);
 
     row1->addStretch(1);
 
@@ -452,7 +456,6 @@ void MainWindow::buildUi() {
     m_timeLabel->setCursor(Qt::PointingHandCursor);
     m_timeLabel->installEventFilter(this);
 
-    controlsLayout->addLayout(controlRow);
     updateSeekButtonLabels();
 reenshot"), captureScreenshot);
     addShortcut(QStringLiteral("R → Rotate video 90° clockwise"), rotateVideo);
@@ -1272,8 +1275,11 @@ void MainWindow::saveSelectedAudioTrack() {
     m_runtimeLogger->append(QStringLiteral("AUDIO SAVE: input=%1 output=%2 map=%3")
                          .arg(sourcePath, outputPath, mapSpecifier));
 
+    m_saveAudioButton->setEnabled(false);
+
     QString startError;
     if (!m_audioExporter->start(ffmpeg, sourcePath, mapSpecifier, outputPath, &startError)) {
+        m_saveAudioButton->setEnabled(true);
         QMessageBox::warning(
             this, QStringLiteral("Save Audio"),
             QStringLiteral("Could not start FFmpeg:\n%1").arg(startError));
