@@ -1347,6 +1347,9 @@ QString MainWindow::diagnosticControlState() const {
     QTextStream out(&state);
     out << "A-B start: " << m_abLoopStart << "\n";
     out << "A-B end: " << m_abLoopEnd << "\n";
+    out << "Interface font family: " << QApplication::font().family() << "\n";
+    out << "Interface font size: " << QApplication::font().pointSizeF() << "\n";
+    out << "Custom font file: " << (m_controlSettings ? m_controlSettings->fontPath : QString()) << "\n";
     out << "Seek duration (seconds): " << m_seekDurationSeconds << "\n";
     out << "Seek wheel: " << m_seekWheelMode << "\n";
     out << "Zoom wheel: " << m_zoomWheelMode << "\n";
