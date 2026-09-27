@@ -211,11 +211,6 @@ MainWindow::MainWindow(const QString& mediaPath, QWidget* parent)
             this, [this](const QString& message, const QString&) { showToast(message); });
     connect(m_screenshotController, &ScreenshotController::logMessage,
             m_runtimeLogger, &RuntimeLogger::append);
-    connect(m_screenshotController, &ScreenshotController::restoreTitleRequested,
-            this, [this](const QString& title, const QString& path) {
-                if (!m_mpv || getPropertyString("path") != path) return;
-                setWindowTitle(title);
-            });
 
     m_uiTimer.setInterval(250);
     connect(&m_uiTimer, &QTimer::timeout, this, &MainWindow::updatePlaybackUi);
