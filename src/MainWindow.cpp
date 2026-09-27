@@ -273,7 +273,8 @@ void MainWindow::buildUi() {
     progressRow->setContentsMargins(0, 0, 0, 0);
     progressRow->setSpacing(6);
     m_currentTimeLabel = new QLabel(QStringLiteral("00:00"), m_controls);
-    m_currentTimeLabel->setFixedWidth(64);
+    m_currentTimeLabel->setFixedWidth(52);
+    m_currentTimeLabel->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
     m_currentTimeLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
     progressRow->addWidget(m_currentTimeLabel);
     m_seekSlider = new QSlider(Qt::Horizontal, m_controls);
@@ -287,12 +288,14 @@ void MainWindow::buildUi() {
     });
     progressRow->addWidget(m_seekSlider, 1);
     m_progressTimeLabel = new QLabel(QStringLiteral("00:00"), m_controls);
-    m_progressTimeLabel->setFixedWidth(64);
-    m_progressTimeLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    m_progressTimeLabel->setFixedWidth(52);
+    m_progressTimeLabel->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
+    m_progressTimeLabel->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
     m_progressTimeLabel->setToolTip(QStringLiteral("Click to switch between total and remaining time"));
     m_progressTimeLabel->setCursor(Qt::PointingHandCursor);
     m_progressTimeLabel->installEventFilter(this);
     progressRow->addWidget(m_progressTimeLabel);
+    progressRow->setAlignment(Qt::AlignVCenter);
     controlsLayout->addLayout(progressRow);
 
     // Two-row control bar. Keep the primary playback controls on row 1 and
@@ -372,6 +375,7 @@ void MainWindow::buildUi() {
     displayButton->setToolTip(QStringLiteral("Adjust brightness, contrast and saturation"));
     connect(displayButton, &QPushButton::clicked, this, &MainWindow::showDisplayDialog);
     row1->addWidget(displayButton);
+    row1->addStretch(1);
 
     auto* row2 = new QHBoxLayout();
     row2->setContentsMargins(0, 0, 0, 0);
