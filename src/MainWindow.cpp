@@ -119,7 +119,6 @@ MainWindow::MainWindow(const QString& mediaPath, QWidget* parent)
     buildUi();
 
     m_runtimeLogger = new RuntimeLogger(this);
-    m_videoTransformer = new VideoTransformer(m_mpv, m_runtimeLogger, this);
     m_playbackPositions = new PlaybackPositionManager(this);
     m_audioExporter = new AudioExporter(this);
     connect(m_audioExporter, &AudioExporter::logMessage,
@@ -181,6 +180,9 @@ MainWindow::MainWindow(const QString& mediaPath, QWidget* parent)
     connect(this, &MainWindow::mpvWakeup, this, &MainWindow::pumpMpvEvents, Qt::QueuedConnection);
 
     if (!initializeMpv()) return;
+
+    // m_mpv must exist before VideoTransformer captures the handle.
+    m_videoTransformer = new VideoTransformer(m_mpv, m_runtimeLogger, this);
 
     m_trackController = new TrackController(m_mpv, m_runtimeLogger, this);
 
