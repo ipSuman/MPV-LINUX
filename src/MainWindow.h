@@ -120,6 +120,7 @@ private:
     void captureScreenshot();
     void saveLogReport();
     void loadControlSettings();
+    void applyInterfaceFont(const QString& fontPath, const QString& fontFamily, int pointSize);
     void updatePlaybackInhibit(bool active);
     bool keyMatches(QKeyEvent* event, const QKeySequence& sequence) const;
     void saveCurrentPlaybackPosition();
@@ -163,6 +164,7 @@ private:
     DisplayController* m_displayController = nullptr;
     ScreenshotController* m_screenshotController = nullptr;
     ControlSettings* m_controlSettings = nullptr;
+    QFont m_defaultApplicationFont;
     std::atomic_bool m_mpvWakeQueued{false};
     QString m_cutOutputPath;
     bool m_seeking = false;
