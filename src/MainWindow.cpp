@@ -189,7 +189,6 @@ MainWindow::MainWindow(const QString& mediaPath, QWidget* parent)
     m_videoTransformer = new VideoTransformer(m_mpv, m_runtimeLogger, this);
 
     m_trackController = new TrackController(m_mpv, m_runtimeLogger, this);
-    m_trackController->setSaveAudioCallback([this] { saveSelectedAudioTrack(); });
 
     m_playbackInhibitor = new PlaybackInhibitor(m_runtimeLogger, this);
 
