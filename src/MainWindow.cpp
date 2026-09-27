@@ -147,7 +147,6 @@ MainWindow::MainWindow(const QString& mediaPath, QWidget* parent)
             if (!output.isEmpty()) QFile::remove(output);
         }
 
-        if (m_saveAudioButton) m_saveAudioButton->setEnabled(true);
     });
 
     auto* enterFullscreenShortcut = new QShortcut(QKeySequence(Qt::Key_Return), this);
@@ -188,6 +187,7 @@ MainWindow::MainWindow(const QString& mediaPath, QWidget* parent)
     m_videoTransformer = new VideoTransformer(m_mpv, m_runtimeLogger, this);
 
     m_trackController = new TrackController(m_mpv, m_runtimeLogger, this);
+    m_trackController->setSaveAudioCallback([this] { saveSelectedAudioTrack(); });
 
     m_playbackInhibitor = new PlaybackInhibitor(m_runtimeLogger, this);
 
@@ -1272,11 +1272,8 @@ void MainWindow::saveSelectedAudioTrack() {
     m_runtimeLogger->append(QStringLiteral("AUDIO SAVE: input=%1 output=%2 map=%3")
                          .arg(sourcePath, outputPath, mapSpecifier));
 
-    m_saveAudioButton->setEnabled(false);
-
     QString startError;
     if (!m_audioExporter->start(ffmpeg, sourcePath, mapSpecifier, outputPath, &startError)) {
-        m_saveAudioButton->setEnabled(true);
         QMessageBox::warning(
             this, QStringLiteral("Save Audio"),
             QStringLiteral("Could not start FFmpeg:\n%1").arg(startError));
