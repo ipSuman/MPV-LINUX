@@ -1600,6 +1600,21 @@ void MainWindow::pumpMpvEvents() {
                 .arg(QString::fromUtf8(log->text ? log->text : "").trimmed()));
         }
         if (event->event_id == MPV_EVENT_FILE_LOADED) {
+            // Update the native window title from the file mpv actually loaded.
+            // This is deliberately done on FILE_LOADED rather than only when
+            // issuing loadfile, so the title stays correct for every loading
+            // path (startup argument, Open, drag/drop, playlist and next/previous).
+            const QString loadedFilename = getPropertyString("filename").trimmed();
+            const QString loadedPath = getPropertyString("path").trimmed();
+            const QString titleName = !loadedFilename.isEmpty()
+                ? QFileInfo(loadedFilename).fileName()
+                : QFileInfo(loadedPath).fileName();
+            if (!titleName.isEmpty()) {
+                setWindowTitle(QStringLiteral("%1 - Rex Player").arg(titleName));
+                m_runtimeLogger->append(
+                    QStringLiteral("WINDOW TITLE: %1 - Rex Player").arg(titleName));
+            }
+
             // Transform state is reset by playPlaylistIndex() when a genuinely
             // new file is selected. Do not reset it here: video-reload is also
             // used to rebuild the decoder for transform mode, and that reload
