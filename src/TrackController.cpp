@@ -8,6 +8,7 @@
 #include <QPoint>
 #include <QStringList>
 #include <QWidget>
+#include <utility>
 
 #include <cstdint>
 
@@ -18,6 +19,10 @@
 
 TrackController::TrackController(mpv_handle* mpv, RuntimeLogger* logger, QObject* parent)
     : QObject(parent), m_mpv(mpv), m_logger(logger) {}
+
+void TrackController::setSaveAudioCallback(std::function<void()> callback) {
+    m_saveAudioCallback = std::move(callback);
+}
 
 void TrackController::log(const QString& message) const {
     if (m_logger) m_logger->append(message);
@@ -38,6 +43,12 @@ void TrackController::showMenu(QWidget* anchor) {
     menu->setAttribute(Qt::WA_DeleteOnClose);
     auto* audioMenu = menu->addMenu(QStringLiteral("Audio"));
     auto* subtitleMenu = menu->addMenu(QStringLiteral("Subtitles"));
+
+    auto* saveAudioAction = menu->addAction(QStringLiteral("Save Audio"));
+    saveAudioAction->setEnabled(static_cast<bool>(m_saveAudioCallback));
+    connect(saveAudioAction, &QAction::triggered, this, [this] {
+        if (m_saveAudioCallback) m_saveAudioCallback();
+    });
 
     const mpv_node_list* list = tracks.u.list;
     bool hasAudio = false;
