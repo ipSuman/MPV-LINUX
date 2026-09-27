@@ -530,11 +530,11 @@ void MainWindow::applyInterfaceFont(const QString& fontPath, const QString& font
         if (fontId >= 0) {
             const QStringList families = QFontDatabase::applicationFontFamilies(fontId);
             if (!families.isEmpty()) family = families.first();
-            m_runtimeLogger->append(
+            if (m_runtimeLogger) m_runtimeLogger->append(
                 QStringLiteral("FONT: loaded custom font file=%1 family=%2")
                     .arg(fontPath, family));
         } else {
-            m_runtimeLogger->append(
+            if (m_runtimeLogger) m_runtimeLogger->append(
                 QStringLiteral("FONT: failed to load custom font file=%1")
                     .arg(fontPath));
         }
@@ -544,7 +544,7 @@ void MainWindow::applyInterfaceFont(const QString& fontPath, const QString& font
     if (pointSize > 0) font.setPointSize(pointSize);
 
     QApplication::setFont(font);
-    m_runtimeLogger->append(
+    if (m_runtimeLogger) m_runtimeLogger->append(
         QStringLiteral("FONT: applied family=%1 size=%2")
             .arg(font.family())
             .arg(font.pointSizeF()));
@@ -600,7 +600,7 @@ void MainWindow::showControlsDialog() {
         selectedFontPath = path;
         selectedFontFamily = families.first();
         chooseFontButton->setText(selectedFontFamily);
-        m_runtimeLogger->append(
+        if (m_runtimeLogger) m_runtimeLogger->append(
             QStringLiteral("FONT: selected custom font file=%1 family=%2")
                 .arg(selectedFontPath, selectedFontFamily));
     });
