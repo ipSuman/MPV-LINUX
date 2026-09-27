@@ -341,6 +341,12 @@ void MainWindow::buildUi() {
     connect(m_saveAudioButton, &QPushButton::clicked, this, &MainWindow::saveSelectedAudioTrack);
     row1->addWidget(m_saveAudioButton);
 
+    m_timeLabel = new QLabel(QStringLiteral("00:00 / 00:00"), m_controls);
+    m_timeLabel->setToolTip(QStringLiteral("Click to switch between elapsed / total and elapsed / remaining time"));
+    m_timeLabel->setCursor(Qt::PointingHandCursor);
+    m_timeLabel->installEventFilter(this);
+    row1->addWidget(m_timeLabel);
+
     row1->addStretch(1);
 
     m_previousButton = new QPushButton(QStringLiteral("⏮"), m_controls);
@@ -449,11 +455,6 @@ void MainWindow::buildUi() {
 
     controlsLayout->addLayout(row1);
     controlsLayout->addLayout(row2);
-    m_timeLabel = new QLabel(QStringLiteral("00:00 / 00:00"), m_controls);
-    m_timeLabel->setVisible(false);
-    m_timeLabel->setToolTip(QStringLiteral("Click to switch between elapsed / total and elapsed / remaining time"));
-    m_timeLabel->setCursor(Qt::PointingHandCursor);
-    m_timeLabel->installEventFilter(this);
 
     updateSeekButtonLabels();
 }
@@ -1664,10 +1665,9 @@ void MainWindow::updatePlaybackUi() {
     m_timeLabel->setText(QStringLiteral("%1 / %2").arg(currentText, rightTime));
     m_currentTimeLabel->setText(currentText);
     m_progressTimeLabel->setText(rightTime);
-    // The progress row is now the permanent timer location.
-    m_timeLabel->setVisible(false);
-    m_currentTimeLabel->setVisible(true);
-    m_progressTimeLabel->setVisible(true);
+    m_timeLabel->setVisible(!m_timerBesideProgress);
+    m_currentTimeLabel->setVisible(m_timerBesideProgress);
+    m_progressTimeLabel->setVisible(m_timerBesideProgress);
     updatePlayButton(paused != 0);
     updateHardwareButton();
     updatePlaybackInhibit(paused == 0 && !getPropertyString("path").isEmpty());
