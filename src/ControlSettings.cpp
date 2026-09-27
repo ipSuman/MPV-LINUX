@@ -25,6 +25,10 @@ void ControlSettings::load() {
     seekDurationSeconds = std::clamp(
         settings.value(QStringLiteral("controls/seekDurationSeconds"), legacyMinutes * 60).toInt(),
         5, 7200);
+    fontPath = settings.value(QStringLiteral("controls/fontPath"), fontPath).toString();
+    fontFamily = settings.value(QStringLiteral("controls/fontFamily"), fontFamily).toString();
+    fontSize = settings.value(QStringLiteral("controls/fontSize"), fontSize).toInt();
+    if (fontSize < 1) fontSize = -1;
 
 #define LOAD_KEY(field, key)     field = QKeySequence(settings.value(QStringLiteral(key), field.toString()).toString())
     LOAD_KEY(volumeUpKey, "controls/volumeUp");
@@ -55,6 +59,9 @@ void ControlSettings::load() {
 void ControlSettings::save() const {
     QSettings settings = makeSettings();
     settings.setValue(QStringLiteral("controls/seekDurationSeconds"), seekDurationSeconds);
+    settings.setValue(QStringLiteral("controls/fontPath"), fontPath);
+    settings.setValue(QStringLiteral("controls/fontFamily"), fontFamily);
+    settings.setValue(QStringLiteral("controls/fontSize"), fontSize);
     settings.setValue(QStringLiteral("controls/seekWheel"), seekWheelMode);
     settings.setValue(QStringLiteral("controls/zoomWheel"), zoomWheelMode);
     settings.setValue(QStringLiteral("controls/volumeWheel"), volumeWheelMode);
