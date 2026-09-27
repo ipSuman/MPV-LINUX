@@ -55,3 +55,10 @@ void RuntimeLogger::append(const QString& message) {
 QString RuntimeLogger::path() const {
     return m_path;
 }
+
+QString RuntimeLogger::contents() const {
+    if (m_path.isEmpty()) return {};
+    QFile file(m_path);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) return {};
+    return QString::fromUtf8(file.readAll());
+}
