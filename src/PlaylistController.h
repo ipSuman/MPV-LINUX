@@ -9,6 +9,7 @@ public:
 
     bool addPath(const QString& path);
     void clear();
+    bool removeAt(int index);
 
     int count() const;
     int currentIndex() const;
