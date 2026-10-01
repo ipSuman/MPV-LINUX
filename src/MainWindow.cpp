@@ -317,7 +317,7 @@ void MainWindow::buildUi() {
     // Row 2: settings/capture/transforms on the left and About on the right.
     auto* row1 = new QHBoxLayout();
     row1->setContentsMargins(0, 0, 0, 0);
-    row1->setSpacing(4);
+    row1->setSpacing(10);
 
     auto* fullscreenButton = new QPushButton(QStringLiteral("⛶"), m_controls);
     fullscreenButton->setToolTip(QStringLiteral("Toggle fullscreen"));
@@ -416,7 +416,7 @@ void MainWindow::buildUi() {
 
     auto* row2 = new QHBoxLayout();
     row2->setContentsMargins(36, 0, 0, 0);
-    row2->setSpacing(4);
+    row2->setSpacing(8);
 
     auto* controlsButton = new QPushButton(QStringLiteral("Controls"), m_controls);
     controlsButton->setToolTip(QStringLiteral("Customize mouse and keyboard controls"));
