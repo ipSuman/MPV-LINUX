@@ -1131,6 +1131,7 @@ void MainWindow::playPlaylistIndex(int index, bool promptResume) {
     if (path.isEmpty() || !QFileInfo::exists(path)) return;
     m_playlistController->setCurrentIndex(index);
     m_playlist->setCurrentRow(index);
+    updatePlaylistCurrentRowStyle();
     const QByteArray encoded = path.toUtf8();
     const char* args[] = {"loadfile", encoded.constData(), "replace", nullptr};
     if (m_mpv) mpv_command_async(m_mpv, 0, args);
