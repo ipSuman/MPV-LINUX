@@ -22,6 +22,19 @@ void PlaylistController::clear() {
     m_currentIndex = -1;
 }
 
+bool PlaylistController::removeAt(int index) {
+    if (index < 0 || index >= m_paths.size()) return false;
+    m_paths.removeAt(index);
+    if (m_paths.isEmpty()) {
+        m_currentIndex = -1;
+    } else if (m_currentIndex > index) {
+        --m_currentIndex;
+    } else if (m_currentIndex == index) {
+        m_currentIndex = std::min(index, m_paths.size() - 1);
+    }
+    return true;
+}
+
 int PlaylistController::count() const {
     return m_paths.size();
 }
