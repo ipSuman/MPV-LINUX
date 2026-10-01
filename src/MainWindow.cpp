@@ -1080,9 +1080,37 @@ void MainWindow::addToPlaylist(const QString& path) {
     }
     const bool added = m_playlistController->addPath(absolute);
     if (!added) return;
-    auto* item = new QListWidgetItem(QFileInfo(absolute).fileName(), m_playlist);
+    auto* item = new QListWidgetItem(m_playlist);
     item->setToolTip(absolute);
     item->setData(Qt::UserRole, absolute);
+
+    auto* rowWidget = new QWidget(m_playlist);
+    auto* rowLayout = new QHBoxLayout(rowWidget);
+    rowLayout->setContentsMargins(6, 2, 4, 2);
+    rowLayout->setSpacing(4);
+
+    auto* fileLabel = new QLabel(QFileInfo(absolute).fileName(), rowWidget);
+    fileLabel->setToolTip(absolute);
+    fileLabel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    fileLabel->setTextInteractionFlags(Qt::NoTextInteraction);
+    fileLabel->setProperty("playlist-path", absolute);
+    fileLabel->installEventFilter(this);
+    rowLayout->addWidget(fileLabel, 1);
+
+    auto* removeButton = new QPushButton(QStringLiteral("x"), rowWidget);
+    removeButton->setFixedSize(24, 24);
+    removeButton->setToolTip(QStringLiteral("Remove this file from the playlist"));
+    removeButton->setStyleSheet(QStringLiteral(
+        "QPushButton{background:#2b2b2b;color:#ddd;border:0;border-radius:4px;font-weight:700;}"
+        "QPushButton:hover{background:#8b2f2f;color:#fff;}"));
+    connect(removeButton, &QPushButton::clicked, this, [this, item] {
+        if (m_playlist) removePlaylistItem(m_playlist->row(item));
+    });
+    rowLayout->addWidget(removeButton);
+
+    m_playlist->setItemWidget(item, rowWidget);
+    item->setSizeHint(rowWidget->sizeHint());
+
     if (m_playlistController->count() == 1) {
         m_playlistController->setCurrentIndex(0);
         m_playlist->setCurrentRow(0);
@@ -1985,6 +2013,29 @@ void MainWindow::openPlaylist() {
     }
 }
 
+void MainWindow::removePlaylistItem(int index) {
+    if (!m_playlistController || !m_playlist || index < 0 || index >= m_playlist->count()) return;
+
+    const QString removedPath = m_playlistController->pathAt(index);
+    const bool wasCurrent = index == m_playlistController->currentIndex();
+    QListWidgetItem* item = m_playlist->takeItem(index);
+    delete item;
+    m_playlistController->removeAt(index);
+
+    if (m_playlist->count() == 0) {
+        m_playlistController->clear();
+    } else if (wasCurrent) {
+        const int nextSelection = std::clamp(index, 0, m_playlist->count() - 1);
+        m_playlistController->setCurrentIndex(nextSelection);
+        m_playlist->setCurrentRow(nextSelection);
+    } else {
+        syncPlaylistSelection();
+    }
+
+    m_runtimeLogger->append(
+        QStringLiteral("PLAYLIST REMOVE: %1").arg(removedPath));
+}
+
 void MainWindow::clearPlaylist() {
     if (m_playlist) m_playlist->clear();
     if (m_playlistController) m_playlistController->clear();
@@ -2079,6 +2130,28 @@ void MainWindow::keyPressEvent(QKeyEvent* event) {
 }
 
 bool MainWindow::eventFilter(QObject* watched, QEvent* event) {
+    if (m_playlist && watched && watched->property("playlist-path").isValid()) {
+        const QString path = watched->property("playlist-path").toString();
+        const int index = m_playlistController ? m_playlistController->indexOf(path) : -1;
+        if (index >= 0 && index < m_playlist->count()) {
+            if (event->type() == QEvent::MouseButtonPress) {
+                const auto* mouseEvent = static_cast<QMouseEvent*>(event);
+                if (mouseEvent->button() == Qt::LeftButton) {
+                    m_playlist->setCurrentRow(index);
+                    m_playlistController->setCurrentIndex(index);
+                }
+            } else if (event->type() == QEvent::MouseButtonDblClick) {
+                const auto* mouseEvent = static_cast<QMouseEvent*>(event);
+                if (mouseEvent->button() == Qt::LeftButton) {
+                    m_playlist->setCurrentRow(index);
+                    m_playlistController->setCurrentIndex(index);
+                    playlistActivated();
+                    return true;
+                }
+            }
+        }
+    }
+
     if ((watched == m_timeLabel || watched == m_progressTimeLabel) &&
         event->type() == QEvent::MouseButtonPress) {
         m_showRemainingTime = !m_showRemainingTime;
