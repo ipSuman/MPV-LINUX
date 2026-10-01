@@ -96,6 +96,7 @@ private:
     void buildUi();
     void loadFile(const QString& path);
     void addToPlaylist(const QString& path);
+    void removePlaylistItem(int index);
     void playPlaylistIndex(int index, bool promptResume = true);
     void syncPlaylistSelection();
     void command(const char** args);
