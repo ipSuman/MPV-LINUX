@@ -66,9 +66,32 @@ jobs:
           # compiler dependencies and must also be shipped with the portable
           # application. Recursively collect UCRT64 DLL dependencies so the
           # portable folder does not depend on the build machine's MSYS2 path.
+          # Resolve and stage libmpv before dependency collection. The previous
+          # order attempted copy_deps "$MPV_DLL" while MPV_DLL was still empty,
+          # so dependencies such as vulkan-1.dll were never collected.
+          MPV_DLL=""
+          for candidate in /ucrt64/bin/libmpv-2.dll /ucrt64/bin/mpv-2.dll; do
+            if [ -f "$candidate" ]; then
+              MPV_DLL="$candidate"
+              break
+            fi
+          done
+          if [ -z "$MPV_DLL" ]; then
+            echo "libmpv DLL not found"
+            exit 1
+          fi
+          cp "$MPV_DLL" dist/bin/
+
           copy_deps dist/bin/rex-player.exe
           copy_deps "$MPV_DLL"
           [ -f dist/bin/ffmpeg.exe ] && copy_deps dist/bin/ffmpeg.exe
+
+          # Vulkan loader is a runtime dependency of the Windows libmpv stack.
+          # Keep it explicit so the portable package works even when the
+          # dependency is not surfaced by ldd on a particular MSYS2 build.
+          if [ -f /ucrt64/bin/vulkan-1.dll ]; then
+            cp -n /ucrt64/bin/vulkan-1.dll dist/bin/
+          fi
 
           for pass in 1 2 3; do
             for dll in dist/bin/*.dll; do
@@ -84,19 +107,6 @@ jobs:
               cp -n "/ucrt64/bin/$runtime" dist/bin/
             fi
           done
-
-          MPV_DLL=""
-          for candidate in /ucrt64/bin/libmpv-2.dll /ucrt64/bin/mpv-2.dll; do
-            if [ -f "$candidate" ]; then
-              MPV_DLL="$candidate"
-              break
-            fi
-          done
-          if [ -z "$MPV_DLL" ]; then
-            echo "libmpv DLL not found"
-            exit 1
-          fi
-          cp "$MPV_DLL" dist/bin/
 
           if [ -f /ucrt64/bin/ffmpeg.exe ]; then
             cp /ucrt64/bin/ffmpeg.exe dist/bin/
