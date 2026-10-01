@@ -731,6 +731,35 @@ void MainWindow::showControlsDialog() {
     });
     form->addRow(QStringLiteral("A-B cutting"), cutWithZoomButton);
 
+    auto* resetResumeChoiceButton = new QPushButton(&dialog);
+    QSettings resumeSettings(
+        QStringLiteral("REX Player"), QStringLiteral("REX Player"));
+    const int rememberedResumeChoice =
+        resumeSettings.value(QStringLiteral("playback/resume-choice"), -1).toInt();
+    if (rememberedResumeChoice == 1) {
+        resetResumeChoiceButton->setText(QStringLiteral("Remembered choice: Resume"));
+    } else if (rememberedResumeChoice == 0) {
+        resetResumeChoiceButton->setText(QStringLiteral("Remembered choice: Start from beginning"));
+    } else {
+        resetResumeChoiceButton->setText(QStringLiteral("No remembered resume choice"));
+    }
+    resetResumeChoiceButton->setToolTip(
+        QStringLiteral("Clear the saved Resume playback choice so the prompt appears again."));
+    connect(resetResumeChoiceButton, &QPushButton::clicked, &dialog,
+            [resetResumeChoiceButton, this] {
+                QSettings settings(
+                    QStringLiteral("REX Player"), QStringLiteral("REX Player"));
+                settings.remove(QStringLiteral("playback/resume-choice"));
+                settings.sync();
+                resetResumeChoiceButton->setText(
+                    QStringLiteral("No remembered resume choice"));
+                if (m_runtimeLogger) {
+                    m_runtimeLogger->append(
+                        QStringLiteral("RESUME: remembered choice reset"));
+                }
+            });
+    form->addRow(QStringLiteral("Resume playback"), resetResumeChoiceButton);
+
     auto* doubleClickButton = new QComboBox(&dialog);
     doubleClickButton->addItem(QStringLiteral("Left button"), static_cast<int>(Qt::LeftButton));
     doubleClickButton->addItem(QStringLiteral("Middle button"), static_cast<int>(Qt::MiddleButton));
@@ -1696,20 +1725,68 @@ void MainWindow::pumpMpvEvents() {
                 const double duration = getPropertyDouble("duration");
                 m_promptResumeNextLoad = false;
                 if (saved >= 5.0 && duration > 0.0 && saved < duration - 5.0) {
-                    QMessageBox box(QMessageBox::Question,
-                                    QStringLiteral("Resume playback?"),
-                                    QStringLiteral("This video was previously played at %1.\n\nChoose whether to start over or continue from the last played position.")
-                                        .arg(formatTime(saved)),
-                                    QMessageBox::NoButton,
-                                    this);
-                    auto* startOver = box.addButton(QStringLiteral("Start from beginning"), QMessageBox::NoRole);
-                    auto* resume = box.addButton(QStringLiteral("Resume from last position"), QMessageBox::YesRole);
-                    box.setDefaultButton(static_cast<QPushButton*>(resume));
-                    box.exec();
-                    if (box.clickedButton() == resume) {
+                    QSettings resumeSettings(
+                        QStringLiteral("REX Player"), QStringLiteral("REX Player"));
+                    constexpr int kNoRememberedResumeChoice = -1;
+                    constexpr int kStartFromBeginning = 0;
+                    constexpr int kResumeFromLastPosition = 1;
+                    const int rememberedChoice = resumeSettings.value(
+                        QStringLiteral("playback/resume-choice"),
+                        kNoRememberedResumeChoice).toInt();
+
+                    if (rememberedChoice == kResumeFromLastPosition) {
+                        m_runtimeLogger->append(
+                            QStringLiteral("RESUME: applying remembered choice = resume"));
                         setPropertyDouble("time-pos", saved);
-                    } else if (box.clickedButton() == startOver) {
+                    } else if (rememberedChoice == kStartFromBeginning) {
+                        m_runtimeLogger->append(
+                            QStringLiteral("RESUME: applying remembered choice = start"));
                         setPropertyDouble("time-pos", 0.0);
+                    } else {
+                        QMessageBox box(
+                            QMessageBox::Question,
+                            QStringLiteral("Resume playback?"),
+                            QStringLiteral(
+                                "This video was previously played at %1.\\n\\n"
+                                "Choose whether to start over or continue from the last played position.")
+                                .arg(formatTime(saved)),
+                            QMessageBox::NoButton,
+                            this);
+
+                        auto* rememberChoice = new QCheckBox(
+                            QStringLiteral("Remember my choice"), &box);
+                        rememberChoice->setToolTip(
+                            QStringLiteral(
+                                "Use this choice automatically for future resume prompts. "
+                                "The setting can be reset from Controls."));
+                        box.setCheckBox(rememberChoice);
+
+                        auto* startOver = box.addButton(
+                            QStringLiteral("Start from beginning"), QMessageBox::NoRole);
+                        auto* resume = box.addButton(
+                            QStringLiteral("Resume from last position"), QMessageBox::YesRole);
+                        box.setDefaultButton(static_cast<QPushButton*>(resume));
+                        box.exec();
+
+                        const bool shouldResume = box.clickedButton() == resume;
+                        const bool shouldStartOver = box.clickedButton() == startOver;
+
+                        if (rememberChoice->isChecked() && (shouldResume || shouldStartOver)) {
+                            resumeSettings.setValue(
+                                QStringLiteral("playback/resume-choice"),
+                                shouldResume ? kResumeFromLastPosition : kStartFromBeginning);
+                            resumeSettings.sync();
+                            m_runtimeLogger->append(
+                                QStringLiteral("RESUME: remembered choice = %1")
+                                    .arg(shouldResume ? QStringLiteral("resume")
+                                                       : QStringLiteral("start")));
+                        }
+
+                        if (shouldResume) {
+                            setPropertyDouble("time-pos", saved);
+                        } else if (shouldStartOver) {
+                            setPropertyDouble("time-pos", 0.0);
+                        }
                     }
                 }
             }
