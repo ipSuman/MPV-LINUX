@@ -99,6 +99,7 @@ private:
     void removePlaylistItem(int index);
     void playPlaylistIndex(int index, bool promptResume = true);
     void syncPlaylistSelection();
+    void updatePlaylistCurrentRowStyle();
     void command(const char** args);
     double getPropertyDouble(const char* name) const;
     QString getPropertyString(const char* name) const;
