@@ -355,7 +355,7 @@ void MainWindow::buildUi() {
 
     row1->addStretch(1);
 
-    m_previousButton = new QPushButton(QStringLiteral("⏮"), m_controls);
+    m_previousButton = new QPushButton(QStringLiteral("|«  "), m_controls);
     m_previousButton->setToolTip(QStringLiteral("Previous item"));
     m_previousButton->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
     connect(m_previousButton, &QPushButton::clicked, this, &MainWindow::playPrevious);
@@ -369,7 +369,7 @@ void MainWindow::buildUi() {
     });
     row1->addWidget(m_seekBackButton);
 
-    m_playButton = new QPushButton(QStringLiteral("▶"), m_controls);
+    m_playButton = new QPushButton(QStringLiteral("  ▶  "), m_controls);
     m_playButton->setToolTip(QStringLiteral("Play / pause"));
     connect(m_playButton, &QPushButton::clicked, this, &MainWindow::togglePause);
     row1->addWidget(m_playButton);
@@ -382,7 +382,7 @@ void MainWindow::buildUi() {
     });
     row1->addWidget(m_seekForwardButton);
 
-    m_nextButton = new QPushButton(QStringLiteral("⏭"), m_controls);
+    m_nextButton = new QPushButton(QStringLiteral("  »|"), m_controls);
     m_nextButton->setToolTip(QStringLiteral("Next item"));
     m_nextButton->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
     connect(m_nextButton, &QPushButton::clicked, this, &MainWindow::playNext);
