@@ -30,7 +30,7 @@ bool PlaylistController::removeAt(int index) {
     } else if (m_currentIndex > index) {
         --m_currentIndex;
     } else if (m_currentIndex == index) {
-        m_currentIndex = std::min(index, m_paths.size() - 1);
+        m_currentIndex = index < m_paths.size() ? index : m_paths.size() - 1;
     }
     return true;
 }
