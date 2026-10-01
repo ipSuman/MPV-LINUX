@@ -45,6 +45,7 @@
 #include <QSettings>
 #include <QScreen>
 #include <QScrollArea>
+#include <QSizePolicy>
 #include <QShortcut>
 #include <QSlider>
 #include <QSpinBox>
