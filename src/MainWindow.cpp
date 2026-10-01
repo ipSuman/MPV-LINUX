@@ -1116,6 +1116,7 @@ void MainWindow::addToPlaylist(const QString& path) {
         m_playlistController->setCurrentIndex(0);
         m_playlist->setCurrentRow(0);
     }
+    updatePlaylistCurrentRowStyle();
 }
 
 void MainWindow::playPlaylistIndex(int index, bool promptResume) {
@@ -1138,12 +1139,35 @@ void MainWindow::playPlaylistIndex(int index, bool promptResume) {
     setWindowTitle(QStringLiteral("%1 - Rex Player").arg(QFileInfo(path).fileName()));
 }
 
+void MainWindow::updatePlaylistCurrentRowStyle() {
+    if (!m_playlist) return;
+
+    for (int i = 0; i < m_playlist->count(); ++i) {
+        auto* rowWidget = m_playlist->itemWidget(m_playlist->item(i));
+        if (!rowWidget) continue;
+
+        const bool current = i == m_playlist->currentRow();
+        rowWidget->setStyleSheet(current
+            ? QStringLiteral(
+                  "QWidget{background:#18352b;color:#e8f5ee;border-radius:4px;}"
+                  "QLabel{background:transparent;color:#e8f5ee;}"
+                  "QPushButton{background:#24463a;color:#dff3e8;border:0;border-radius:4px;font-weight:700;}"
+                  "QPushButton:hover{background:#35634f;color:#fff;}")
+            : QStringLiteral(
+                  "QWidget{background:transparent;color:#eee;}"
+                  "QLabel{background:transparent;color:#eee;}"
+                  "QPushButton{background:#2b2b2b;color:#ddd;border:0;border-radius:4px;font-weight:700;}"
+                  "QPushButton:hover{background:#8b2f2f;color:#fff;}"));
+    }
+}
+
 void MainWindow::syncPlaylistSelection() {
     if (m_playlistController && m_playlist &&
         m_playlistController->currentIndex() >= 0 &&
         m_playlistController->currentIndex() < m_playlist->count()) {
         m_playlist->setCurrentRow(m_playlistController->currentIndex());
     }
+    updatePlaylistCurrentRowStyle();
 }
 
 void MainWindow::command(const char** args) {
@@ -2140,6 +2164,7 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* event) {
                 if (mouseEvent->button() == Qt::LeftButton) {
                     m_playlist->setCurrentRow(index);
                     m_playlistController->setCurrentIndex(index);
+                    updatePlaylistCurrentRowStyle();
                 }
             } else if (event->type() == QEvent::MouseButtonDblClick) {
                 const auto* mouseEvent = static_cast<QMouseEvent*>(event);
