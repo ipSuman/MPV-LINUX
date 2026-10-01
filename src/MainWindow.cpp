@@ -498,6 +498,11 @@ void MainWindow::buildUi() {
     playlistButtons->setContentsMargins(0, 0, 0, 0);
     playlistButtons->setSpacing(4);
 
+    auto* openFileButton = new QPushButton(QStringLiteral("Open File"), playlistPanel);
+    openFileButton->setToolTip(QStringLiteral("Open a video or audio file"));
+    connect(openFileButton, &QPushButton::clicked, this, &MainWindow::openFile);
+    playlistButtons->addWidget(openFileButton);
+
     m_autoplayCheck = new QCheckBox(QStringLiteral("Autoplay"), playlistPanel);
     m_autoplayCheck->setChecked(m_playlistController && m_playlistController->autoplay());
     m_autoplayCheck->setToolTip(
