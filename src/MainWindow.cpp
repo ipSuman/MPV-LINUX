@@ -1747,7 +1747,7 @@ void MainWindow::pumpMpvEvents() {
                             QMessageBox::Question,
                             QStringLiteral("Resume playback?"),
                             QStringLiteral(
-                                "This video was previously played at %1.\\n\\n"
+                                "This video was previously played at %1.\n\n"
                                 "Choose whether to start over or continue from the last played position.")
                                 .arg(formatTime(saved)),
                             QMessageBox::NoButton,
