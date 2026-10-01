@@ -415,7 +415,7 @@ void MainWindow::buildUi() {
     row1->addWidget(menu);
 
     auto* row2 = new QHBoxLayout();
-    row2->setContentsMargins(36, 0, 0, 0);
+    row2->setContentsMargins(42, 0, 0, 0);
     row2->setSpacing(8);
 
     auto* controlsButton = new QPushButton(QStringLiteral("Controls"), m_controls);
