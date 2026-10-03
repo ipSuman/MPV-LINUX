@@ -2,6 +2,7 @@
 
 #include <QSettings>
 #include <algorithm>
+#include <cmath>
 
 namespace {
 QSettings makeSettings() {
