@@ -37,7 +37,7 @@ Section "REX Player" SecMain
   ; uninstall command to invoke from Settings or Control Panel.
   SetRegView 64
   WriteRegStr HKLM "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\REX Player" "DisplayName" "REX Player"
-  WriteRegStr HKLM "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\REX Player" "DisplayVersion" "3.1.2"
+  WriteRegStr HKLM "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\REX Player" "DisplayVersion" "3.5.0"
   WriteRegStr HKLM "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\REX Player" "Publisher" "REX Player"
   WriteRegStr HKLM "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\REX Player" "InstallLocation" "$INSTDIR"
   WriteRegStr HKLM "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\REX Player" "DisplayIcon" "$INSTDIR\\rex-player.exe"
