@@ -39,6 +39,7 @@ public:
     QKeySequence rotateVideoKey = QKeySequence(Qt::Key_R);
     QKeySequence speedUpKey = QKeySequence(Qt::AltModifier | Qt::Key_Up);
     QKeySequence speedDownKey = QKeySequence(Qt::AltModifier | Qt::Key_Down);
+    double speedJump = 0.10;
     QKeySequence holdSpeedKey = QKeySequence(Qt::Key_2);
     bool cutWithZoom = false;
 
