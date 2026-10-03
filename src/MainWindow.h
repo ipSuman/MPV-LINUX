@@ -78,6 +78,8 @@ private slots:
     void showTracksMenu();
     void saveSelectedAudioTrack();
     void showSpeedMenu();
+    void increasePlaybackSpeed();
+    void decreasePlaybackSpeed();
     void cutAbSelection();
     void rotateVideo90();
     void toggleFlipHorizontal();
@@ -215,6 +217,8 @@ private:
     QKeySequence m_subtitleSizeDownKey = QKeySequence(Qt::Key_I);
     QKeySequence m_captureScreenshotKey = QKeySequence(Qt::Key_C);
     QKeySequence m_rotateVideoKey = QKeySequence(Qt::Key_R);
+    QKeySequence m_speedUpKey = QKeySequence(Qt::AltModifier | Qt::Key_Up);
+    QKeySequence m_speedDownKey = QKeySequence(Qt::AltModifier | Qt::Key_Down);
     int m_saturation = 0;
     int m_brightness = 0;
     int m_contrast = 0;
