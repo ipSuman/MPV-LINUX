@@ -1607,6 +1607,11 @@ void MainWindow::showSpeedMenu() {
     if (!m_speedButton) return;
 
     QMenu menu(this);
+    menu.setStyleSheet(QStringLiteral(
+        "QMenu{max-height:320px;}"
+        "QMenu::item{padding:5px 18px 5px 10px;}"
+        "QMenu::item:checked{font-weight:600;}"
+    ));
     const double currentSpeed = std::clamp(getPropertyDouble("speed"), 0.25, 3.0);
 
     for (int i = 5; i <= 60; ++i) {
