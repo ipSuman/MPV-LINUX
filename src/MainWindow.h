@@ -77,6 +77,7 @@ private slots:
     void playNext();
     void showTracksMenu();
     void saveSelectedAudioTrack();
+    void showSpeedMenu();
     void cutAbSelection();
     void rotateVideo90();
     void toggleFlipHorizontal();
@@ -153,6 +154,7 @@ private:
     QPushButton* m_seekForwardButton = nullptr;
     QPushButton* m_cutAbButton = nullptr;
     QPushButton* m_saveAudioButton = nullptr;
+    QPushButton* m_speedButton = nullptr;
     QPushButton* m_rotateButton = nullptr;
     QCheckBox* m_autoplayCheck = nullptr;
     QPushButton* m_loopPlaylistButton = nullptr;
