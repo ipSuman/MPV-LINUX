@@ -53,6 +53,8 @@ void ControlSettings::load() {
     LOAD_KEY(rotateVideoKey, "controls/rotateVideo");
     LOAD_KEY(speedUpKey, "controls/speedUp");
     LOAD_KEY(speedDownKey, "controls/speedDown");
+    speedJump = std::clamp(settings.value(QStringLiteral("controls/speedJump"), speedJump).toDouble(), 0.10, 1.00);
+    speedJump = std::round(speedJump * 20.0) / 20.0;
     LOAD_KEY(holdSpeedKey, "controls/holdSpeed");
 #undef LOAD_KEY
 
@@ -95,6 +97,7 @@ void ControlSettings::save() const {
     SAVE_KEY(rotateVideoKey, "controls/rotateVideo");
     SAVE_KEY(speedUpKey, "controls/speedUp");
     SAVE_KEY(speedDownKey, "controls/speedDown");
+    settings.setValue(QStringLiteral("controls/speedJump"), speedJump);
     SAVE_KEY(holdSpeedKey, "controls/holdSpeed");
 #undef SAVE_KEY
 
