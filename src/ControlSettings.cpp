@@ -51,6 +51,8 @@ void ControlSettings::load() {
     LOAD_KEY(subtitleSizeDownKey, "controls/subtitleSizeDown");
     LOAD_KEY(captureScreenshotKey, "controls/captureScreenshot");
     LOAD_KEY(rotateVideoKey, "controls/rotateVideo");
+    LOAD_KEY(speedUpKey, "controls/speedUp");
+    LOAD_KEY(speedDownKey, "controls/speedDown");
 #undef LOAD_KEY
 
     cutWithZoom = settings.value(QStringLiteral("controls/cutWithZoom"), cutWithZoom).toBool();
@@ -90,6 +92,8 @@ void ControlSettings::save() const {
     SAVE_KEY(subtitleSizeDownKey, "controls/subtitleSizeDown");
     SAVE_KEY(captureScreenshotKey, "controls/captureScreenshot");
     SAVE_KEY(rotateVideoKey, "controls/rotateVideo");
+    SAVE_KEY(speedUpKey, "controls/speedUp");
+    SAVE_KEY(speedDownKey, "controls/speedDown");
 #undef SAVE_KEY
 
     settings.setValue(QStringLiteral("controls/cutWithZoom"), cutWithZoom);
