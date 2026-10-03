@@ -51,6 +51,7 @@
 #include <QSpinBox>
 #include <QVBoxLayout>
 #include <QWheelEvent>
+#include <QWidgetAction>
 #include <QWidget>
 
 #include "MpvNodeUtils.h"
@@ -96,14 +97,6 @@ bool wheelModeMatches(const QString& mode, Qt::KeyboardModifiers modifiers) {
     if (mode == QStringLiteral("ctrl-wheel")) return modifiers == Qt::ControlModifier;
     return false;
 }
-
-class SpeedMenu final : public QMenu {
-public:
-    explicit SpeedMenu(QWidget* parent = nullptr) : QMenu(parent) {}
-
-protected:
-    int columnCount() const override { return 1; }
-};
 
 void addWheelModes(QComboBox* combo) {
     combo->addItem(QStringLiteral("Mouse wheel"), QStringLiteral("wheel"));
@@ -1635,32 +1628,56 @@ void MainWindow::decreasePlaybackSpeed() {
 void MainWindow::showSpeedMenu() {
     if (!m_speedButton) return;
 
-    SpeedMenu menu(this);
+    QMenu menu(this);
     menu.setStyleSheet(QStringLiteral(
-        "QMenu{max-height:320px;}"
-        "QMenu::item{padding:5px 18px 5px 10px;}"
-        "QMenu::item:checked{font-weight:600;}"
+        "QMenu{padding:2px;}"
+        "QListWidget{background:#222;color:#fff;border:0;outline:0;}"
+        "QListWidget::item{padding:5px 12px;min-height:22px;}"
+        "QListWidget::item:selected{background:#3a3a3a;color:#fff;}"
+        "QListWidget::item:hover{background:#303030;}"
+        "QScrollBar:vertical{width:10px;background:#171717;margin:0;}"
+        "QScrollBar::handle:vertical{background:#555;border-radius:4px;min-height:24px;}"
+        "QScrollBar::add-line:vertical,QScrollBar::sub-line:vertical{height:0;}"
     ));
+
+    auto* speedList = new QListWidget(&menu);
+    speedList->setSelectionMode(QAbstractItemView::SingleSelection);
+    speedList->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
+    speedList->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    speedList->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    speedList->setFixedWidth(96);
+    speedList->setFixedHeight(320);
 
     const double currentSpeed = std::clamp(getPropertyDouble("speed"), 0.25, 3.0);
 
     for (int i = 5; i <= 60; ++i) {
         const double speed = i * 0.05;
         const QString label = QStringLiteral("%1x").arg(speed, 0, 'f', 2);
-        auto* action = menu.addAction(label);
-        action->setCheckable(true);
-        action->setChecked(std::abs(currentSpeed - speed) < 0.001);
-        connect(action, &QAction::triggered, this, [this, speed] {
-            setPropertyDouble("speed", speed);
-            if (m_runtimeLogger) {
-                m_runtimeLogger->append(
-                    QStringLiteral("PLAYBACK SPEED: %1x").arg(speed, 0, 'f', 2));
-            }
-        });
+        auto* item = new QListWidgetItem(label, speedList);
+        item->setData(Qt::UserRole, speed);
+        if (std::abs(currentSpeed - speed) < 0.001) {
+            item->setSelected(true);
+            speedList->setCurrentItem(item);
+        }
     }
 
-    // Place the popup above the Speed button. The menu style will add its
-    // vertical scrollers when the one-column menu exceeds the available height.
+    auto* widgetAction = new QWidgetAction(&menu);
+    widgetAction->setDefaultWidget(speedList);
+    menu.addAction(widgetAction);
+
+    connect(speedList, &QListWidget::itemClicked, &menu,
+            [this, &menu](QListWidgetItem* item) {
+        if (!item) return;
+        const double speed = item->data(Qt::UserRole).toDouble();
+        setPropertyDouble("speed", speed);
+        if (m_runtimeLogger) {
+            m_runtimeLogger->append(
+                QStringLiteral("PLAYBACK SPEED: %1x").arg(speed, 0, 'f', 2));
+        }
+        menu.close();
+    });
+
+    // Place the popup above the Speed button.
     const QSize menuSize = menu.sizeHint();
     const QPoint buttonTopLeft = m_speedButton->mapToGlobal(QPoint(0, 0));
     int x = buttonTopLeft.x();
@@ -1668,13 +1685,15 @@ void MainWindow::showSpeedMenu() {
 
     if (QScreen* screen = m_speedButton->screen()) {
         const QRect available = screen->availableGeometry();
-        x = std::clamp(x, available.left(), std::max(available.left(), available.right() - menuSize.width() + 1));
+        x = std::clamp(
+            x,
+            available.left(),
+            std::max(available.left(), available.right() - menuSize.width() + 1));
         y = std::max(available.top(), y);
     }
 
     menu.exec(QPoint(x, y));
 }
-
 void MainWindow::saveSelectedAudioTrack() {
     if (!m_mpv || !m_audioExporter) return;
 
