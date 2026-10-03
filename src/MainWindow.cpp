@@ -571,6 +571,8 @@ void MainWindow::loadControlSettings() {
     m_subtitleSizeDownKey = m_controlSettings->subtitleSizeDownKey;
     m_captureScreenshotKey = m_controlSettings->captureScreenshotKey;
     m_rotateVideoKey = m_controlSettings->rotateVideoKey;
+    m_speedUpKey = m_controlSettings->speedUpKey;
+    m_speedDownKey = m_controlSettings->speedDownKey;
     m_cutWithZoom = m_controlSettings->cutWithZoom;
 
     QSettings settings(QStringLiteral("REX Player"), QStringLiteral("REX Player"));
@@ -803,7 +805,9 @@ void MainWindow::showControlsDialog() {
     auto* subtitleSizeDown = new QKeySequenceEdit(m_subtitleSizeDownKey, &dialog);
     auto* captureScreenshot = new QKeySequenceEdit(m_captureScreenshotKey, &dialog);
     auto* rotateVideo = new QKeySequenceEdit(m_rotateVideoKey, &dialog);
-    const QList<QKeySequenceEdit*> edits = {volumeUp, volumeDown, mute, seekBack, seekForward, loopA, loopB, loopClear, zoomIn, zoomOut, zoomReset, frameBack, frameForward, switchSubtitles, subtitlePosUp, subtitlePosDown, subtitleSizeUp, subtitleSizeDown, captureScreenshot, rotateVideo};
+    auto* speedUp = new QKeySequenceEdit(m_speedUpKey, &dialog);
+    auto* speedDown = new QKeySequenceEdit(m_speedDownKey, &dialog);
+    const QList<QKeySequenceEdit*> edits = {volumeUp, volumeDown, mute, seekBack, seekForward, loopA, loopB, loopClear, zoomIn, zoomOut, zoomReset, frameBack, frameForward, switchSubtitles, subtitlePosUp, subtitlePosDown, subtitleSizeUp, subtitleSizeDown, captureScreenshot, rotateVideo, speedUp, speedDown};
     for (auto* edit : edits) edit->setClearButtonEnabled(false);
 
     auto addShortcut = [&keyForm, &dialog](const QString& label, QKeySequenceEdit* edit) {
@@ -843,6 +847,8 @@ void MainWindow::showControlsDialog() {
     addShortcut(QStringLiteral("I → Decrease subtitle text size"), subtitleSizeDown);
     addShortcut(QStringLiteral("C → Capture screenshot"), captureScreenshot);
     addShortcut(QStringLiteral("R → Rotate video 90° clockwise"), rotateVideo);
+    addShortcut(QStringLiteral("Alt + Up → Increase playback speed"), speedUp);
+    addShortcut(QStringLiteral("Alt + Down → Decrease playback speed"), speedDown);
     contentLayout->addLayout(keyForm);
 
     auto* note = new QLabel(QStringLiteral("Seek duration applies to the arrow keys, wheel seek and double-click seek zones. Choose 5, 10 or 30 seconds, or a value from 1 to 120 minutes. The −10s and +10s buttons always seek exactly 10 seconds. Changes are saved for the next launch. Clear a shortcut to disable it. Cut with zoom bakes positive video zoom/pan and the current 90°-step rotation into the A-B output and therefore re-encodes the video."), &dialog);
@@ -891,6 +897,8 @@ void MainWindow::showControlsDialog() {
         subtitleSizeDown->setKeySequence(QKeySequence(Qt::Key_I));
         captureScreenshot->setKeySequence(QKeySequence(Qt::Key_C));
         rotateVideo->setKeySequence(QKeySequence(Qt::Key_R));
+        speedUp->setKeySequence(QKeySequence(Qt::AltModifier | Qt::Key_Up));
+        speedDown->setKeySequence(QKeySequence(Qt::AltModifier | Qt::Key_Down));
         cutWithZoomButton->setChecked(false);
     });
 
@@ -934,6 +942,8 @@ void MainWindow::showControlsDialog() {
         m_subtitleSizeDownKey = subtitleSizeDown->keySequence();
         m_captureScreenshotKey = captureScreenshot->keySequence();
         m_rotateVideoKey = rotateVideo->keySequence();
+        m_speedUpKey = speedUp->keySequence();
+        m_speedDownKey = speedDown->keySequence();
         m_cutWithZoom = cutWithZoomButton->isChecked();
 
         if (m_controlSettings) {
@@ -967,6 +977,8 @@ void MainWindow::showControlsDialog() {
             m_controlSettings->subtitleSizeDownKey = m_subtitleSizeDownKey;
             m_controlSettings->captureScreenshotKey = m_captureScreenshotKey;
             m_controlSettings->rotateVideoKey = m_rotateVideoKey;
+            m_controlSettings->speedUpKey = m_speedUpKey;
+            m_controlSettings->speedDownKey = m_speedDownKey;
             m_controlSettings->cutWithZoom = m_cutWithZoom;
             m_controlSettings->save();
             applyInterfaceFont(m_controlSettings->fontPath, m_controlSettings->fontFamily, m_controlSettings->fontSize);
@@ -1559,6 +1571,28 @@ void MainWindow::updateHardwareButton() {
 
 void MainWindow::showTracksMenu() {
     if (m_trackController) m_trackController->showMenu(qobject_cast<QWidget*>(sender()));
+}
+
+void MainWindow::increasePlaybackSpeed() {
+    const double current = getPropertyDouble("speed");
+    const double base = std::isfinite(current) ? current : 1.0;
+    const double next = std::clamp(std::round((base + 0.05) * 20.0) / 20.0, 0.25, 3.0);
+    setPropertyDouble("speed", next);
+    if (m_runtimeLogger) {
+        m_runtimeLogger->append(
+            QStringLiteral("PLAYBACK SPEED: %1x").arg(next, 0, 'f', 2));
+    }
+}
+
+void MainWindow::decreasePlaybackSpeed() {
+    const double current = getPropertyDouble("speed");
+    const double base = std::isfinite(current) ? current : 1.0;
+    const double next = std::clamp(std::round((base - 0.05) * 20.0) / 20.0, 0.25, 3.0);
+    setPropertyDouble("speed", next);
+    if (m_runtimeLogger) {
+        m_runtimeLogger->append(
+            QStringLiteral("PLAYBACK SPEED: %1x").arg(next, 0, 'f', 2));
+    }
 }
 
 void MainWindow::showSpeedMenu() {
@@ -2156,6 +2190,8 @@ void MainWindow::keyPressEvent(QKeyEvent* event) {
     if (keyMatches(event, m_subtitleSizeDownKey)) { decreaseSubtitleSize(); event->accept(); return; }
     if (keyMatches(event, m_captureScreenshotKey)) { captureScreenshot(); event->accept(); return; }
     if (keyMatches(event, m_rotateVideoKey)) { rotateVideo90(); event->accept(); return; }
+    if (keyMatches(event, m_speedUpKey)) { increasePlaybackSpeed(); event->accept(); return; }
+    if (keyMatches(event, m_speedDownKey)) { decreasePlaybackSpeed(); event->accept(); return; }
     if (keyMatches(event, m_volumeUpKey)) { volumeUp(); event->accept(); return; }
     if (keyMatches(event, m_volumeDownKey)) { volumeDown(); event->accept(); return; }
     if (keyMatches(event, m_muteKey)) { toggleMute(); event->accept(); return; }
