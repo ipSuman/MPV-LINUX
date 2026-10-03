@@ -49,6 +49,7 @@ protected:
     void dragEnterEvent(QDragEnterEvent* event) override;
     void dropEvent(QDropEvent* event) override;
     void keyPressEvent(QKeyEvent* event) override;
+    void keyReleaseEvent(QKeyEvent* event) override;
     bool eventFilter(QObject* watched, QEvent* event) override;
 
 private slots:
@@ -219,6 +220,9 @@ private:
     QKeySequence m_rotateVideoKey = QKeySequence(Qt::Key_R);
     QKeySequence m_speedUpKey = QKeySequence(Qt::AltModifier | Qt::Key_Up);
     QKeySequence m_speedDownKey = QKeySequence(Qt::AltModifier | Qt::Key_Down);
+    QKeySequence m_holdSpeedKey = QKeySequence(Qt::Key_2);
+    bool m_holdSpeedActive = false;
+    double m_holdSpeedPrevious = 1.0;
     int m_saturation = 0;
     int m_brightness = 0;
     int m_contrast = 0;
