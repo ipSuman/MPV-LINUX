@@ -97,6 +97,14 @@ bool wheelModeMatches(const QString& mode, Qt::KeyboardModifiers modifiers) {
     return false;
 }
 
+class SpeedMenu final : public QMenu {
+public:
+    explicit SpeedMenu(QWidget* parent = nullptr) : QMenu(parent) {}
+
+protected:
+    int columnCount() const override { return 1; }
+};
+
 void addWheelModes(QComboBox* combo) {
     combo->addItem(QStringLiteral("Mouse wheel"), QStringLiteral("wheel"));
     combo->addItem(QStringLiteral("Shift + wheel"), QStringLiteral("shift-wheel"));
@@ -122,6 +130,14 @@ MainWindow::MainWindow(const QString& mediaPath, QWidget* parent)
     loadControlSettings();
     m_playlistController = new PlaylistController();
     buildUi();
+
+    m_speedUpShortcut = new QShortcut(m_speedUpKey, this);
+    m_speedUpShortcut->setContext(Qt::WindowShortcut);
+    connect(m_speedUpShortcut, &QShortcut::activated, this, &MainWindow::increasePlaybackSpeed);
+
+    m_speedDownShortcut = new QShortcut(m_speedDownKey, this);
+    m_speedDownShortcut->setContext(Qt::WindowShortcut);
+    connect(m_speedDownShortcut, &QShortcut::activated, this, &MainWindow::decreasePlaybackSpeed);
 
     m_toastTimer.setSingleShot(true);
     connect(&m_toastTimer, &QTimer::timeout, this, [this] {
@@ -959,6 +975,8 @@ void MainWindow::showControlsDialog() {
         m_speedUpKey = speedUp->keySequence();
         m_speedDownKey = speedDown->keySequence();
         m_speedJump = std::clamp(speedJump->currentData().toDouble(), 0.10, 1.00);
+        if (m_speedUpShortcut) m_speedUpShortcut->setKey(m_speedUpKey);
+        if (m_speedDownShortcut) m_speedDownShortcut->setKey(m_speedDownKey);
         m_holdSpeedKey = holdSpeed->keySequence();
         m_cutWithZoom = cutWithZoomButton->isChecked();
 
@@ -1617,12 +1635,13 @@ void MainWindow::decreasePlaybackSpeed() {
 void MainWindow::showSpeedMenu() {
     if (!m_speedButton) return;
 
-    QMenu menu(this);
+    SpeedMenu menu(this);
     menu.setStyleSheet(QStringLiteral(
         "QMenu{max-height:320px;}"
         "QMenu::item{padding:5px 18px 5px 10px;}"
         "QMenu::item:checked{font-weight:600;}"
     ));
+
     const double currentSpeed = std::clamp(getPropertyDouble("speed"), 0.25, 3.0);
 
     for (int i = 5; i <= 60; ++i) {
@@ -1633,7 +1652,6 @@ void MainWindow::showSpeedMenu() {
         action->setChecked(std::abs(currentSpeed - speed) < 0.001);
         connect(action, &QAction::triggered, this, [this, speed] {
             setPropertyDouble("speed", speed);
-            if (m_speedButton) m_speedButton->setText(QStringLiteral("Speed"));
             if (m_runtimeLogger) {
                 m_runtimeLogger->append(
                     QStringLiteral("PLAYBACK SPEED: %1x").arg(speed, 0, 'f', 2));
@@ -1641,7 +1659,20 @@ void MainWindow::showSpeedMenu() {
         });
     }
 
-    menu.exec(m_speedButton->mapToGlobal(QPoint(0, m_speedButton->height())));
+    // Place the popup above the Speed button. The menu style will add its
+    // vertical scrollers when the one-column menu exceeds the available height.
+    const QSize menuSize = menu.sizeHint();
+    const QPoint buttonTopLeft = m_speedButton->mapToGlobal(QPoint(0, 0));
+    int x = buttonTopLeft.x();
+    int y = buttonTopLeft.y() - menuSize.height();
+
+    if (QScreen* screen = m_speedButton->screen()) {
+        const QRect available = screen->availableGeometry();
+        x = std::clamp(x, available.left(), std::max(available.left(), available.right() - menuSize.width() + 1));
+        y = std::max(available.top(), y);
+    }
+
+    menu.exec(QPoint(x, y));
 }
 
 void MainWindow::saveSelectedAudioTrack() {
@@ -2226,8 +2257,6 @@ void MainWindow::keyPressEvent(QKeyEvent* event) {
         event->accept();
         return;
     }
-    if (keyMatches(event, m_speedUpKey)) { increasePlaybackSpeed(); event->accept(); return; }
-    if (keyMatches(event, m_speedDownKey)) { decreasePlaybackSpeed(); event->accept(); return; }
     if (keyMatches(event, m_volumeUpKey)) { volumeUp(); event->accept(); return; }
     if (keyMatches(event, m_volumeDownKey)) { volumeDown(); event->accept(); return; }
     if (keyMatches(event, m_muteKey)) { toggleMute(); event->accept(); return; }
