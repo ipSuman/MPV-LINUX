@@ -502,7 +502,7 @@ void MainWindow::buildUi() {
     auto* openFolderButton = new QPushButton(QStringLiteral("Open Folder"), playlistPanel);
     openFolderButton->setToolTip(QStringLiteral("Add all supported media files from a folder to the playlist"));
     connect(openFolderButton, &QPushButton::clicked, this, &MainWindow::addFolder);
-    playlistButtons->addWidget(openFileButton);
+    playlistButtons->addWidget(openFolderButton);
 
     m_autoplayCheck = new QCheckBox(QStringLiteral("Autoplay"), playlistPanel);
     m_autoplayCheck->setChecked(m_playlistController && m_playlistController->autoplay());
