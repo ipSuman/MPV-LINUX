@@ -347,6 +347,11 @@ void MainWindow::buildUi() {
     m_saveAudioButton->setToolTip(QStringLiteral("Save the selected audio track"));
     connect(m_saveAudioButton, &QPushButton::clicked, this, &MainWindow::saveSelectedAudioTrack);
     row1->addWidget(m_saveAudioButton);
+    
+    m_speedButton = new QPushButton(QStringLiteral("Speed"), m_controls);
+    m_speedButton->setToolTip(QStringLiteral("Change playback speed"));
+    connect(m_speedButton, &QPushButton::clicked, this, &MainWindow::showSpeedMenu);
+    row1->addWidget(m_speedButton);
 
     m_timeLabel = new QLabel(QStringLiteral("00:00 / 00:00"), m_controls);
     m_timeLabel->setToolTip(QStringLiteral("Click to switch between elapsed / total and elapsed / remaining time"));
@@ -1554,6 +1559,31 @@ void MainWindow::updateHardwareButton() {
 
 void MainWindow::showTracksMenu() {
     if (m_trackController) m_trackController->showMenu(qobject_cast<QWidget*>(sender()));
+}
+
+void MainWindow::showSpeedMenu() {
+    if (!m_speedButton) return;
+
+    QMenu menu(this);
+    const double currentSpeed = std::clamp(getPropertyDouble("speed"), 0.25, 3.0);
+
+    for (int i = 5; i <= 60; ++i) {
+        const double speed = i * 0.05;
+        const QString label = QStringLiteral("%1x").arg(speed, 0, 'f', 2);
+        auto* action = menu.addAction(label);
+        action->setCheckable(true);
+        action->setChecked(std::abs(currentSpeed - speed) < 0.001);
+        connect(action, &QAction::triggered, this, [this, speed] {
+            setPropertyDouble("speed", speed);
+            if (m_speedButton) m_speedButton->setText(QStringLiteral("Speed"));
+            if (m_runtimeLogger) {
+                m_runtimeLogger->append(
+                    QStringLiteral("PLAYBACK SPEED: %1x").arg(speed, 0, 'f', 2));
+            }
+        });
+    }
+
+    menu.exec(m_speedButton->mapToGlobal(QPoint(0, m_speedButton->height())));
 }
 
 void MainWindow::saveSelectedAudioTrack() {
