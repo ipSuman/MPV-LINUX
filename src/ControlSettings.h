@@ -37,6 +37,8 @@ public:
     QKeySequence subtitleSizeDownKey = QKeySequence(Qt::Key_I);
     QKeySequence captureScreenshotKey = QKeySequence(Qt::Key_C);
     QKeySequence rotateVideoKey = QKeySequence(Qt::Key_R);
+    QKeySequence speedUpKey = QKeySequence(Qt::AltModifier | Qt::Key_Up);
+    QKeySequence speedDownKey = QKeySequence(Qt::AltModifier | Qt::Key_Down);
     bool cutWithZoom = false;
 
     void load();
