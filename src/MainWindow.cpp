@@ -2201,6 +2201,7 @@ void MainWindow::keyPressEvent(QKeyEvent* event) {
             m_holdSpeedPrevious = getPropertyDouble("speed");
             if (!std::isfinite(m_holdSpeedPrevious) || m_holdSpeedPrevious <= 0.0) m_holdSpeedPrevious = 1.0;
             m_holdSpeedActive = true;
+            m_holdSpeedKeyCode = event->key();
             setPropertyDouble("speed", 2.0);
             if (m_runtimeLogger) m_runtimeLogger->append(QStringLiteral("PLAYBACK SPEED HOLD: 2.00x"));
         }
@@ -2240,9 +2241,11 @@ void MainWindow::keyPressEvent(QKeyEvent* event) {
 
 
 void MainWindow::keyReleaseEvent(QKeyEvent* event) {
-    if (m_holdSpeedActive && keyMatches(event, m_holdSpeedKey)) {
-        const double restoreSpeed = std::clamp(m_holdSpeedPrevious, 0.25, 3.0);
+    if (m_holdSpeedActive && event->key() == m_holdSpeedKeyCode) {
+        const double restoreSpeed = (std::isfinite(m_holdSpeedPrevious) && m_holdSpeedPrevious > 0.0)
+            ? m_holdSpeedPrevious : 1.0;
         m_holdSpeedActive = false;
+        m_holdSpeedKeyCode = Qt::Key_unknown;
         setPropertyDouble("speed", restoreSpeed);
         if (m_runtimeLogger) {
             m_runtimeLogger->append(QStringLiteral("PLAYBACK SPEED HOLD: restored %1x").arg(restoreSpeed, 0, 'f', 2));
