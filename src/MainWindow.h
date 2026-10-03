@@ -223,6 +223,7 @@ private:
     QKeySequence m_holdSpeedKey = QKeySequence(Qt::Key_2);
     bool m_holdSpeedActive = false;
     double m_holdSpeedPrevious = 1.0;
+    int m_holdSpeedKeyCode = Qt::Key_unknown;
     int m_saturation = 0;
     int m_brightness = 0;
     int m_contrast = 0;
