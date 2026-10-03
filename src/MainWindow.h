@@ -22,6 +22,7 @@ class QDropEvent;
 class QEvent;
 class QDockWidget;
 class QKeyEvent;
+class QShortcut;
 class QProcess;
 class AudioExporter;
 class RuntimeLogger;
