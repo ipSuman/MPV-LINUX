@@ -137,6 +137,7 @@ MainWindow::MainWindow(const QString& mediaPath, QWidget* parent)
             [this](bool success, const QString& output, const QString& errorMessage,
                    const QString& stderrText, const QString&, int, QProcess::ExitStatus) {
         if (success) {
+            showToast(QStringLiteral("Audio Saved"));
             showError(QStringLiteral("REX Player — Audio saved: %1")
                           .arg(QFileInfo(output).fileName()));
             QMessageBox::information(
@@ -1393,6 +1394,7 @@ void MainWindow::cutAbSelection() {
         const QString output = m_cutOutputPath;
         const bool success = exitStatus == QProcess::NormalExit && exitCode == 0 && QFileInfo::exists(output);
         if (success) {
+            showToast(QStringLiteral("A-B Cut Saved"));
             QMessageBox::information(
                 this, QStringLiteral("A-B cut complete"),
                 QStringLiteral("Saved:\n%1\n\n%2").arg(output, m_cutWithZoom && (getPropertyDouble("video-zoom") > 0.0001 || std::abs(getPropertyDouble("video-pan-x")) > 0.0001 || std::abs(getPropertyDouble("video-pan-y")) > 0.0001 || std::abs(getPropertyDouble("video-rotate")) > 0.0001 || (m_videoTransformer && m_videoTransformer->hasTransforms())) ? QStringLiteral("The current zoom/pan/rotation/flip was baked into the video, so the video was re-encoded; audio/subtitles were copied when supported.") : QStringLiteral("Streams were copied without re-encoding. Because this is stream-copy cutting, the start may align to a nearby keyframe.")));
