@@ -53,6 +53,7 @@ void ControlSettings::load() {
     LOAD_KEY(rotateVideoKey, "controls/rotateVideo");
     LOAD_KEY(speedUpKey, "controls/speedUp");
     LOAD_KEY(speedDownKey, "controls/speedDown");
+    LOAD_KEY(holdSpeedKey, "controls/holdSpeed");
 #undef LOAD_KEY
 
     cutWithZoom = settings.value(QStringLiteral("controls/cutWithZoom"), cutWithZoom).toBool();
@@ -94,6 +95,7 @@ void ControlSettings::save() const {
     SAVE_KEY(rotateVideoKey, "controls/rotateVideo");
     SAVE_KEY(speedUpKey, "controls/speedUp");
     SAVE_KEY(speedDownKey, "controls/speedDown");
+    SAVE_KEY(holdSpeedKey, "controls/holdSpeed");
 #undef SAVE_KEY
 
     settings.setValue(QStringLiteral("controls/cutWithZoom"), cutWithZoom);
