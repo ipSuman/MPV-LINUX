@@ -573,6 +573,7 @@ void MainWindow::loadControlSettings() {
     m_rotateVideoKey = m_controlSettings->rotateVideoKey;
     m_speedUpKey = m_controlSettings->speedUpKey;
     m_speedDownKey = m_controlSettings->speedDownKey;
+    m_holdSpeedKey = m_controlSettings->holdSpeedKey;
     m_cutWithZoom = m_controlSettings->cutWithZoom;
 
     QSettings settings(QStringLiteral("REX Player"), QStringLiteral("REX Player"));
@@ -807,7 +808,8 @@ void MainWindow::showControlsDialog() {
     auto* rotateVideo = new QKeySequenceEdit(m_rotateVideoKey, &dialog);
     auto* speedUp = new QKeySequenceEdit(m_speedUpKey, &dialog);
     auto* speedDown = new QKeySequenceEdit(m_speedDownKey, &dialog);
-    const QList<QKeySequenceEdit*> edits = {volumeUp, volumeDown, mute, seekBack, seekForward, loopA, loopB, loopClear, zoomIn, zoomOut, zoomReset, frameBack, frameForward, switchSubtitles, subtitlePosUp, subtitlePosDown, subtitleSizeUp, subtitleSizeDown, captureScreenshot, rotateVideo, speedUp, speedDown};
+    auto* holdSpeed = new QKeySequenceEdit(m_holdSpeedKey, &dialog);
+    const QList<QKeySequenceEdit*> edits = {volumeUp, volumeDown, mute, seekBack, seekForward, loopA, loopB, loopClear, zoomIn, zoomOut, zoomReset, frameBack, frameForward, switchSubtitles, subtitlePosUp, subtitlePosDown, subtitleSizeUp, subtitleSizeDown, captureScreenshot, rotateVideo, speedUp, speedDown, holdSpeed};
     for (auto* edit : edits) edit->setClearButtonEnabled(false);
 
     auto addShortcut = [&keyForm, &dialog](const QString& label, QKeySequenceEdit* edit) {
@@ -849,6 +851,7 @@ void MainWindow::showControlsDialog() {
     addShortcut(QStringLiteral("R → Rotate video 90° clockwise"), rotateVideo);
     addShortcut(QStringLiteral("Alt + Up → Increase playback speed"), speedUp);
     addShortcut(QStringLiteral("Alt + Down → Decrease playback speed"), speedDown);
+    addShortcut(QStringLiteral("2 (hold) → Temporary 2x playback speed"), holdSpeed);
     contentLayout->addLayout(keyForm);
 
     auto* note = new QLabel(QStringLiteral("Seek duration applies to the arrow keys, wheel seek and double-click seek zones. Choose 5, 10 or 30 seconds, or a value from 1 to 120 minutes. The −10s and +10s buttons always seek exactly 10 seconds. Changes are saved for the next launch. Clear a shortcut to disable it. Cut with zoom bakes positive video zoom/pan and the current 90°-step rotation into the A-B output and therefore re-encodes the video."), &dialog);
@@ -899,6 +902,7 @@ void MainWindow::showControlsDialog() {
         rotateVideo->setKeySequence(QKeySequence(Qt::Key_R));
         speedUp->setKeySequence(QKeySequence(Qt::AltModifier | Qt::Key_Up));
         speedDown->setKeySequence(QKeySequence(Qt::AltModifier | Qt::Key_Down));
+        holdSpeed->setKeySequence(QKeySequence(Qt::Key_2));
         cutWithZoomButton->setChecked(false);
     });
 
@@ -944,6 +948,7 @@ void MainWindow::showControlsDialog() {
         m_rotateVideoKey = rotateVideo->keySequence();
         m_speedUpKey = speedUp->keySequence();
         m_speedDownKey = speedDown->keySequence();
+        m_holdSpeedKey = holdSpeed->keySequence();
         m_cutWithZoom = cutWithZoomButton->isChecked();
 
         if (m_controlSettings) {
@@ -979,6 +984,7 @@ void MainWindow::showControlsDialog() {
             m_controlSettings->rotateVideoKey = m_rotateVideoKey;
             m_controlSettings->speedUpKey = m_speedUpKey;
             m_controlSettings->speedDownKey = m_speedDownKey;
+            m_controlSettings->holdSpeedKey = m_holdSpeedKey;
             m_controlSettings->cutWithZoom = m_cutWithZoom;
             m_controlSettings->save();
             applyInterfaceFont(m_controlSettings->fontPath, m_controlSettings->fontFamily, m_controlSettings->fontSize);
@@ -2190,6 +2196,17 @@ void MainWindow::keyPressEvent(QKeyEvent* event) {
     if (keyMatches(event, m_subtitleSizeDownKey)) { decreaseSubtitleSize(); event->accept(); return; }
     if (keyMatches(event, m_captureScreenshotKey)) { captureScreenshot(); event->accept(); return; }
     if (keyMatches(event, m_rotateVideoKey)) { rotateVideo90(); event->accept(); return; }
+    if (keyMatches(event, m_holdSpeedKey)) {
+        if (!m_holdSpeedActive) {
+            m_holdSpeedPrevious = getPropertyDouble("speed");
+            if (!std::isfinite(m_holdSpeedPrevious) || m_holdSpeedPrevious <= 0.0) m_holdSpeedPrevious = 1.0;
+            m_holdSpeedActive = true;
+            setPropertyDouble("speed", 2.0);
+            if (m_runtimeLogger) m_runtimeLogger->append(QStringLiteral("PLAYBACK SPEED HOLD: 2.00x"));
+        }
+        event->accept();
+        return;
+    }
     if (keyMatches(event, m_speedUpKey)) { increasePlaybackSpeed(); event->accept(); return; }
     if (keyMatches(event, m_speedDownKey)) { decreasePlaybackSpeed(); event->accept(); return; }
     if (keyMatches(event, m_volumeUpKey)) { volumeUp(); event->accept(); return; }
@@ -2219,6 +2236,21 @@ void MainWindow::keyPressEvent(QKeyEvent* event) {
     case Qt::Key_Enter: toggleFullscreen(); break;
     default: QMainWindow::keyPressEvent(event); break;
     }
+}
+
+
+void MainWindow::keyReleaseEvent(QKeyEvent* event) {
+    if (m_holdSpeedActive && keyMatches(event, m_holdSpeedKey)) {
+        const double restoreSpeed = std::clamp(m_holdSpeedPrevious, 0.25, 3.0);
+        m_holdSpeedActive = false;
+        setPropertyDouble("speed", restoreSpeed);
+        if (m_runtimeLogger) {
+            m_runtimeLogger->append(QStringLiteral("PLAYBACK SPEED HOLD: restored %1x").arg(restoreSpeed, 0, 'f', 2));
+        }
+        event->accept();
+        return;
+    }
+    QMainWindow::keyReleaseEvent(event);
 }
 
 bool MainWindow::eventFilter(QObject* watched, QEvent* event) {
