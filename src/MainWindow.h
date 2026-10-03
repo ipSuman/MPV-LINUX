@@ -220,6 +220,8 @@ private:
     QKeySequence m_rotateVideoKey = QKeySequence(Qt::Key_R);
     QKeySequence m_speedUpKey = QKeySequence(Qt::AltModifier | Qt::Key_Up);
     QKeySequence m_speedDownKey = QKeySequence(Qt::AltModifier | Qt::Key_Down);
+    QShortcut* m_speedUpShortcut = nullptr;
+    QShortcut* m_speedDownShortcut = nullptr;
     double m_speedJump = 0.10;
     QKeySequence m_holdSpeedKey = QKeySequence(Qt::Key_2);
     bool m_holdSpeedActive = false;
