@@ -733,10 +733,8 @@ void MainWindow::applyMainPanelButtonMode() {
     updateHardwareButton();
 }
  
-void MainWindow::loadControlSettings() {
+void MainWindow::applyControlSettingsToRuntime() {
     if (!m_controlSettings) return;
-    m_controlSettings->load();
-
     m_seekWheelMode = m_controlSettings->seekWheelMode;
     m_zoomWheelMode = m_controlSettings->zoomWheelMode;
     m_volumeWheelMode = m_controlSettings->volumeWheelMode;
@@ -745,7 +743,6 @@ void MainWindow::loadControlSettings() {
     m_panButton = m_controlSettings->panButton;
     m_doubleClickButton = m_controlSettings->doubleClickButton;
     m_seekDurationSeconds = m_controlSettings->seekDurationSeconds;
-    applyInterfaceFont(m_controlSettings->fontPath, m_controlSettings->fontFamily, m_controlSettings->fontSize);
     m_volumeUpKey = m_controlSettings->volumeUpKey;
     m_volumeDownKey = m_controlSettings->volumeDownKey;
     m_muteKey = m_controlSettings->muteKey;
@@ -771,6 +768,17 @@ void MainWindow::loadControlSettings() {
     m_speedJump = std::clamp(m_controlSettings->speedJump, 0.10, 1.00);
     m_holdSpeedKey = m_controlSettings->holdSpeedKey;
     m_cutWithZoom = m_controlSettings->cutWithZoom;
+    if (m_speedUpShortcut) m_speedUpShortcut->setKey(m_speedUpKey);
+    if (m_speedDownShortcut) m_speedDownShortcut->setKey(m_speedDownKey);
+    applyInterfaceFont(m_controlSettings->fontPath, m_controlSettings->fontFamily, m_controlSettings->fontSize);
+    applyMainPanelButtonMode();
+}
+
+void MainWindow::loadControlSettings() {
+    if (!m_controlSettings) return;
+    m_controlSettings->load();
+
+    applyControlSettingsToRuntime();
 
     QSettings settings(QStringLiteral("REX Player"), QStringLiteral("REX Player"));
     m_saturation = std::clamp(settings.value(QStringLiteral("display/saturation"), m_saturation).toInt(), -100, 100);
@@ -930,6 +938,59 @@ void MainWindow::showControlsDialog() {
     selectData(mainPanelStyle, m_mainPanelIcons);
     mainPanelStyle->setToolTip(QStringLiteral("Choose whether the main playback control buttons use monochrome icons or text labels."));
     form->addRow(QStringLiteral("Main panel buttons"), mainPanelStyle);
+    auto* saveSettingsButton = new QPushButton(QStringLiteral("Save Settings"), &dialog);
+    saveSettingsButton->setToolTip(QStringLiteral("Save the current REX Player control settings to a profile file."));
+    auto* loadSettingsButton = new QPushButton(QStringLiteral("Load Settings"), &dialog);
+    loadSettingsButton->setToolTip(QStringLiteral("Load a previously saved REX Player control settings profile."));
+    auto* profileButtons = new QWidget(&dialog);
+    auto* profileLayout = new QHBoxLayout(profileButtons);
+    profileLayout->setContentsMargins(0, 0, 0, 0);
+    profileLayout->setSpacing(6);
+    profileLayout->addWidget(saveSettingsButton);
+    profileLayout->addWidget(loadSettingsButton);
+    form->addRow(QStringLiteral("Control profiles"), profileButtons);
+
+    connect(saveSettingsButton, &QPushButton::clicked, &dialog, [this, &dialog] {
+        if (!m_controlSettings) return;
+        const QString version = QCoreApplication::applicationVersion().isEmpty()
+            ? QStringLiteral("4.0.0") : QCoreApplication::applicationVersion();
+        const QString defaultName = QStringLiteral("RexPlayer_%1_%2.ini")
+            .arg(version, QDateTime::currentDateTime().toString(QStringLiteral("yyyy-MM-dd_HH-mm-ss")));
+        const QString path = QFileDialog::getSaveFileName(
+            &dialog, QStringLiteral("Save Control Settings"),
+            QDir::homePath() + QDir::separator() + defaultName,
+            QStringLiteral("REX Player settings (*.ini);;All files (*)"));
+        if (path.isEmpty()) return;
+        if (!m_controlSettings->saveToFile(path)) {
+            QMessageBox::warning(&dialog, QStringLiteral("Save Settings"),
+                                 QStringLiteral("Could not save the control settings."));
+            return;
+        }
+        if (m_runtimeLogger) m_runtimeLogger->append(QStringLiteral("CONTROLS PROFILE: saved %1").arg(path));
+        QMessageBox::information(&dialog, QStringLiteral("Save Settings"),
+                                  QStringLiteral("Control settings saved successfully."));
+    });
+
+    connect(loadSettingsButton, &QPushButton::clicked, &dialog, [this, &dialog] {
+        if (!m_controlSettings) return;
+        const QString path = QFileDialog::getOpenFileName(
+            &dialog, QStringLiteral("Load Control Settings"), QDir::homePath(),
+            QStringLiteral("REX Player settings (*.ini);;All files (*)"));
+        if (path.isEmpty()) return;
+        ControlSettings loaded = *m_controlSettings;
+        if (!loaded.loadFromFile(path)) {
+            QMessageBox::warning(&dialog, QStringLiteral("Load Settings"),
+                                 QStringLiteral("This file is not a valid REX Player control settings profile."));
+            return;
+        }
+        *m_controlSettings = loaded;
+        applyControlSettingsToRuntime();
+        m_controlSettings->save();
+        if (m_runtimeLogger) m_runtimeLogger->append(QStringLiteral("CONTROLS PROFILE: loaded %1").arg(path));
+        QMessageBox::information(&dialog, QStringLiteral("Load Settings"),
+                                  QStringLiteral("Control settings loaded successfully."));
+    });
+
 
 
     auto* cutWithZoomButton = new QPushButton(
