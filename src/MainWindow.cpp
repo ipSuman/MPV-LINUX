@@ -5,6 +5,7 @@
 #include <QCloseEvent>
 #include <QCheckBox>
 #include <QCoreApplication>
+#include <QDesktopServices>
 #include <QApplication>
 #include <QCursor>
 #include <QComboBox>
@@ -37,6 +38,11 @@
 #include <QRegularExpression>
 #include <QFile>
 #include <QProcess>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QNetworkAccessManager>
+#include <QNetworkReply>
+#include <QNetworkRequest>
 #include <QStandardPaths>
 #include <QSysInfo>
 #include <QStyle>
@@ -44,6 +50,7 @@
 #include <QToolButton>
 #include <QStyleOptionSlider>
 #include <QUrl>
+#include <QVersionNumber>
 #include <QSettings>
 #include <QScreen>
 #include <QScrollArea>
@@ -617,10 +624,103 @@ void MainWindow::buildUi() {
     setMainPanelButtonIcon(aboutButton, MainPanelIcon::About, QStringLiteral("About REX Player"));
     aboutButton->setToolTip(QStringLiteral("About REX Player"));
     connect(aboutButton, &QPushButton::clicked, this, [this] {
-        QMessageBox::about(
-            this,
-            QStringLiteral("About REX Player"),
-            QStringLiteral("REX Player 3.5.0\n\nA libmpv-based video player."));
+        QDialog dialog(this);
+        dialog.setWindowTitle(QStringLiteral("About REX Player"));
+        dialog.setModal(true);
+        dialog.resize(460, 230);
+
+        auto* layout = new QVBoxLayout(&dialog);
+        layout->setContentsMargins(20, 20, 20, 20);
+        layout->setSpacing(12);
+
+        auto* title = new QLabel(QStringLiteral("<b>REX Player %1</b>").arg(QCoreApplication::applicationVersion()), &dialog);
+        title->setAlignment(Qt::AlignCenter);
+        layout->addWidget(title);
+
+        auto* description = new QLabel(QStringLiteral("A libmpv-based video player."), &dialog);
+        description->setAlignment(Qt::AlignCenter);
+        layout->addWidget(description);
+
+        auto* checkButton = new QPushButton(QStringLiteral("Check for Updates"), &dialog);
+        layout->addWidget(checkButton);
+
+        auto* closeButton = new QPushButton(QStringLiteral("Close"), &dialog);
+        closeButton->setDefault(true);
+        layout->addWidget(closeButton);
+        connect(closeButton, &QPushButton::clicked, &dialog, &QDialog::accept);
+
+        connect(checkButton, &QPushButton::clicked, &dialog, [this, &dialog, checkButton] {
+            checkButton->setEnabled(false);
+            checkButton->setText(QStringLiteral("Checking..."));
+
+            auto* manager = new QNetworkAccessManager(&dialog);
+            QNetworkRequest request(QUrl(QStringLiteral("https://api.github.com/repos/ipSuman/MPV-LINUX/releases/latest")));
+            request.setHeader(QNetworkRequest::UserAgentHeader, QStringLiteral("REX-Player"));
+            request.setRawHeader("Accept", "application/vnd.github+json");
+            auto* reply = manager->get(request);
+
+            connect(reply, &QNetworkReply::finished, &dialog, [this, reply, checkButton] {
+                checkButton->setEnabled(true);
+                checkButton->setText(QStringLiteral("Check for Updates"));
+
+                if (reply->error() != QNetworkReply::NoError) {
+                    QMessageBox::warning(this, QStringLiteral("Check for Updates"),
+                                         QStringLiteral("Could not check for updates.\\n\\n%1").arg(reply->errorString()));
+                    reply->deleteLater();
+                    return;
+                }
+
+                const QJsonDocument document = QJsonDocument::fromJson(reply->readAll());
+                reply->deleteLater();
+                if (!document.isObject()) {
+                    QMessageBox::warning(this, QStringLiteral("Check for Updates"),
+                                         QStringLiteral("Could not read the latest release information."));
+                    return;
+                }
+
+                const QJsonObject release = document.object();
+                const QString latestTag = release.value(QStringLiteral("tag_name")).toString().trimmed();
+                const QString releaseUrl = release.value(QStringLiteral("html_url")).toString().trimmed();
+                QString latestVersion = latestTag;
+                if (latestVersion.startsWith(QLatin1Char('v'), Qt::CaseInsensitive))
+                    latestVersion.remove(0, 1);
+
+                const QString currentVersion = QCoreApplication::applicationVersion().trimmed();
+                const QVersionNumber current = QVersionNumber::fromString(currentVersion);
+                const QVersionNumber latest = QVersionNumber::fromString(latestVersion);
+
+                if (latest.isNull() || current.isNull()) {
+                    QMessageBox::warning(this, QStringLiteral("Check for Updates"),
+                                         QStringLiteral("Could not compare the installed and latest versions."));
+                    return;
+                }
+
+                if (latest > current) {
+                    const QString link = releaseUrl.isEmpty()
+                        ? QStringLiteral("https://github.com/ipSuman/MPV-LINUX/releases/latest")
+                        : releaseUrl;
+                    const QString message = QStringLiteral(
+                        "<b>A newer version of REX Player is available.</b><br><br>"
+                        "Installed version: %1<br>"
+                        "Latest version: %2<br><br>"
+                        "<a href=\"%3\">Open the current release</a>")
+                        .arg(currentVersion, latestVersion, link);
+                    QMessageBox box(QMessageBox::Information, QStringLiteral("Update Available"), message,
+                                    QMessageBox::NoButton, this);
+                    auto* openButton = box.addButton(QStringLiteral("Open Release"), QMessageBox::AcceptRole);
+                    box.addButton(QMessageBox::Close);
+                    box.setTextFormat(Qt::RichText);
+                    box.exec();
+                    if (box.clickedButton() == openButton)
+                        QDesktopServices::openUrl(QUrl(link));
+                } else {
+                    QMessageBox::information(this, QStringLiteral("Check for Updates"),
+                                             QStringLiteral("Up to Date :- )"));
+                }
+            });
+        });
+
+        dialog.exec();
     });
     row2->addWidget(aboutButton);
 
