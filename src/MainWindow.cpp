@@ -1583,6 +1583,8 @@ void MainWindow::updatePlaylistCurrentRowStyle() {
                   "QPushButton{background:#2b2b2b;color:#ddd;border:0;border-radius:4px;font-weight:700;}"
                   "QPushButton:hover{background:#8b2f2f;color:#fff;}"));
     }
+
+    m_lastPlaylistHighlightIndex = m_playlist->currentRow();
 }
 
 void MainWindow::syncPlaylistSelection() {
