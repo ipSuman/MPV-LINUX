@@ -1361,7 +1361,7 @@ void MainWindow::setPropertyDouble(const char* name, double value) {
     const int result = mpv_set_property_async(m_mpv, 0, name, MPV_FORMAT_DOUBLE, &value);
     if (result < 0) m_runtimeLogger->append(QStringLiteral("SET_PROPERTY submit FAILED: %1 result=%2").arg(QString::fromUtf8(name)).arg(result));
 }
-void MainWindow::updateSeekButtonLabels() { if (!m_seekBackButton || !m_seekForwardButton) return; m_seekBackButton->setText(QStringLiteral("−10s")); m_seekForwardButton->setText(QStringLiteral("+10s")); }
+void MainWindow::updateSeekButtonLabels() { if (!m_seekBackButton || !m_seekForwardButton) return; m_seekBackButton->setToolTip(QStringLiteral("Seek backward")); m_seekForwardButton->setToolTip(QStringLiteral("Seek forward")); }
 void MainWindow::adjustVideoZoom(double amount) { setPropertyDouble("video-zoom", std::clamp(getPropertyDouble("video-zoom") + amount, -2.0, 3.0)); }
 void MainWindow::resizeWindowForVideoAspect() {
     if (!m_mpv || isFullScreen() || isMaximized() || isMinimized() || !m_videoWidget) return;
