@@ -3008,7 +3008,14 @@ void MainWindow::toggleFullscreen() {
 }
 
 void MainWindow::setControlsVisible(bool visible) { if (m_controls) m_controls->setVisible(visible); }
-void MainWindow::togglePlaylist() { if (m_playlistDock) m_playlistDock->setVisible(!m_playlistDock->isVisible()); }
+void MainWindow::togglePlaylist() {
+    if (!m_playlistDock) return;
+    m_playlistDock->setVisible(!m_playlistDock->isVisible());
+
+    // Let Qt finish the dock layout change before recalculating the window
+    // size. Without this, the video widget can still report the old width.
+    QTimer::singleShot(0, this, &MainWindow::resizeWindowForVideoAspect);
+}
 void MainWindow::resizeEvent(QResizeEvent* event) {
     QMainWindow::resizeEvent(event);
     if (isFullScreen() && m_rootWidget && m_controls && m_controls->parentWidget() == m_rootWidget) {
