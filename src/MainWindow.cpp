@@ -198,8 +198,39 @@ QIcon makeMainPanelIcon(MainPanelIcon icon) {
     return QIcon(pixmap);
 }
 
+QString mainPanelTextForIcon(MainPanelIcon icon) {
+    switch (icon) {
+    case MainPanelIcon::Fullscreen: return QStringLiteral("⛶");
+    case MainPanelIcon::Open: return QStringLiteral("Open");
+    case MainPanelIcon::Hardware: return QStringLiteral("SW");
+    case MainPanelIcon::Cut: return QStringLiteral("AB Cut");
+    case MainPanelIcon::SaveAudio: return QStringLiteral("Save Audio");
+    case MainPanelIcon::Speed: return QStringLiteral("Speed");
+    case MainPanelIcon::Previous: return QStringLiteral("|«");
+    case MainPanelIcon::SeekBack: return QStringLiteral("−10s");
+    case MainPanelIcon::Play: return QStringLiteral("▶");
+    case MainPanelIcon::Pause: return QStringLiteral("Ⅱ");
+    case MainPanelIcon::SeekForward: return QStringLiteral("+10s");
+    case MainPanelIcon::Next: return QStringLiteral("»|");
+    case MainPanelIcon::Tracks: return QStringLiteral("Tracks");
+    case MainPanelIcon::Playlist: return QStringLiteral("Playlist");
+    case MainPanelIcon::Menu: return QStringLiteral("☰");
+    case MainPanelIcon::Controls: return QStringLiteral("Controls");
+    case MainPanelIcon::Display: return QStringLiteral("Display");
+    case MainPanelIcon::Capture: return QStringLiteral("Capture");
+    case MainPanelIcon::Rotate: return QStringLiteral("Rotate");
+    case MainPanelIcon::FlipH: return QStringLiteral("Flip H");
+    case MainPanelIcon::FlipV: return QStringLiteral("Flip V");
+    case MainPanelIcon::About: return QStringLiteral("About");
+    }
+    return QString();
+}
+
 void setMainPanelButtonIcon(QPushButton* button, MainPanelIcon icon, const QString& tooltip) {
     if (!button) return;
+    button->setProperty("main-panel-button", true);
+    button->setProperty("main-panel-icon", static_cast<int>(icon));
+    button->setProperty("main-panel-text", mainPanelTextForIcon(icon));
     button->setText(QString());
     button->setIcon(makeMainPanelIcon(icon));
     button->setIconSize(QSize(20, 20));
@@ -596,6 +627,8 @@ void MainWindow::buildUi() {
     controlsLayout->addLayout(row1);
     controlsLayout->addLayout(row2);
 
+    applyMainPanelButtonMode();
+
     // Keep the control bar in the root vertical layout so it stays at the
     // bottom of the window in normal mode.
     layout->addWidget(m_controls);
@@ -667,6 +700,39 @@ void MainWindow::buildUi() {
     updateSeekButtonLabels();
 }
 
+void MainWindow::applyMainPanelButtonMode() {
+    if (!m_controls) return;
+
+    const auto buttons = m_controls->findChildren<QPushButton*>();
+    for (QPushButton* button : buttons) {
+        if (!button || !button->property("main-panel-button").toBool()) continue;
+
+        const auto iconValue = button->property("main-panel-icon");
+        if (!iconValue.isValid()) continue;
+        const auto icon = static_cast<MainPanelIcon>(iconValue.toInt());
+
+        if (m_mainPanelIcons) {
+            button->setText(QString());
+            button->setIcon(makeMainPanelIcon(icon));
+            button->setIconSize(QSize(20, 20));
+            button->setMinimumSize(34, 30);
+            button->setMaximumSize(34, 30);
+            button->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+        } else {
+            button->setIcon(QIcon());
+            button->setText(button->property("main-panel-text").toString());
+            button->setMinimumSize(0, 30);
+            button->setMaximumSize(QWIDGETSIZE_MAX, 30);
+            button->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
+        }
+        button->updateGeometry();
+    }
+
+    // These two buttons have state-dependent labels in text mode.
+    updatePlayButton(getPropertyDouble("pause") != 0.0);
+    updateHardwareButton();
+}
+ 
 void MainWindow::loadControlSettings() {
     if (!m_controlSettings) return;
     m_controlSettings->load();
@@ -675,6 +741,7 @@ void MainWindow::loadControlSettings() {
     m_zoomWheelMode = m_controlSettings->zoomWheelMode;
     m_volumeWheelMode = m_controlSettings->volumeWheelMode;
     m_timerBesideProgress = m_controlSettings->timerBesideProgress;
+    m_mainPanelIcons = m_controlSettings->mainPanelIcons;
     m_panButton = m_controlSettings->panButton;
     m_doubleClickButton = m_controlSettings->doubleClickButton;
     m_seekDurationSeconds = m_controlSettings->seekDurationSeconds;
@@ -857,6 +924,13 @@ void MainWindow::showControlsDialog() {
         timerPositionButton->setText(checked ? QStringLiteral("Timer: Progress bar") : QStringLiteral("Timer: Controls"));
     });
     form->addRow(QStringLiteral("Timer position"), timerPositionButton);
+    auto* mainPanelStyle = new QComboBox(&dialog);
+    mainPanelStyle->addItem(QStringLiteral("Icons"), true);
+    mainPanelStyle->addItem(QStringLiteral("Text"), false);
+    selectData(mainPanelStyle, m_mainPanelIcons);
+    mainPanelStyle->setToolTip(QStringLiteral("Choose whether the main playback control buttons use monochrome icons or text labels."));
+    form->addRow(QStringLiteral("Main panel buttons"), mainPanelStyle);
+
 
     auto* cutWithZoomButton = new QPushButton(
         m_cutWithZoom ? QStringLiteral("Cut with zoom: On") : QStringLiteral("Cut with zoom: Off"),
@@ -990,7 +1064,7 @@ void MainWindow::showControlsDialog() {
     addShortcut(QStringLiteral("2 (hold) → Temporary 2x playback speed"), holdSpeed);
     contentLayout->addLayout(keyForm);
 
-    auto* note = new QLabel(QStringLiteral("Seek duration applies to the arrow keys, wheel seek and double-click seek zones. Choose 5, 10 or 30 seconds, or a value from 1 to 120 minutes. The −10s and +10s buttons always seek exactly 10 seconds. Speed jump controls how much Alt + Up / Down changes playback speed; choose 0.10x to 1.00x in 0.05x steps. Changes are saved for the next launch. Clear a shortcut to disable it. Cut with zoom bakes positive video zoom/pan and the current 90°-step rotation into the A-B output and therefore re-encodes the video."), &dialog);
+    auto* note = new QLabel(QStringLiteral("Seek duration applies to the arrow keys, wheel seek and double-click seek zones. Choose 5, 10 or 30 seconds, or a value from 1 to 120 minutes. The −10s and +10s buttons always seek exactly 10 seconds. Speed jump controls how much Alt + Up / Down changes playback speed; choose 0.10x to 1.00x in 0.05x steps. Button style and other changes are saved for the next launch. Clear a shortcut to disable it. Cut with zoom bakes positive video zoom/pan and the current 90°-step rotation into the A-B output and therefore re-encodes the video."), &dialog);
     note->setWordWrap(true);
     contentLayout->addWidget(note);
     content->setLayout(contentLayout);
@@ -1014,6 +1088,7 @@ void MainWindow::showControlsDialog() {
         selectData(zoomWheel, QStringLiteral("alt-wheel"));
         selectData(volumeWheel, QStringLiteral("ctrl-wheel"));
         timerPositionButton->setChecked(true);
+        selectData(mainPanelStyle, true);
         selectData(panButton, static_cast<int>(Qt::MiddleButton));
         selectData(doubleClickButton, static_cast<int>(Qt::LeftButton));
         volumeUp->setKeySequence(QKeySequence(Qt::SHIFT | Qt::Key_V));
@@ -1061,6 +1136,7 @@ void MainWindow::showControlsDialog() {
         m_zoomWheelMode = zoomWheel->currentData().toString();
         m_volumeWheelMode = volumeWheel->currentData().toString();
         m_timerBesideProgress = timerPositionButton->isChecked();
+        m_mainPanelIcons = mainPanelStyle->currentData().toBool();
         m_panButton = static_cast<Qt::MouseButton>(panButton->currentData().toInt());
         m_doubleClickButton = static_cast<Qt::MouseButton>(doubleClickButton->currentData().toInt());
         m_volumeUpKey = volumeUp->keySequence();
@@ -1100,6 +1176,7 @@ void MainWindow::showControlsDialog() {
             m_controlSettings->zoomWheelMode = m_zoomWheelMode;
             m_controlSettings->volumeWheelMode = m_volumeWheelMode;
             m_controlSettings->timerBesideProgress = m_timerBesideProgress;
+            m_controlSettings->mainPanelIcons = m_mainPanelIcons;
             m_controlSettings->panButton = m_panButton;
             m_controlSettings->doubleClickButton = m_doubleClickButton;
             m_controlSettings->volumeUpKey = m_volumeUpKey;
@@ -1131,6 +1208,7 @@ void MainWindow::showControlsDialog() {
             applyInterfaceFont(m_controlSettings->fontPath, m_controlSettings->fontFamily, m_controlSettings->fontSize);
         }
         updateSeekButtonLabels();
+        applyMainPanelButtonMode();
         dialog.accept();
     });
     connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
@@ -1711,10 +1789,19 @@ void MainWindow::updateHardwareButton() {
     if (!m_hwButton || !m_mpv) return;
     const QString current = getPropertyString("hwdec-current").trimmed().toLower();
     const bool hardwareActive = !current.isEmpty() && current != QStringLiteral("no");
-    m_hwButton->setToolTip(hardwareActive ? QStringLiteral("Hardware decoding (on) — click to switch to software") : QStringLiteral("Software decoding (on) — click to switch to hardware"));
-    m_hwButton->setToolTip(hardwareActive
-        ? QStringLiteral("Hardware decoding active (%1). Click to switch to software decoding.").arg(current)
-        : QStringLiteral("Software decoding active. Click to enable hardware decoding when supported."));
+
+    if (m_mainPanelIcons) {
+        m_hwButton->setText(QString());
+        m_hwButton->setIcon(makeMainPanelIcon(MainPanelIcon::Hardware));
+    } else {
+        m_hwButton->setIcon(QIcon());
+        m_hwButton->setText(hardwareActive ? QStringLiteral("HW") : QStringLiteral("SW"));
+    }
+
+    m_hwButton->setToolTip(
+        hardwareActive
+            ? QStringLiteral("Hardware decoding active (%1). Click to switch to software decoding.").arg(current)
+            : QStringLiteral("Software decoding active. Click to enable hardware decoding when supported."));
 }
 
 void MainWindow::showTracksMenu() {
@@ -2154,7 +2241,16 @@ void MainWindow::updatePlaybackUi() {
     syncPlaylistSelection();
 }
 
-void MainWindow::updatePlayButton(bool paused) { if (m_playButton) m_playButton->setIcon(makeMainPanelIcon(paused ? MainPanelIcon::Play : MainPanelIcon::Pause)); }
+void MainWindow::updatePlayButton(bool paused) {
+    if (!m_playButton) return;
+    if (m_mainPanelIcons) {
+        m_playButton->setText(QString());
+        m_playButton->setIcon(makeMainPanelIcon(paused ? MainPanelIcon::Play : MainPanelIcon::Pause));
+    } else {
+        m_playButton->setIcon(QIcon());
+        m_playButton->setText(paused ? QStringLiteral("▶") : QStringLiteral("Ⅱ"));
+    }
+}
 void MainWindow::increaseSubtitlePosition() {
     const double current = std::clamp(getPropertyDouble("sub-pos"), 0.0, 150.0);
     setPropertyDouble("sub-pos", std::max(0.0, current - 1.0));
