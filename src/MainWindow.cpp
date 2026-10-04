@@ -849,6 +849,15 @@ void MainWindow::applyControlSettingsToRuntime() {
     m_timerBesideProgress = m_controlSettings->timerBesideProgress;
     m_mainPanelIcons = m_controlSettings->mainPanelIcons;
     m_returnFocusToVideoAfterMouseAction = m_controlSettings->returnFocusToVideoAfterMouseAction;
+    m_verboseLogging = m_controlSettings->verboseLogging;
+    if (m_mpv) {
+        const int logResult = mpv_request_log_messages(m_mpv, m_verboseLogging ? "info" : "no");
+        if (m_runtimeLogger) {
+            m_runtimeLogger->append(QStringLiteral("VERBOSE LOGGING: %1 (mpv log level result=%2)")
+                .arg(m_verboseLogging ? QStringLiteral("enabled") : QStringLiteral("disabled"))
+                .arg(logResult));
+        }
+    }
     m_panButton = m_controlSettings->panButton;
     m_doubleClickButton = m_controlSettings->doubleClickButton;
     m_seekDurationSeconds = m_controlSettings->seekDurationSeconds;
@@ -1053,6 +1062,17 @@ void MainWindow::showControlsDialog() {
     selectData(mouseFocusMode, m_returnFocusToVideoAfterMouseAction);
     mouseFocusMode->setToolTip(QStringLiteral("Choose whether mouse actions on playback controls return keyboard focus to the video after 20 ms."));
     form->addRow(QStringLiteral("Mouse action focus"), mouseFocusMode);
+
+    auto* verboseLoggingButton = new QPushButton(
+        m_verboseLogging ? QStringLiteral("Verbose logging: On") : QStringLiteral("Verbose logging: Off"),
+        &dialog);
+    verboseLoggingButton->setCheckable(true);
+    verboseLoggingButton->setChecked(m_verboseLogging);
+    verboseLoggingButton->setToolTip(QStringLiteral("When enabled, log every mpv event and subscribe to mpv informational logs. Keep this off during normal playback to minimize diagnostic I/O."));
+    connect(verboseLoggingButton, &QPushButton::toggled, &dialog, [verboseLoggingButton](bool checked) {
+        verboseLoggingButton->setText(checked ? QStringLiteral("Verbose logging: On") : QStringLiteral("Verbose logging: Off"));
+    });
+    form->addRow(QStringLiteral("Diagnostic logging"), verboseLoggingButton);
     auto* saveSettingsButton = new QPushButton(QStringLiteral("Save Settings"), &dialog);
     saveSettingsButton->setToolTip(QStringLiteral("Save the current REX Player control settings to a profile file."));
     auto* loadSettingsButton = new QPushButton(QStringLiteral("Load Settings"), &dialog);
@@ -1266,6 +1286,7 @@ void MainWindow::showControlsDialog() {
         timerPositionButton->setChecked(true);
         selectData(mainPanelStyle, true);
         selectData(mouseFocusMode, true);
+        verboseLoggingButton->setChecked(false);
         selectData(panButton, static_cast<int>(Qt::MiddleButton));
         selectData(doubleClickButton, static_cast<int>(Qt::LeftButton));
         volumeUp->setKeySequence(QKeySequence(Qt::SHIFT | Qt::Key_V));
@@ -1315,6 +1336,7 @@ void MainWindow::showControlsDialog() {
         m_timerBesideProgress = timerPositionButton->isChecked();
         m_mainPanelIcons = mainPanelStyle->currentData().toBool();
         m_returnFocusToVideoAfterMouseAction = mouseFocusMode->currentData().toBool();
+        m_verboseLogging = verboseLoggingButton->isChecked();
         m_panButton = static_cast<Qt::MouseButton>(panButton->currentData().toInt());
         m_doubleClickButton = static_cast<Qt::MouseButton>(doubleClickButton->currentData().toInt());
         m_volumeUpKey = volumeUp->keySequence();
@@ -1356,6 +1378,7 @@ void MainWindow::showControlsDialog() {
             m_controlSettings->timerBesideProgress = m_timerBesideProgress;
             m_controlSettings->mainPanelIcons = m_mainPanelIcons;
             m_controlSettings->returnFocusToVideoAfterMouseAction = m_returnFocusToVideoAfterMouseAction;
+            m_controlSettings->verboseLogging = m_verboseLogging;
             m_controlSettings->panButton = m_panButton;
             m_controlSettings->doubleClickButton = m_doubleClickButton;
             m_controlSettings->volumeUpKey = m_volumeUpKey;
@@ -1468,10 +1491,12 @@ bool MainWindow::initializeMpv() {
         showError(QStringLiteral("Could not initialize libmpv.")); return false;
     }
     m_runtimeLogger->append(QStringLiteral("initializeMpv: mpv_initialize succeeded"));
-    // Normal playback does not subscribe to mpv informational logs. They can be
-    // high-frequency and provide no value for routine playback diagnostics.
-    const int logResult = 0;
-    m_runtimeLogger->append(QStringLiteral("initializeMpv: requested mpv info logs, result=%1").arg(logResult));
+    // Normal playback keeps mpv informational logging disabled because it can be
+    // high-frequency. Verbose logging is an explicit opt-in from Controls.
+    const int logResult = mpv_request_log_messages(m_mpv, m_verboseLogging ? "info" : "no");
+    m_runtimeLogger->append(QStringLiteral("initializeMpv: mpv log level=%1, result=%2")
+        .arg(m_verboseLogging ? QStringLiteral("info") : QStringLiteral("disabled"))
+        .arg(logResult));
     setPropertyDouble("saturation", m_saturation);
     setPropertyDouble("brightness", m_brightness);
     setPropertyDouble("contrast", m_contrast);
@@ -1939,6 +1964,7 @@ QString MainWindow::diagnosticControlState() const {
     out << "Pan gesture: Alt + Ctrl + configured pan-button drag\n";
     out << "Double-click button: " << static_cast<int>(m_doubleClickButton) << "\n";
     out << "Double-click zones: " << (m_doubleClickZones ? "enabled" : "disabled") << "\n";
+    out << "Verbose logging: " << (m_verboseLogging ? "enabled" : "disabled") << "\n";
     out << "Volume up shortcut: " << m_volumeUpKey.toString() << "\n";
     out << "Volume down shortcut: " << m_volumeDownKey.toString() << "\n";
     out << "Mute shortcut: " << m_muteKey.toString() << "\n";
@@ -2276,7 +2302,7 @@ void MainWindow::pumpMpvEvents() {
             event->event_id == MPV_EVENT_FILE_LOADED ||
             event->event_id == MPV_EVENT_END_FILE ||
             event->event_id == MPV_EVENT_SHUTDOWN;
-        if (importantEvent) {
+        if (m_verboseLogging || importantEvent) {
             m_runtimeLogger->append(
                 QStringLiteral("MPV_EVENT: %1 (%2)")
                     .arg(mpvEventName(event->event_id))
@@ -2286,7 +2312,8 @@ void MainWindow::pumpMpvEvents() {
         if (event->event_id == MPV_EVENT_LOG_MESSAGE && event->data) {
             const auto* log = static_cast<mpv_event_log_message*>(event->data);
             const QString level = QString::fromUtf8(log->level ? log->level : "").trimmed().toLower();
-            if (level == QStringLiteral("error") ||
+            if (m_verboseLogging ||
+                level == QStringLiteral("error") ||
                 level == QStringLiteral("warn") ||
                 level == QStringLiteral("fatal")) {
                 m_runtimeLogger->append(QStringLiteral("MPV_LOG [%1] %2: %3")
