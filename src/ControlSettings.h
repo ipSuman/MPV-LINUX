@@ -11,6 +11,7 @@ public:
     QString volumeWheelMode = QStringLiteral("ctrl-wheel");
     bool timerBesideProgress = true;
     bool mainPanelIcons = true;
+    bool returnFocusToVideoAfterMouseAction = true;
     Qt::MouseButton panButton = Qt::MiddleButton;
     Qt::MouseButton doubleClickButton = Qt::LeftButton;
     int seekDurationSeconds = 60;
