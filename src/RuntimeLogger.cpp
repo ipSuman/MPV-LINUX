@@ -7,6 +7,7 @@
 #include <QStandardPaths>
 #include <QSysInfo>
 #include <QTextStream>
+#include <utility>
 
 RuntimeLogger::RuntimeLogger(QObject* parent)
     : QObject(parent) {
@@ -36,20 +37,41 @@ bool RuntimeLogger::initialize() {
         << " | Kernel: " << QSysInfo::kernelVersion()
         << " | CPU: " << QSysInfo::currentCpuArchitecture() << "\n";
     out.flush();
+
+    m_flushTimer.setInterval(500);
+    m_flushTimer.setSingleShot(false);
+    QObject::connect(&m_flushTimer, &QTimer::timeout, this, &RuntimeLogger::flush);
+    m_flushTimer.start();
     return true;
+}
+
+RuntimeLogger::~RuntimeLogger() {
+    m_flushTimer.stop();
+    flush();
 }
 
 void RuntimeLogger::append(const QString& message) {
     if (m_path.isEmpty()) return;
 
+    m_pending.append(
+        QDateTime::currentDateTime().toString(Qt::ISODateWithMs)
+        + QStringLiteral(" | ") + message + QLatin1Char('\n'));
+
+    // Keep the hot path memory-only. Disk I/O is batched by the timer.
+    if (m_pending.size() >= 128) flush();
+}
+
+void RuntimeLogger::flush() {
+    if (m_path.isEmpty() || m_pending.isEmpty()) return;
+
     QFile file(m_path);
     if (!file.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Append)) return;
 
     QTextStream out(&file);
-    out << QDateTime::currentDateTime().toString(Qt::ISODateWithMs)
-        << " | " << message << "\n";
+    out.setEncoding(QStringConverter::Utf8);
+    for (const QString& line : std::as_const(m_pending)) out << line;
     out.flush();
-    file.flush();
+    m_pending.clear();
 }
 
 QString RuntimeLogger::path() const {
