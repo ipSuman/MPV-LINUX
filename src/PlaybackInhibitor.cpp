@@ -38,6 +38,14 @@ void PlaybackInhibitor::setActive(bool active) {
                 .arg(result != 0 ? QStringLiteral("success") : QStringLiteral("FAILED")));
     }
 #elif defined(Q_OS_LINUX)
+    if (active && m_active && m_process &&
+        m_process->state() != QProcess::NotRunning) {
+        return;
+    }
+    if (!active && !m_active && !m_process) {
+        return;
+    }
+
     if (active) {
         if (!m_process || m_process->state() == QProcess::NotRunning) {
             if (m_process) {
@@ -83,9 +91,12 @@ void PlaybackInhibitor::setActive(bool active) {
             }
         }
 
+        const bool wasActive = m_active;
         m_active = m_process && m_process->state() != QProcess::NotRunning;
-        log(QStringLiteral("POWER INHIBIT: active=%1")
-                .arg(m_active ? QStringLiteral("yes") : QStringLiteral("no")));
+        if (m_active != wasActive) {
+            log(QStringLiteral("POWER INHIBIT: active=%1")
+                    .arg(m_active ? QStringLiteral("yes") : QStringLiteral("no")));
+        }
     } else {
         if (m_process) {
             log(QStringLiteral("POWER INHIBIT: stopping inhibitor process"));
