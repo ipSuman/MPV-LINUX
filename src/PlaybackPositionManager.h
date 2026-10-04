@@ -2,6 +2,7 @@
 
 #include <QObject>
 #include <QString>
+#include <QSettings>
 
 class PlaybackPositionManager final : public QObject {
     Q_OBJECT
@@ -13,4 +14,6 @@ public:
 
 private:
     QString keyFor(const QString& path) const;
+
+    QSettings m_settings;
 };
