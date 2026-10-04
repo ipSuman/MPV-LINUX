@@ -1337,6 +1337,14 @@ void MainWindow::showControlsDialog() {
         m_mainPanelIcons = mainPanelStyle->currentData().toBool();
         m_returnFocusToVideoAfterMouseAction = mouseFocusMode->currentData().toBool();
         m_verboseLogging = verboseLoggingButton->isChecked();
+        if (m_mpv) {
+            const int logResult = mpv_request_log_messages(m_mpv, m_verboseLogging ? "info" : "no");
+            if (m_runtimeLogger) {
+                m_runtimeLogger->append(QStringLiteral("VERBOSE LOGGING: %1 (mpv log level result=%2)")
+                    .arg(m_verboseLogging ? QStringLiteral("enabled") : QStringLiteral("disabled"))
+                    .arg(logResult));
+            }
+        }
         m_panButton = static_cast<Qt::MouseButton>(panButton->currentData().toInt());
         m_doubleClickButton = static_cast<Qt::MouseButton>(doubleClickButton->currentData().toInt());
         m_volumeUpKey = volumeUp->keySequence();
