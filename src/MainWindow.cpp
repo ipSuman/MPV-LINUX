@@ -1468,7 +1468,9 @@ bool MainWindow::initializeMpv() {
         showError(QStringLiteral("Could not initialize libmpv.")); return false;
     }
     m_runtimeLogger->append(QStringLiteral("initializeMpv: mpv_initialize succeeded"));
-    const int logResult = mpv_request_log_messages(m_mpv, "info");
+    // Normal playback does not subscribe to mpv informational logs. They can be
+    // high-frequency and provide no value for routine playback diagnostics.
+    const int logResult = 0;
     m_runtimeLogger->append(QStringLiteral("initializeMpv: requested mpv info logs, result=%1").arg(logResult));
     setPropertyDouble("saturation", m_saturation);
     setPropertyDouble("brightness", m_brightness);
@@ -1584,12 +1586,21 @@ void MainWindow::updatePlaylistCurrentRowStyle() {
 }
 
 void MainWindow::syncPlaylistSelection() {
-    if (m_playlistController && m_playlist &&
-        m_playlistController->currentIndex() >= 0 &&
-        m_playlistController->currentIndex() < m_playlist->count()) {
-        m_playlist->setCurrentRow(m_playlistController->currentIndex());
-    }
+    if (!m_playlistController || !m_playlist) return;
+
+    const int index = m_playlistController->currentIndex();
+    const int validIndex =
+        (index >= 0 && index < m_playlist->count()) ? index : -1;
+
+    // The UI timer runs every 250 ms; only touch selection styling when the
+    // selected playlist item has actually changed.
+    if (validIndex == m_lastPlaylistHighlightIndex) return;
+
+    if (validIndex >= 0 && m_playlist->currentRow() != validIndex)
+        m_playlist->setCurrentRow(validIndex);
+
     updatePlaylistCurrentRowStyle();
+    m_lastPlaylistHighlightIndex = validIndex;
 }
 
 void MainWindow::command(const char** args) {
@@ -2258,13 +2269,29 @@ void MainWindow::pumpMpvEvents() {
         mpv_event* event = mpv_wait_event(m_mpv, 0);
         if (!event || event->event_id == MPV_EVENT_NONE) break;
 
-        m_runtimeLogger->append(QStringLiteral("MPV_EVENT: %1 (%2)").arg(mpvEventName(event->event_id)).arg(event->event_id));
+        const bool importantEvent =
+            event->event_id == MPV_EVENT_START_FILE ||
+            event->event_id == MPV_EVENT_FILE_LOADED ||
+            event->event_id == MPV_EVENT_END_FILE ||
+            event->event_id == MPV_EVENT_SHUTDOWN;
+        if (importantEvent) {
+            m_runtimeLogger->append(
+                QStringLiteral("MPV_EVENT: %1 (%2)")
+                    .arg(mpvEventName(event->event_id))
+                    .arg(event->event_id));
+        }
+
         if (event->event_id == MPV_EVENT_LOG_MESSAGE && event->data) {
             const auto* log = static_cast<mpv_event_log_message*>(event->data);
-            m_runtimeLogger->append(QStringLiteral("MPV_LOG [%1] %2: %3")
-                .arg(QString::fromUtf8(log->level ? log->level : ""))
-                .arg(QString::fromUtf8(log->prefix ? log->prefix : ""))
-                .arg(QString::fromUtf8(log->text ? log->text : "").trimmed()));
+            const QString level = QString::fromUtf8(log->level ? log->level : "").trimmed().toLower();
+            if (level == QStringLiteral("error") ||
+                level == QStringLiteral("warn") ||
+                level == QStringLiteral("fatal")) {
+                m_runtimeLogger->append(QStringLiteral("MPV_LOG [%1] %2: %3")
+                    .arg(level)
+                    .arg(QString::fromUtf8(log->prefix ? log->prefix : ""))
+                    .arg(QString::fromUtf8(log->text ? log->text : "").trimmed()));
+            }
         }
         if (event->event_id == MPV_EVENT_FILE_LOADED) {
             // Update the native window title from the file mpv actually loaded.
@@ -2412,8 +2439,10 @@ void MainWindow::updatePlaybackUi() {
     m_progressTimeLabel->setVisible(m_timerBesideProgress);
     updatePlayButton(paused != 0);
     updateHardwareButton();
-    updatePlaybackInhibit(paused == 0 && !getPropertyString("path").isEmpty());
-    if (m_pendingResumePath == getPropertyString("path") && (QDateTime::currentMSecsSinceEpoch() - m_lastPositionSaveMs) >= 1000) {
+    const QString currentPath = getPropertyString("path");
+    updatePlaybackInhibit(paused == 0 && !currentPath.isEmpty());
+    if (m_pendingResumePath == currentPath &&
+        (QDateTime::currentMSecsSinceEpoch() - m_lastPositionSaveMs) >= 1000) {
         saveCurrentPlaybackPosition();
         m_lastPositionSaveMs = QDateTime::currentMSecsSinceEpoch();
     }
@@ -2581,6 +2610,7 @@ void MainWindow::removePlaylistItem(int index) {
 
     if (m_playlist->count() == 0) {
         m_playlistController->clear();
+        m_lastPlaylistHighlightIndex = -2;
     } else if (wasCurrent) {
         const int nextSelection = std::clamp(index, 0, m_playlist->count() - 1);
         m_playlistController->setCurrentIndex(nextSelection);
@@ -2596,6 +2626,7 @@ void MainWindow::removePlaylistItem(int index) {
 void MainWindow::clearPlaylist() {
     if (m_playlist) m_playlist->clear();
     if (m_playlistController) m_playlistController->clear();
+    m_lastPlaylistHighlightIndex = -2;
 }
 void MainWindow::playlistActivated() {
     if (m_playlistController && m_playlist && m_playlist->currentItem()) {
