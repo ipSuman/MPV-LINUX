@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(REXPlayerLinux VERSION 2.1.0 LANGUAGES CXX)
+project(REXPlayerLinux VERSION 3.5.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -47,6 +47,30 @@ add_executable(rex-player
     src/main.cpp
     src/MainWindow.cpp
     src/MainWindow.h
+    src/MpvNodeUtils.cpp
+    src/MpvNodeUtils.h
+    src/AudioExporter.cpp
+    src/AudioExporter.h
+    src/RuntimeLogger.cpp
+    src/RuntimeLogger.h
+    src/PlaybackPositionManager.cpp
+    src/PlaybackPositionManager.h
+    src/PlaylistController.cpp
+    src/PlaylistController.h
+    src/VideoTransformer.cpp
+    src/VideoTransformer.h
+    src/TrackController.cpp
+    src/TrackController.h
+    src/PlaybackInhibitor.cpp
+    src/PlaybackInhibitor.h
+    src/DiagnosticReporter.cpp
+    src/DiagnosticReporter.h
+    src/DisplayController.cpp
+    src/DisplayController.h
+    src/ScreenshotController.cpp
+    src/ScreenshotController.h
+    src/ControlSettings.cpp
+    src/ControlSettings.h
     assets/rex-player.qrc
 )
 

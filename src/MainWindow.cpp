@@ -5,7 +5,7 @@
 #include <QCloseEvent>
 #include <QCheckBox>
 #include <QCoreApplication>
-#include <QCryptographicHash>
+#include <QApplication>
 #include <QCursor>
 #include <QComboBox>
 #include <QDir>
@@ -17,8 +17,10 @@
 #include <QDropEvent>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QFontDatabase>
 #include <QFormLayout>
 #include <QGuiApplication>
+#include <QIcon>
 #include <QHBoxLayout>
 #include <QKeyEvent>
 #include <QKeySequenceEdit>
@@ -43,12 +45,27 @@
 #include <QSettings>
 #include <QScreen>
 #include <QScrollArea>
+#include <QSizePolicy>
 #include <QShortcut>
 #include <QSlider>
 #include <QSpinBox>
 #include <QVBoxLayout>
 #include <QWheelEvent>
+#include <QWidgetAction>
 #include <QWidget>
+
+#include "MpvNodeUtils.h"
+#include "AudioExporter.h"
+#include "RuntimeLogger.h"
+#include "PlaybackPositionManager.h"
+#include "PlaylistController.h"
+#include "VideoTransformer.h"
+#include "TrackController.h"
+#include "PlaybackInhibitor.h"
+#include "DiagnosticReporter.h"
+#include "DisplayController.h"
+#include "ScreenshotController.h"
+#include "ControlSettings.h"
 
 #include <algorithm>
 #include <cmath>
@@ -57,9 +74,6 @@
 
 #include <mpv/client.h>
 
-#ifdef Q_OS_WIN
-#include <windows.h>
-#endif
 
 namespace {
 const QStringList kMediaExtensions = {
@@ -74,31 +88,6 @@ const QStringList kMediaExtensions = {
 
 bool isMediaFile(const QFileInfo& info) {
     return info.isFile() && kMediaExtensions.contains(info.suffix().toLower());
-}
-
-const mpv_node* mapValue(const mpv_node_list* map, const char* key) {
-    if (!map || !map->keys || !map->values) return nullptr;
-    for (int i = 0; i < map->num; ++i) {
-        if (map->keys[i] && qstrcmp(map->keys[i], key) == 0) return &map->values[i];
-    }
-    return nullptr;
-}
-
-QString nodeString(const mpv_node* node) {
-    if (!node) return {};
-    if (node->format == MPV_FORMAT_STRING && node->u.string) return QString::fromUtf8(node->u.string);
-    return {};
-}
-
-int nodeInt(const mpv_node* node, int fallback = -1) {
-    if (!node) return fallback;
-    if (node->format == MPV_FORMAT_INT64) return static_cast<int>(node->u.int64);
-    if (node->format == MPV_FORMAT_DOUBLE) return static_cast<int>(node->u.double_);
-    return fallback;
-}
-
-bool nodeFlag(const mpv_node* node) {
-    return node && node->format == MPV_FORMAT_FLAG && node->u.flag != 0;
 }
 
 bool wheelModeMatches(const QString& mode, Qt::KeyboardModifiers modifiers) {
@@ -125,12 +114,58 @@ void selectData(QComboBox* combo, const QVariant& value) {
 
 MainWindow::MainWindow(const QString& mediaPath, QWidget* parent)
     : QMainWindow(parent) {
+    m_defaultApplicationFont = QApplication::font();
     setWindowTitle(QStringLiteral("REX Player"));
     resize(1200, 760);
     setAcceptDrops(true);
     setFocusPolicy(Qt::StrongFocus);
+    m_controlSettings = new ControlSettings;
     loadControlSettings();
+    m_playlistController = new PlaylistController();
     buildUi();
+
+    m_speedUpShortcut = new QShortcut(m_speedUpKey, this);
+    m_speedUpShortcut->setContext(Qt::WindowShortcut);
+    connect(m_speedUpShortcut, &QShortcut::activated, this, &MainWindow::increasePlaybackSpeed);
+
+    m_speedDownShortcut = new QShortcut(m_speedDownKey, this);
+    m_speedDownShortcut->setContext(Qt::WindowShortcut);
+    connect(m_speedDownShortcut, &QShortcut::activated, this, &MainWindow::decreasePlaybackSpeed);
+
+    m_toastTimer.setSingleShot(true);
+    connect(&m_toastTimer, &QTimer::timeout, this, [this] {
+        if (m_toastLabel) m_toastLabel->hide();
+    });
+
+    m_runtimeLogger = new RuntimeLogger(this);
+    m_playbackPositions = new PlaybackPositionManager(this);
+    m_audioExporter = new AudioExporter(this);
+    connect(m_audioExporter, &AudioExporter::logMessage,
+            m_runtimeLogger, &RuntimeLogger::append);
+    connect(m_audioExporter, &AudioExporter::finished, this,
+            [this](bool success, const QString& output, const QString& errorMessage,
+                   const QString& stderrText, const QString&, int, QProcess::ExitStatus) {
+        if (success) {
+            showToast(QStringLiteral("Audio Saved"));
+            showError(QStringLiteral("REX Player — Audio saved: %1")
+                          .arg(QFileInfo(output).fileName()));
+            QMessageBox::information(
+                this, QStringLiteral("Save Audio"),
+                QStringLiteral("Audio track saved successfully:\n%1").arg(output));
+        } else {
+            showError(QStringLiteral("REX Player — Audio save failed"));
+            const QString details = !stderrText.isEmpty() ? stderrText : errorMessage;
+            QMessageBox::warning(
+                this, QStringLiteral("Save Audio"),
+                QStringLiteral("Could not save the selected audio track.\n\n%1")
+                    .arg(details.isEmpty()
+                             ? QStringLiteral("FFmpeg returned an error.")
+                             : details));
+            if (!output.isEmpty()) QFile::remove(output);
+        }
+        if (m_saveAudioButton) m_saveAudioButton->setEnabled(true);
+
+    });
 
     auto* enterFullscreenShortcut = new QShortcut(QKeySequence(Qt::Key_Return), this);
     enterFullscreenShortcut->setContext(Qt::WindowShortcut);
@@ -166,6 +201,28 @@ MainWindow::MainWindow(const QString& mediaPath, QWidget* parent)
 
     if (!initializeMpv()) return;
 
+    // m_mpv must exist before VideoTransformer captures the handle.
+    m_videoTransformer = new VideoTransformer(m_mpv, m_runtimeLogger, this);
+
+    m_trackController = new TrackController(m_mpv, m_runtimeLogger, this);
+
+    m_playbackInhibitor = new PlaybackInhibitor(m_runtimeLogger, this);
+
+    m_diagnosticReporter = new DiagnosticReporter(m_mpv, m_runtimeLogger, m_playlistController, this);
+    m_diagnosticReporter->setControlStateProvider([this] { return diagnosticControlState(); });
+    m_displayController = new DisplayController(
+        this, &m_saturation, &m_brightness, &m_contrast,
+        [this](const char* property, double value) { setPropertyDouble(property, value); }, this);
+    connect(m_displayController, &DisplayController::logMessage,
+            m_runtimeLogger, &RuntimeLogger::append);
+    m_screenshotController = new ScreenshotController(m_mpv, this);
+    connect(m_screenshotController, &ScreenshotController::errorMessage,
+            this, &MainWindow::showError);
+    connect(m_screenshotController, &ScreenshotController::successMessage,
+            this, [this](const QString& message, const QString&) { showToast(message); });
+    connect(m_screenshotController, &ScreenshotController::logMessage,
+            m_runtimeLogger, &RuntimeLogger::append);
+
     m_uiTimer.setInterval(250);
     connect(&m_uiTimer, &QTimer::timeout, this, &MainWindow::updatePlaybackUi);
     m_uiTimer.start();
@@ -176,6 +233,12 @@ MainWindow::MainWindow(const QString& mediaPath, QWidget* parent)
 MainWindow::~MainWindow() {
     m_uiTimer.stop();
     updatePlaybackInhibit(false);
+    m_videoTransformer = nullptr;
+    m_playbackInhibitor = nullptr;
+    delete m_playlistController;
+    m_playlistController = nullptr;
+    delete m_controlSettings;
+    m_controlSettings = nullptr;
     if (m_mpv) {
         // The wakeup callback may originate from an mpv worker thread. Unregister
         // it before destroying the client handle so no callback can target this
@@ -191,6 +254,15 @@ void MainWindow::buildUi() {
     m_rootWidget = root;
     root->setObjectName(QStringLiteral("root"));
     root->setStyleSheet(QStringLiteral("QWidget#root{background:#000;}"));
+
+    m_toastLabel = new QLabel(root);
+    m_toastLabel->setObjectName(QStringLiteral("toastLabel"));
+    m_toastLabel->setAlignment(Qt::AlignCenter);
+    m_toastLabel->setStyleSheet(QStringLiteral(
+        "QLabel#toastLabel{background:#222;color:#fff;border:1px solid #555;"
+        "border-radius:6px;padding:7px 14px;font-weight:600;}"));
+    m_toastLabel->setAttribute(Qt::WA_TransparentForMouseEvents);
+    m_toastLabel->hide();
     auto* layout = new QVBoxLayout(root);
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(0);
@@ -209,11 +281,11 @@ void MainWindow::buildUi() {
     m_controls->setObjectName(QStringLiteral("controls"));
     m_controls->setStyleSheet(QStringLiteral(
         "QWidget#controls{background:#171717;color:#eee;}"
-        "QPushButton{background:transparent;color:#eee;border:0;padding:4px 6px;font-size:11px;}"
+        "QPushButton{background:transparent;color:#eee;border:0;padding:4px 6px;}"
         "QPushButton:hover{background:#303030;border-radius:5px;}"
         "QSlider::groove:horizontal{height:4px;background:#555;border-radius:2px;}"
         "QSlider::handle:horizontal{width:12px;margin:-4px 0;border-radius:6px;background:#ddd;}"
-        "QLabel{color:#ddd;font-size:11px;}"));
+        "QLabel{color:#ddd;}"));
     auto* controlsLayout = new QVBoxLayout(m_controls);
     controlsLayout->setContentsMargins(8, 5, 8, 6);
     controlsLayout->setSpacing(3);
@@ -221,10 +293,13 @@ void MainWindow::buildUi() {
     auto* progressRow = new QHBoxLayout();
     progressRow->setContentsMargins(0, 0, 0, 0);
     progressRow->setSpacing(6);
+
     m_currentTimeLabel = new QLabel(QStringLiteral("00:00"), m_controls);
     m_currentTimeLabel->setFixedWidth(64);
+    m_currentTimeLabel->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
     m_currentTimeLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
     progressRow->addWidget(m_currentTimeLabel);
+
     m_seekSlider = new QSlider(Qt::Horizontal, m_controls);
     m_seekSlider->setRange(0, 1000);
     m_seekSlider->setTracking(false);
@@ -235,235 +310,325 @@ void MainWindow::buildUi() {
         seekTo(m_seekSlider->value());
     });
     progressRow->addWidget(m_seekSlider, 1);
+
     m_progressTimeLabel = new QLabel(QStringLiteral("00:00"), m_controls);
     m_progressTimeLabel->setFixedWidth(64);
-    m_progressTimeLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    m_progressTimeLabel->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
+    m_progressTimeLabel->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
     m_progressTimeLabel->setToolTip(QStringLiteral("Click to switch between total and remaining time"));
     m_progressTimeLabel->setCursor(Qt::PointingHandCursor);
     m_progressTimeLabel->installEventFilter(this);
     progressRow->addWidget(m_progressTimeLabel);
+    progressRow->setAlignment(Qt::AlignVCenter);
     controlsLayout->addLayout(progressRow);
 
-    auto* row = new QHBoxLayout();
-    row->setContentsMargins(0, 0, 0, 0);
-    row->setSpacing(2);
+    // Two control rows matching the reference layout exactly.
+    // Row 1: fullscreen/open/decoder/A-B, playback cluster, volume/tracks/playlist/menu.
+    // Row 2: settings/capture/transforms on the left and About on the right.
+    auto* row1 = new QHBoxLayout();
+    row1->setContentsMargins(0, 0, 0, 0);
+    row1->setSpacing(10);
+
+    auto* fullscreenButton = new QPushButton(QStringLiteral("⛶"), m_controls);
+    fullscreenButton->setToolTip(QStringLiteral("Toggle fullscreen"));
+    fullscreenButton->setFixedWidth(32);
+    connect(fullscreenButton, &QPushButton::clicked, this, &MainWindow::toggleFullscreen);
+    row1->addWidget(fullscreenButton);
+
     auto* open = new QPushButton(QStringLiteral("Open"), m_controls);
     connect(open, &QPushButton::clicked, this, &MainWindow::openFile);
-    row->addWidget(open);
-    m_previousButton = new QPushButton(QStringLiteral("⏮"), m_controls);
+    row1->addWidget(open);
+
+    m_hwButton = new QPushButton(QStringLiteral("SW"), m_controls);
+    m_hwButton->setToolTip(QStringLiteral("Software decoding. Click to enable hardware decoding when supported."));
+    connect(m_hwButton, &QPushButton::clicked, this, &MainWindow::toggleHardwareDecoding);
+    row1->addWidget(m_hwButton);
+
+    m_abLoopLabel = new QLabel(QStringLiteral("AB Off"), m_controls);
+    m_abLoopLabel->setToolTip(QStringLiteral("A: set loop start, B: set loop end, L: clear loop"));
+    row1->addWidget(m_abLoopLabel);
+
+    m_cutAbButton = new QPushButton(QStringLiteral("AB Cut"), m_controls);
+    m_cutAbButton->setToolTip(QStringLiteral("Cut the current A-B selection with FFmpeg without re-encoding"));
+    connect(m_cutAbButton, &QPushButton::clicked, this, &MainWindow::cutAbSelection);
+    row1->addWidget(m_cutAbButton);
+
+    m_saveAudioButton = new QPushButton(QStringLiteral("Save Audio"), m_controls);
+    m_saveAudioButton->setToolTip(QStringLiteral("Save the selected audio track"));
+    connect(m_saveAudioButton, &QPushButton::clicked, this, &MainWindow::saveSelectedAudioTrack);
+    row1->addWidget(m_saveAudioButton);
+    
+    m_speedButton = new QPushButton(QStringLiteral("Speed"), m_controls);
+    m_speedButton->setToolTip(QStringLiteral("Change playback speed"));
+    connect(m_speedButton, &QPushButton::clicked, this, &MainWindow::showSpeedMenu);
+    row1->addWidget(m_speedButton);
+
+    m_timeLabel = new QLabel(QStringLiteral("00:00 / 00:00"), m_controls);
+    m_timeLabel->setToolTip(QStringLiteral("Click to switch between elapsed / total and elapsed / remaining time"));
+    m_timeLabel->setCursor(Qt::PointingHandCursor);
+    m_timeLabel->installEventFilter(this);
+    row1->addWidget(m_timeLabel);
+
+    row1->addStretch(1);
+
+    m_previousButton = new QPushButton(QStringLiteral("|«  "), m_controls);
     m_previousButton->setToolTip(QStringLiteral("Previous item"));
-    m_previousButton->setFixedWidth(48);
+    m_previousButton->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
     connect(m_previousButton, &QPushButton::clicked, this, &MainWindow::playPrevious);
-    row->addWidget(m_previousButton);
+    row1->addWidget(m_previousButton);
+
     m_seekBackButton = new QPushButton(QStringLiteral("−10s"), m_controls);
-    m_seekBackButton->setFixedWidth(60);
     m_seekBackButton->setToolTip(QStringLiteral("Seek backward 10 seconds"));
     connect(m_seekBackButton, &QPushButton::clicked, this, [this] {
         const char* args[] = {"seek", "-10", "relative", "exact", nullptr};
         command(args);
     });
-    row->addWidget(m_seekBackButton);
-    m_playButton = new QPushButton(QStringLiteral("▶"), m_controls);
-    m_playButton->setFixedWidth(52);
+    row1->addWidget(m_seekBackButton);
+
+    m_playButton = new QPushButton(QStringLiteral("  ▶  "), m_controls);
+    m_playButton->setToolTip(QStringLiteral("Play / pause"));
     connect(m_playButton, &QPushButton::clicked, this, &MainWindow::togglePause);
-    row->addWidget(m_playButton);
+    row1->addWidget(m_playButton);
+
     m_seekForwardButton = new QPushButton(QStringLiteral("+10s"), m_controls);
-    m_seekForwardButton->setFixedWidth(60);
     m_seekForwardButton->setToolTip(QStringLiteral("Seek forward 10 seconds"));
     connect(m_seekForwardButton, &QPushButton::clicked, this, [this] {
         const char* args[] = {"seek", "10", "relative", "exact", nullptr};
         command(args);
     });
-    row->addWidget(m_seekForwardButton);
-    m_nextButton = new QPushButton(QStringLiteral("⏭"), m_controls);
+    row1->addWidget(m_seekForwardButton);
+
+    m_nextButton = new QPushButton(QStringLiteral("  »|"), m_controls);
     m_nextButton->setToolTip(QStringLiteral("Next item"));
-    m_nextButton->setFixedWidth(48);
+    m_nextButton->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
     connect(m_nextButton, &QPushButton::clicked, this, &MainWindow::playNext);
-    row->addWidget(m_nextButton);
-    m_timeLabel = new QLabel(QStringLiteral("00:00 / 00:00"), m_controls);
-    m_timeLabel->setToolTip(QStringLiteral("Click to switch between elapsed / total and elapsed / remaining time"));
-    m_timeLabel->setCursor(Qt::PointingHandCursor);
-    m_timeLabel->installEventFilter(this);
-    row->addWidget(m_timeLabel);
-    m_timeLabel->setFixedWidth(145);
-    m_timeLabel->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
-    m_currentTimeLabel->setVisible(false);
-    m_progressTimeLabel->setVisible(false);
-    m_abLoopLabel = new QLabel(QStringLiteral("A-B: Off"), m_controls);
-    m_abLoopLabel->setToolTip(QStringLiteral("A: set loop start, B: set loop end, L: clear loop"));
-    row->addWidget(m_abLoopLabel);
-    m_cutAbButton = new QPushButton(QStringLiteral("Cut AB"), m_controls);
-    m_cutAbButton->setFixedWidth(62);
-    m_cutAbButton->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
-    m_cutAbButton->setToolTip(QStringLiteral("Cut the current A-B selection with FFmpeg without re-encoding"));
-    connect(m_cutAbButton, &QPushButton::clicked, this, &MainWindow::cutAbSelection);
-    row->addWidget(m_cutAbButton);
-    m_hwButton = new QPushButton(QStringLiteral("SW"), m_controls);
-    m_hwButton->setFixedWidth(48);
-    m_hwButton->setToolTip(QStringLiteral("Software decoding. Click to enable hardware decoding when supported."));
-    connect(m_hwButton, &QPushButton::clicked, this, &MainWindow::toggleHardwareDecoding);
-    row->addWidget(m_hwButton);
-    auto* controlsButton = new QPushButton(QStringLiteral("Controls"), m_controls);
-    controlsButton->setToolTip(QStringLiteral("Customize mouse and keyboard controls"));
-    connect(controlsButton, &QPushButton::clicked, this, &MainWindow::showControlsDialog);
-    row->addWidget(controlsButton);
-    auto* displayButton = new QPushButton(QStringLiteral("Display"), m_controls);
-    displayButton->setToolTip(QStringLiteral("Adjust brightness, contrast and saturation"));
-    connect(displayButton, &QPushButton::clicked, this, &MainWindow::showDisplayDialog);
-    row->addWidget(displayButton);
+    row1->addWidget(m_nextButton);
 
-    auto* captureButton = new QPushButton(QStringLiteral("Capture"), m_controls);
-    captureButton->setToolTip(QStringLiteral("Save the current video frame as a screenshot"));
-    connect(captureButton, &QPushButton::clicked, this, &MainWindow::captureScreenshot);
-    row->addWidget(captureButton);
+    row1->addStretch(1);
 
-    m_rotateButton = new QPushButton(QStringLiteral("Rotate"), m_controls);
-    m_rotateButton->setToolTip(QStringLiteral("Rotate the video 90° clockwise"));
-    connect(m_rotateButton, &QPushButton::clicked, this, &MainWindow::rotateVideo90);
-    row->addWidget(m_rotateButton);
-
-    auto* flipHorizontalButton = new QPushButton(QStringLiteral("Flip H"), m_controls);
-    flipHorizontalButton->setToolTip(QStringLiteral("Flip the video horizontally"));
-    connect(flipHorizontalButton, &QPushButton::clicked, this, &MainWindow::toggleFlipHorizontal);
-    row->addWidget(flipHorizontalButton);
-
-    auto* flipVerticalButton = new QPushButton(QStringLiteral("Flip V"), m_controls);
-    flipVerticalButton->setToolTip(QStringLiteral("Flip the video vertically"));
-    connect(flipVerticalButton, &QPushButton::clicked, this, &MainWindow::toggleFlipVertical);
-    row->addWidget(flipVerticalButton);
-    row->addStretch();
-    row->addWidget(new QLabel(QStringLiteral("Volume"), m_controls));
+    row1->addWidget(new QLabel(QStringLiteral("Volume"), m_controls));
     m_volumeSlider = new QSlider(Qt::Horizontal, m_controls);
     m_volumeSlider->setRange(0, 100);
     m_volumeSlider->setValue(60);
     m_volumeSlider->setFixedWidth(100);
     connect(m_volumeSlider, &QSlider::valueChanged, this, &MainWindow::setVolume);
-    row->addWidget(m_volumeSlider);
+    row1->addWidget(m_volumeSlider);
+
     auto* tracks = new QPushButton(QStringLiteral("Tracks"), m_controls);
     tracks->setToolTip(QStringLiteral("Select audio and subtitle tracks"));
     connect(tracks, &QPushButton::clicked, this, &MainWindow::showTracksMenu);
-    row->addWidget(tracks);
+    row1->addWidget(tracks);
 
-    m_saveAudioButton = new QPushButton(QStringLiteral("Save Audio"), m_controls);
-    m_saveAudioButton->setFixedWidth(72);
-    m_saveAudioButton->setToolTip(QStringLiteral("Save the currently selected audio track without re-encoding"));
-    connect(m_saveAudioButton, &QPushButton::clicked, this, &MainWindow::saveSelectedAudioTrack);
-    row->addWidget(m_saveAudioButton);
     auto* playlistButton = new QPushButton(QStringLiteral("Playlist"), m_controls);
     playlistButton->setToolTip(QStringLiteral("Show or hide playlist"));
     connect(playlistButton, &QPushButton::clicked, this, &MainWindow::togglePlaylist);
-    row->addWidget(playlistButton);
+    row1->addWidget(playlistButton);
+
     auto* menu = new QPushButton(QStringLiteral("☰"), m_controls);
     menu->setToolTip(QStringLiteral("Show video information"));
-    menu->setFixedWidth(42);
     connect(menu, &QPushButton::clicked, this, &MainWindow::toggleControls);
-    row->addWidget(menu);
-    controlsLayout->addLayout(row);
-    m_titleLabel = new QLabel(QStringLiteral("No media loaded"), m_controls);
-    m_titleLabel->setStyleSheet(QStringLiteral("font-weight:600;"));
-    controlsLayout->addWidget(m_titleLabel);
-    updateSeekButtonLabels();
+    row1->addWidget(menu);
+
+    auto* row2 = new QHBoxLayout();
+    row2->setContentsMargins(42, 0, 0, 0);
+    row2->setSpacing(8);
+
+    auto* controlsButton = new QPushButton(QStringLiteral("Controls"), m_controls);
+    controlsButton->setToolTip(QStringLiteral("Customize mouse and keyboard controls"));
+    connect(controlsButton, &QPushButton::clicked, this, &MainWindow::showControlsDialog);
+    row2->addWidget(controlsButton);
+
+    auto* displayButton = new QPushButton(QStringLiteral("Display"), m_controls);
+    displayButton->setToolTip(QStringLiteral("Adjust brightness, contrast and saturation"));
+    connect(displayButton, &QPushButton::clicked, this, &MainWindow::showDisplayDialog);
+    row2->addWidget(displayButton);
+
+    auto* captureButton = new QPushButton(QStringLiteral("Capture"), m_controls);
+    captureButton->setToolTip(QStringLiteral("Save the current video frame as a screenshot"));
+    connect(captureButton, &QPushButton::clicked, this, &MainWindow::captureScreenshot);
+    row2->addWidget(captureButton);
+
+    m_rotateButton = new QPushButton(QStringLiteral("Rotate"), m_controls);
+    m_rotateButton->setToolTip(QStringLiteral("Rotate the video 90° clockwise"));
+    connect(m_rotateButton, &QPushButton::clicked, this, &MainWindow::rotateVideo90);
+    row2->addWidget(m_rotateButton);
+
+    auto* flipHorizontalButton = new QPushButton(QStringLiteral("Flip H"), m_controls);
+    flipHorizontalButton->setToolTip(QStringLiteral("Flip the video horizontally"));
+    connect(flipHorizontalButton, &QPushButton::clicked, this, &MainWindow::toggleFlipHorizontal);
+    row2->addWidget(flipHorizontalButton);
+
+    auto* flipVerticalButton = new QPushButton(QStringLiteral("Flip V"), m_controls);
+    flipVerticalButton->setToolTip(QStringLiteral("Flip the video vertically"));
+    connect(flipVerticalButton, &QPushButton::clicked, this, &MainWindow::toggleFlipVertical);
+    row2->addWidget(flipVerticalButton);
+
+    row2->addStretch(1);
+
+    auto* aboutButton = new QPushButton(QStringLiteral("About"), m_controls);
+    aboutButton->setToolTip(QStringLiteral("About REX Player"));
+    connect(aboutButton, &QPushButton::clicked, this, [this] {
+        QMessageBox::about(
+            this,
+            QStringLiteral("About REX Player"),
+            QStringLiteral("REX Player 3.5.0\n\nA libmpv-based video player."));
+    });
+    row2->addWidget(aboutButton);
+
+    controlsLayout->addLayout(row1);
+    controlsLayout->addLayout(row2);
+
+    // Keep the control bar in the root vertical layout so it stays at the
+    // bottom of the window in normal mode.
     layout->addWidget(m_controls);
+
     setCentralWidget(root);
 
+    // Playlist panel. Keep it as a real QDockWidget so the Playlist button
+    // always has a concrete widget to show/hide.
     m_playlistDock = new QDockWidget(QStringLiteral("Playlist"), this);
+    m_playlistDock->setObjectName(QStringLiteral("playlistDock"));
     m_playlistDock->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
-    m_playlistDock->setFeatures(QDockWidget::DockWidgetClosable | QDockWidget::DockWidgetMovable);
-    m_playlistDock->setMinimumWidth(280);
+    m_playlistDock->setFeatures(QDockWidget::DockWidgetClosable |
+                                QDockWidget::DockWidgetMovable);
+
     auto* playlistPanel = new QWidget(m_playlistDock);
     playlistPanel->setStyleSheet(QStringLiteral(
         "QWidget{background:#171717;color:#eee;}"
-        "QPushButton{background:#242424;color:#eee;border:0;padding:7px;}"
-        "QPushButton:hover{background:#303030;}"
-        "QListWidget{background:#101010;color:#eee;border:0;}"
-        "QListWidget::item{padding:7px;}"
-        "QListWidget::item:selected{background:#3a3a3a;}"));
+        "QListWidget{background:#111;color:#eee;border:0;}"
+        "QPushButton{background:#252525;color:#eee;border:0;padding:6px 9px;}"
+        "QPushButton:hover{background:#353535;border-radius:4px;}"));
     auto* playlistLayout = new QVBoxLayout(playlistPanel);
-    playlistLayout->setContentsMargins(8, 8, 8, 8);
+    playlistLayout->setContentsMargins(6, 6, 6, 6);
     playlistLayout->setSpacing(6);
+
     m_playlist = new QListWidget(playlistPanel);
     m_playlist->setSelectionMode(QAbstractItemView::SingleSelection);
-    connect(m_playlist, &QListWidget::itemDoubleClicked, this, [this](QListWidgetItem*) { playlistActivated(); });
+    m_playlist->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    m_playlist->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
+    connect(m_playlist, &QListWidget::itemDoubleClicked,
+            this, [this](QListWidgetItem*) { playlistActivated(); });
     playlistLayout->addWidget(m_playlist, 1);
+
     auto* playlistButtons = new QHBoxLayout();
-    auto* add = new QPushButton(QStringLiteral("+ Files"), playlistPanel);
-    connect(add, &QPushButton::clicked, this, &MainWindow::addFiles);
-    playlistButtons->addWidget(add);
-    auto* folder = new QPushButton(QStringLiteral("+ Folder"), playlistPanel);
-    connect(folder, &QPushButton::clicked, this, &MainWindow::addFolder);
-    playlistButtons->addWidget(folder);
-    auto* clear = new QPushButton(QStringLiteral("Clear"), playlistPanel);
-    connect(clear, &QPushButton::clicked, this, &MainWindow::clearPlaylist);
-    playlistButtons->addWidget(clear);
+    playlistButtons->setContentsMargins(0, 0, 0, 0);
+    playlistButtons->setSpacing(4);
+
+    auto* openFolderButton = new QPushButton(QStringLiteral("Open Folder"), playlistPanel);
+    openFolderButton->setToolTip(QStringLiteral("Add all supported media files from a folder to the playlist"));
+    connect(openFolderButton, &QPushButton::clicked, this, &MainWindow::addFolder);
+    playlistButtons->addWidget(openFolderButton);
+
+    m_autoplayCheck = new QCheckBox(QStringLiteral("Autoplay"), playlistPanel);
+    m_autoplayCheck->setChecked(m_playlistController && m_playlistController->autoplay());
+    m_autoplayCheck->setToolTip(
+        QStringLiteral("Automatically play the next playlist item when the current item reaches the end."));
+    connect(m_autoplayCheck, &QCheckBox::toggled, this, [this](bool enabled) {
+        if (m_playlistController) m_playlistController->setAutoplay(enabled);
+    });
+    playlistButtons->addWidget(m_autoplayCheck);
+
+    auto* savePlaylistButton = new QPushButton(QStringLiteral("Save Playlist"), playlistPanel);
+    connect(savePlaylistButton, &QPushButton::clicked, this, &MainWindow::savePlaylist);
+    playlistButtons->addWidget(savePlaylistButton);
+
+    auto* openPlaylistButton = new QPushButton(QStringLiteral("Open Playlist"), playlistPanel);
+    connect(openPlaylistButton, &QPushButton::clicked, this, &MainWindow::openPlaylist);
+    playlistButtons->addWidget(openPlaylistButton);
+
+    auto* clearPlaylistButton = new QPushButton(QStringLiteral("Clear"), playlistPanel);
+    connect(clearPlaylistButton, &QPushButton::clicked, this, &MainWindow::clearPlaylist);
+    playlistButtons->addWidget(clearPlaylistButton);
+
     playlistLayout->addLayout(playlistButtons);
-    m_autoplayCheck = new QCheckBox(QStringLiteral("Autoplay next item"), playlistPanel);
-    m_autoplayCheck->setChecked(m_autoplayPlaylist);
-    m_autoplayCheck->setToolTip(QStringLiteral("Automatically play the next playlist item when the current item reaches the end."));
-    connect(m_autoplayCheck, &QCheckBox::toggled, this, [this](bool checked) {
-        m_autoplayPlaylist = checked;
-        QSettings settings(QStringLiteral("REX Player"), QStringLiteral("REX Player"));
-        settings.setValue(QStringLiteral("playlist/autoplay"), checked);
-        settings.sync();
-    });
-    auto* playbackOptions = new QHBoxLayout();
-    playbackOptions->setContentsMargins(0, 0, 0, 0);
-    playbackOptions->setSpacing(8);
-    playbackOptions->addWidget(m_autoplayCheck);
-    m_loopPlaylistButton = new QPushButton(m_loopPlaylist ? QStringLiteral("Loop: On") : QStringLiteral("Loop: Off"), playlistPanel);
-    m_loopPlaylistButton->setCheckable(true);
-    m_loopPlaylistButton->setChecked(m_loopPlaylist);
-    m_loopPlaylistButton->setToolTip(QStringLiteral("Loop the playlist: after the last item, continue again from the first item."));
-    connect(m_loopPlaylistButton, &QPushButton::toggled, this, [this](bool checked) {
-        m_loopPlaylist = checked;
-        m_loopPlaylistButton->setText(checked ? QStringLiteral("Loop: On") : QStringLiteral("Loop: Off"));
-        QSettings settings(QStringLiteral("REX Player"), QStringLiteral("REX Player"));
-        settings.setValue(QStringLiteral("playlist/loop"), checked);
-        settings.sync();
-    });
-    playbackOptions->addWidget(m_loopPlaylistButton);
-    playbackOptions->addStretch();
-    playlistLayout->addLayout(playbackOptions);
+
     m_playlistDock->setWidget(playlistPanel);
     addDockWidget(Qt::RightDockWidgetArea, m_playlistDock);
     m_playlistDock->hide();
+
+    updateSeekButtonLabels();
 }
 
 void MainWindow::loadControlSettings() {
+    if (!m_controlSettings) return;
+    m_controlSettings->load();
+
+    m_seekWheelMode = m_controlSettings->seekWheelMode;
+    m_zoomWheelMode = m_controlSettings->zoomWheelMode;
+    m_volumeWheelMode = m_controlSettings->volumeWheelMode;
+    m_timerBesideProgress = m_controlSettings->timerBesideProgress;
+    m_panButton = m_controlSettings->panButton;
+    m_doubleClickButton = m_controlSettings->doubleClickButton;
+    m_seekDurationSeconds = m_controlSettings->seekDurationSeconds;
+    applyInterfaceFont(m_controlSettings->fontPath, m_controlSettings->fontFamily, m_controlSettings->fontSize);
+    m_volumeUpKey = m_controlSettings->volumeUpKey;
+    m_volumeDownKey = m_controlSettings->volumeDownKey;
+    m_muteKey = m_controlSettings->muteKey;
+    m_seekBackwardKey = m_controlSettings->seekBackwardKey;
+    m_seekForwardKey = m_controlSettings->seekForwardKey;
+    m_loopAKey = m_controlSettings->loopAKey;
+    m_loopBKey = m_controlSettings->loopBKey;
+    m_loopClearKey = m_controlSettings->loopClearKey;
+    m_zoomInKey = m_controlSettings->zoomInKey;
+    m_zoomOutKey = m_controlSettings->zoomOutKey;
+    m_zoomResetKey = m_controlSettings->zoomResetKey;
+    m_frameBackKey = m_controlSettings->frameBackKey;
+    m_frameForwardKey = m_controlSettings->frameForwardKey;
+    m_switchSubtitlesKey = m_controlSettings->switchSubtitlesKey;
+    m_subtitlePosUpKey = m_controlSettings->subtitlePosUpKey;
+    m_subtitlePosDownKey = m_controlSettings->subtitlePosDownKey;
+    m_subtitleSizeUpKey = m_controlSettings->subtitleSizeUpKey;
+    m_subtitleSizeDownKey = m_controlSettings->subtitleSizeDownKey;
+    m_captureScreenshotKey = m_controlSettings->captureScreenshotKey;
+    m_rotateVideoKey = m_controlSettings->rotateVideoKey;
+    m_speedUpKey = m_controlSettings->speedUpKey;
+    m_speedDownKey = m_controlSettings->speedDownKey;
+    m_speedJump = std::clamp(m_controlSettings->speedJump, 0.10, 1.00);
+    m_holdSpeedKey = m_controlSettings->holdSpeedKey;
+    m_cutWithZoom = m_controlSettings->cutWithZoom;
+
     QSettings settings(QStringLiteral("REX Player"), QStringLiteral("REX Player"));
-    m_seekWheelMode = settings.value(QStringLiteral("controls/seekWheel"), m_seekWheelMode).toString();
-    m_zoomWheelMode = settings.value(QStringLiteral("controls/zoomWheel"), m_zoomWheelMode).toString();
-    m_volumeWheelMode = settings.value(QStringLiteral("controls/volumeWheel"), m_volumeWheelMode).toString();
-    m_timerBesideProgress = settings.value(QStringLiteral("controls/timerBesideProgress"), false).toBool();
-    m_panButton = static_cast<Qt::MouseButton>(settings.value(QStringLiteral("controls/panButton"), static_cast<int>(m_panButton)).toInt());
-    m_doubleClickButton = static_cast<Qt::MouseButton>(settings.value(QStringLiteral("controls/doubleClickButton"), static_cast<int>(m_doubleClickButton)).toInt());
-    const int legacyMinutes = std::clamp(settings.value(QStringLiteral("controls/seekDurationMinutes"), 1).toInt(), 1, 120);
-    m_seekDurationSeconds = std::clamp(settings.value(QStringLiteral("controls/seekDurationSeconds"), legacyMinutes * 60).toInt(), 5, 7200);
-    m_volumeUpKey = QKeySequence(settings.value(QStringLiteral("controls/volumeUp"), m_volumeUpKey.toString()).toString());
-    m_volumeDownKey = QKeySequence(settings.value(QStringLiteral("controls/volumeDown"), m_volumeDownKey.toString()).toString());
-    m_muteKey = QKeySequence(settings.value(QStringLiteral("controls/mute"), m_muteKey.toString()).toString());
-    m_seekBackwardKey = QKeySequence(settings.value(QStringLiteral("controls/seekBackward"), m_seekBackwardKey.toString()).toString());
-    m_seekForwardKey = QKeySequence(settings.value(QStringLiteral("controls/seekForward"), m_seekForwardKey.toString()).toString());
-    m_loopAKey = QKeySequence(settings.value(QStringLiteral("controls/loopA"), m_loopAKey.toString()).toString());
-    m_loopBKey = QKeySequence(settings.value(QStringLiteral("controls/loopB"), m_loopBKey.toString()).toString());
-    m_loopClearKey = QKeySequence(settings.value(QStringLiteral("controls/loopClear"), m_loopClearKey.toString()).toString());
-    m_zoomInKey = QKeySequence(settings.value(QStringLiteral("controls/zoomIn"), m_zoomInKey.toString()).toString());
-    m_zoomOutKey = QKeySequence(settings.value(QStringLiteral("controls/zoomOut"), m_zoomOutKey.toString()).toString());
-    m_zoomResetKey = QKeySequence(settings.value(QStringLiteral("controls/zoomReset"), m_zoomResetKey.toString()).toString());
-    m_frameBackKey = QKeySequence(settings.value(QStringLiteral("controls/frameBack"), m_frameBackKey.toString()).toString());
-    m_frameForwardKey = QKeySequence(settings.value(QStringLiteral("controls/frameForward"), m_frameForwardKey.toString()).toString());
-    m_switchSubtitlesKey = QKeySequence(settings.value(QStringLiteral("controls/switchSubtitles"), m_switchSubtitlesKey.toString()).toString());
-    m_subtitlePosUpKey = QKeySequence(settings.value(QStringLiteral("controls/subtitlePosUp"), m_subtitlePosUpKey.toString()).toString());
-    m_subtitlePosDownKey = QKeySequence(settings.value(QStringLiteral("controls/subtitlePosDown"), m_subtitlePosDownKey.toString()).toString());
-    m_subtitleSizeUpKey = QKeySequence(settings.value(QStringLiteral("controls/subtitleSizeUp"), m_subtitleSizeUpKey.toString()).toString());
-    m_subtitleSizeDownKey = QKeySequence(settings.value(QStringLiteral("controls/subtitleSizeDown"), m_subtitleSizeDownKey.toString()).toString());
-    m_captureScreenshotKey = QKeySequence(settings.value(QStringLiteral("controls/captureScreenshot"), m_captureScreenshotKey.toString()).toString());
-    m_rotateVideoKey = QKeySequence(settings.value(QStringLiteral("controls/rotateVideo"), m_rotateVideoKey.toString()).toString());
-    m_cutWithZoom = settings.value(QStringLiteral("controls/cutWithZoom"), false).toBool();
     m_saturation = std::clamp(settings.value(QStringLiteral("display/saturation"), m_saturation).toInt(), -100, 100);
     m_brightness = std::clamp(settings.value(QStringLiteral("display/brightness"), m_brightness).toInt(), -100, 100);
     m_contrast = std::clamp(settings.value(QStringLiteral("display/contrast"), m_contrast).toInt(), -100, 100);
-    m_autoplayPlaylist = settings.value(QStringLiteral("playlist/autoplay"), m_autoplayPlaylist).toBool();
-    m_loopPlaylist = settings.value(QStringLiteral("playlist/loop"), m_loopPlaylist).toBool();
+}
+
+void MainWindow::applyInterfaceFont(const QString& fontPath, const QString& fontFamily, int pointSize) {
+    QFont font = m_defaultApplicationFont;
+
+    QString family = fontFamily.trimmed();
+    if (!fontPath.trimmed().isEmpty() && QFileInfo::exists(fontPath)) {
+        const int fontId = QFontDatabase::addApplicationFont(fontPath);
+        if (fontId >= 0) {
+            const QStringList families = QFontDatabase::applicationFontFamilies(fontId);
+            if (!families.isEmpty()) family = families.first();
+            if (m_runtimeLogger) m_runtimeLogger->append(
+                QStringLiteral("FONT: loaded custom font file=%1 family=%2")
+                    .arg(fontPath, family));
+        } else {
+            if (m_runtimeLogger) m_runtimeLogger->append(
+                QStringLiteral("FONT: failed to load custom font file=%1")
+                    .arg(fontPath));
+        }
+    }
+
+    if (!family.isEmpty()) font.setFamily(family);
+    if (pointSize > 0) font.setPointSize(pointSize);
+
+    QApplication::setFont(font);
+
+    // QApplication::setFont() updates the application default, but existing
+    // widgets may retain an explicit/style-derived font. Reapply the selected
+    // font to all current widgets so buttons, labels and dialogs update too.
+    const auto widgets = QApplication::allWidgets();
+    for (QWidget* widget : widgets) {
+        if (widget) widget->setFont(font);
+    }
+
+    if (m_runtimeLogger) m_runtimeLogger->append(
+        QStringLiteral("FONT: applied family=%1 size=%2")
+            .arg(font.family())
+            .arg(font.pointSizeF()));
 }
 
 void MainWindow::showControlsDialog() {
@@ -483,6 +648,55 @@ void MainWindow::showControlsDialog() {
     contentLayout->setContentsMargins(8, 8, 8, 8);
     auto* form = new QFormLayout();
     form->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
+
+    QString selectedFontPath = m_controlSettings ? m_controlSettings->fontPath : QString();
+    QString selectedFontFamily = m_controlSettings ? m_controlSettings->fontFamily : QString();
+    if (selectedFontFamily.isEmpty()) selectedFontFamily = QApplication::font().family();
+
+    auto* chooseFontButton = new QPushButton(
+        selectedFontFamily.isEmpty() ? QStringLiteral("System default") : selectedFontFamily, &dialog);
+    chooseFontButton->setToolTip(QStringLiteral("Load a downloaded TrueType, OpenType or TrueType Collection font file."));
+    connect(chooseFontButton, &QPushButton::clicked, &dialog, [&, chooseFontButton] {
+        const QString path = QFileDialog::getOpenFileName(
+            &dialog, QStringLiteral("Choose font file"), QDir::homePath(),
+            QStringLiteral("Font files (*.ttf *.otf *.ttc);;All files (*)"));
+        if (path.isEmpty()) return;
+
+        const int fontId = QFontDatabase::addApplicationFont(path);
+        if (fontId < 0) {
+            QMessageBox::warning(
+                &dialog, QStringLiteral("Choose font"),
+                QStringLiteral("Could not load this font file."));
+            return;
+        }
+
+        const QStringList families = QFontDatabase::applicationFontFamilies(fontId);
+        if (families.isEmpty()) {
+            QMessageBox::warning(
+                &dialog, QStringLiteral("Choose font"),
+                QStringLiteral("The font file did not expose a usable font family."));
+            return;
+        }
+
+        selectedFontPath = path;
+        selectedFontFamily = families.first();
+        chooseFontButton->setText(selectedFontFamily);
+        if (m_runtimeLogger) m_runtimeLogger->append(
+            QStringLiteral("FONT: selected custom font file=%1 family=%2")
+                .arg(selectedFontPath, selectedFontFamily));
+    });
+    form->addRow(QStringLiteral("Choose font"), chooseFontButton);
+
+    auto* fontSize = new QSpinBox(&dialog);
+    fontSize->setRange(8, 32);
+    const int currentFontSize = QApplication::font().pointSize() > 0
+        ? QApplication::font().pointSize()
+        : 10;
+    fontSize->setValue(m_controlSettings && m_controlSettings->fontSize > 0
+        ? m_controlSettings->fontSize
+        : currentFontSize);
+    fontSize->setSuffix(QStringLiteral(" pt"));
+    form->addRow(QStringLiteral("Font size"), fontSize);
 
     auto* seekDuration = new QComboBox(&dialog);
     for (int seconds : {5, 10, 30})
@@ -507,7 +721,13 @@ void MainWindow::showControlsDialog() {
     selectData(volumeWheel, m_volumeWheelMode);
     form->addRow(QStringLiteral("Wheel → Volume"), volumeWheel);
 
-    form->addRow(QStringLiteral("Alt + Ctrl + drag → Pan"), new QLabel(QStringLiteral("Hold Alt + Ctrl and drag with the left mouse button"), &dialog));
+    auto* panButton = new QComboBox(&dialog);
+    panButton->addItem(QStringLiteral("Left button"), static_cast<int>(Qt::LeftButton));
+    panButton->addItem(QStringLiteral("Middle button"), static_cast<int>(Qt::MiddleButton));
+    panButton->addItem(QStringLiteral("Right button"), static_cast<int>(Qt::RightButton));
+    panButton->addItem(QStringLiteral("Disabled"), static_cast<int>(Qt::NoButton));
+    selectData(panButton, static_cast<int>(m_panButton));
+    form->addRow(QStringLiteral("Alt + Ctrl + drag → Pan"), panButton);
 
     auto* timerPositionButton = new QPushButton(
         m_timerBesideProgress ? QStringLiteral("Timer: Progress bar") : QStringLiteral("Timer: Controls"),
@@ -531,6 +751,35 @@ void MainWindow::showControlsDialog() {
     });
     form->addRow(QStringLiteral("A-B cutting"), cutWithZoomButton);
 
+    auto* resetResumeChoiceButton = new QPushButton(&dialog);
+    QSettings resumeSettings(
+        QStringLiteral("REX Player"), QStringLiteral("REX Player"));
+    const int rememberedResumeChoice =
+        resumeSettings.value(QStringLiteral("playback/resume-choice"), -1).toInt();
+    if (rememberedResumeChoice == 1) {
+        resetResumeChoiceButton->setText(QStringLiteral("Remembered choice: Resume"));
+    } else if (rememberedResumeChoice == 0) {
+        resetResumeChoiceButton->setText(QStringLiteral("Remembered choice: Start from beginning"));
+    } else {
+        resetResumeChoiceButton->setText(QStringLiteral("No remembered resume choice"));
+    }
+    resetResumeChoiceButton->setToolTip(
+        QStringLiteral("Clear the saved Resume playback choice so the prompt appears again."));
+    connect(resetResumeChoiceButton, &QPushButton::clicked, &dialog,
+            [resetResumeChoiceButton, this] {
+                QSettings settings(
+                    QStringLiteral("REX Player"), QStringLiteral("REX Player"));
+                settings.remove(QStringLiteral("playback/resume-choice"));
+                settings.sync();
+                resetResumeChoiceButton->setText(
+                    QStringLiteral("No remembered resume choice"));
+                if (m_runtimeLogger) {
+                    m_runtimeLogger->append(
+                        QStringLiteral("RESUME: remembered choice reset"));
+                }
+            });
+    form->addRow(QStringLiteral("Resume playback"), resetResumeChoiceButton);
+
     auto* doubleClickButton = new QComboBox(&dialog);
     doubleClickButton->addItem(QStringLiteral("Left button"), static_cast<int>(Qt::LeftButton));
     doubleClickButton->addItem(QStringLiteral("Middle button"), static_cast<int>(Qt::MiddleButton));
@@ -539,7 +788,11 @@ void MainWindow::showControlsDialog() {
     selectData(doubleClickButton, static_cast<int>(m_doubleClickButton));
     form->addRow(QStringLiteral("Double-click zones"), doubleClickButton);
 
-    contentLayout->addWidget(new QLabel(QStringLiteral("Mouse / touchpad"), content));
+    // Place the Mouse / touchpad heading directly after the Font size row.
+    auto* mouseTouchpadHeading = new QLabel(QStringLiteral("Mouse / touchpad"), content);
+    mouseTouchpadHeading->setStyleSheet(QStringLiteral("font-weight:600;"));
+    form->insertRow(2, mouseTouchpadHeading);
+
     contentLayout->addLayout(form);
     contentLayout->addWidget(new QLabel(QStringLiteral("Keyboard shortcuts"), content));
 
@@ -564,7 +817,16 @@ void MainWindow::showControlsDialog() {
     auto* subtitleSizeDown = new QKeySequenceEdit(m_subtitleSizeDownKey, &dialog);
     auto* captureScreenshot = new QKeySequenceEdit(m_captureScreenshotKey, &dialog);
     auto* rotateVideo = new QKeySequenceEdit(m_rotateVideoKey, &dialog);
-    const QList<QKeySequenceEdit*> edits = {volumeUp, volumeDown, mute, seekBack, seekForward, loopA, loopB, loopClear, zoomIn, zoomOut, zoomReset, frameBack, frameForward, switchSubtitles, subtitlePosUp, subtitlePosDown, subtitleSizeUp, subtitleSizeDown, captureScreenshot, rotateVideo};
+    auto* speedUp = new QKeySequenceEdit(m_speedUpKey, &dialog);
+    auto* speedDown = new QKeySequenceEdit(m_speedDownKey, &dialog);
+    auto* speedJump = new QComboBox(&dialog);
+    for (int i = 2; i <= 20; ++i) {
+        const double jump = i * 0.05;
+        speedJump->addItem(QStringLiteral("%1x").arg(jump, 0, 'f', 2), jump);
+    }
+    selectData(speedJump, m_speedJump);
+    auto* holdSpeed = new QKeySequenceEdit(m_holdSpeedKey, &dialog);
+    const QList<QKeySequenceEdit*> edits = {volumeUp, volumeDown, mute, seekBack, seekForward, loopA, loopB, loopClear, zoomIn, zoomOut, zoomReset, frameBack, frameForward, switchSubtitles, subtitlePosUp, subtitlePosDown, subtitleSizeUp, subtitleSizeDown, captureScreenshot, rotateVideo, speedUp, speedDown, holdSpeed};
     for (auto* edit : edits) edit->setClearButtonEnabled(false);
 
     auto addShortcut = [&keyForm, &dialog](const QString& label, QKeySequenceEdit* edit) {
@@ -578,7 +840,7 @@ void MainWindow::showControlsDialog() {
         clearButton->setToolTip(QStringLiteral("Clear shortcut"));
         clearButton->setFixedSize(28, 28);
         clearButton->setAutoRaise(true);
-        clearButton->setStyleSheet(QStringLiteral("QToolButton{font-size:18px;font-weight:600;color:#ddd;border:0;}QToolButton:hover{background:#3a3a3a;border-radius:4px;}"));
+        clearButton->setStyleSheet(QStringLiteral("QToolButton{font-weight:600;color:#ddd;border:0;}QToolButton:hover{background:#3a3a3a;border-radius:4px;}"));
         QObject::connect(clearButton, &QToolButton::clicked, edit, &QKeySequenceEdit::clear);
         rowLayout->addWidget(clearButton);
         keyForm->addRow(label, row);
@@ -604,9 +866,13 @@ void MainWindow::showControlsDialog() {
     addShortcut(QStringLiteral("I → Decrease subtitle text size"), subtitleSizeDown);
     addShortcut(QStringLiteral("C → Capture screenshot"), captureScreenshot);
     addShortcut(QStringLiteral("R → Rotate video 90° clockwise"), rotateVideo);
+    addShortcut(QStringLiteral("Alt + Up → Increase playback speed"), speedUp);
+    addShortcut(QStringLiteral("Alt + Down → Decrease playback speed"), speedDown);
+    keyForm->addRow(QStringLiteral("Alt + Up / Down → Speed jump"), speedJump);
+    addShortcut(QStringLiteral("2 (hold) → Temporary 2x playback speed"), holdSpeed);
     contentLayout->addLayout(keyForm);
 
-    auto* note = new QLabel(QStringLiteral("Seek duration applies to the arrow keys, wheel seek and double-click seek zones. Choose 5, 10 or 30 seconds, or a value from 1 to 120 minutes. The −10s and +10s buttons always seek exactly 10 seconds. Changes are saved for the next launch. Clear a shortcut to disable it. Cut with zoom bakes positive video zoom/pan and the current 90°-step rotation into the A-B output and therefore re-encodes the video."), &dialog);
+    auto* note = new QLabel(QStringLiteral("Seek duration applies to the arrow keys, wheel seek and double-click seek zones. Choose 5, 10 or 30 seconds, or a value from 1 to 120 minutes. The −10s and +10s buttons always seek exactly 10 seconds. Speed jump controls how much Alt + Up / Down changes playback speed; choose 0.10x to 1.00x in 0.05x steps. Changes are saved for the next launch. Clear a shortcut to disable it. Cut with zoom bakes positive video zoom/pan and the current 90°-step rotation into the A-B output and therefore re-encodes the video."), &dialog);
     note->setWordWrap(true);
     contentLayout->addWidget(note);
     content->setLayout(contentLayout);
@@ -621,11 +887,16 @@ void MainWindow::showControlsDialog() {
     mainLayout->addWidget(buttons);
 
     connect(reset, &QPushButton::clicked, &dialog, [&] {
+        selectedFontPath.clear();
+        selectedFontFamily = m_defaultApplicationFont.family();
+        chooseFontButton->setText(QStringLiteral("System default"));
+        fontSize->setValue(m_defaultApplicationFont.pointSize() > 0 ? m_defaultApplicationFont.pointSize() : 10);
         selectData(seekDuration, 60);
         selectData(seekWheel, QStringLiteral("wheel"));
         selectData(zoomWheel, QStringLiteral("alt-wheel"));
         selectData(volumeWheel, QStringLiteral("ctrl-wheel"));
-        timerPositionButton->setChecked(false);
+        timerPositionButton->setChecked(true);
+        selectData(panButton, static_cast<int>(Qt::MiddleButton));
         selectData(doubleClickButton, static_cast<int>(Qt::LeftButton));
         volumeUp->setKeySequence(QKeySequence(Qt::SHIFT | Qt::Key_V));
         volumeDown->setKeySequence(QKeySequence(Qt::Key_V));
@@ -647,6 +918,10 @@ void MainWindow::showControlsDialog() {
         subtitleSizeDown->setKeySequence(QKeySequence(Qt::Key_I));
         captureScreenshot->setKeySequence(QKeySequence(Qt::Key_C));
         rotateVideo->setKeySequence(QKeySequence(Qt::Key_R));
+        speedUp->setKeySequence(QKeySequence(Qt::AltModifier | Qt::Key_Up));
+        speedDown->setKeySequence(QKeySequence(Qt::AltModifier | Qt::Key_Down));
+        speedJump->setCurrentIndex(speedJump->findData(0.10));
+        holdSpeed->setKeySequence(QKeySequence(Qt::Key_2));
         cutWithZoomButton->setChecked(false);
     });
 
@@ -661,11 +936,14 @@ void MainWindow::showControlsDialog() {
                 }
             }
         }
+        selectedFontFamily = selectedFontFamily.trimmed();
+        const int selectedFontSize = fontSize->value();
         m_seekDurationSeconds = seekDuration->currentData().toInt();
         m_seekWheelMode = seekWheel->currentData().toString();
         m_zoomWheelMode = zoomWheel->currentData().toString();
         m_volumeWheelMode = volumeWheel->currentData().toString();
         m_timerBesideProgress = timerPositionButton->isChecked();
+        m_panButton = static_cast<Qt::MouseButton>(panButton->currentData().toInt());
         m_doubleClickButton = static_cast<Qt::MouseButton>(doubleClickButton->currentData().toInt());
         m_volumeUpKey = volumeUp->keySequence();
         m_volumeDownKey = volumeDown->keySequence();
@@ -687,38 +965,53 @@ void MainWindow::showControlsDialog() {
         m_subtitleSizeDownKey = subtitleSizeDown->keySequence();
         m_captureScreenshotKey = captureScreenshot->keySequence();
         m_rotateVideoKey = rotateVideo->keySequence();
+        m_speedUpKey = speedUp->keySequence();
+        m_speedDownKey = speedDown->keySequence();
+        m_speedJump = std::clamp(speedJump->currentData().toDouble(), 0.10, 1.00);
+        if (m_speedUpShortcut) m_speedUpShortcut->setKey(m_speedUpKey);
+        if (m_speedDownShortcut) m_speedDownShortcut->setKey(m_speedDownKey);
+        m_holdSpeedKey = holdSpeed->keySequence();
         m_cutWithZoom = cutWithZoomButton->isChecked();
 
-        QSettings settings(QStringLiteral("REX Player"), QStringLiteral("REX Player"));
-        settings.setValue(QStringLiteral("controls/seekDurationSeconds"), m_seekDurationSeconds);
-        settings.setValue(QStringLiteral("controls/seekWheel"), m_seekWheelMode);
-        settings.setValue(QStringLiteral("controls/zoomWheel"), m_zoomWheelMode);
-        settings.setValue(QStringLiteral("controls/volumeWheel"), m_volumeWheelMode);
-        settings.setValue(QStringLiteral("controls/timerBesideProgress"), m_timerBesideProgress);
-        settings.setValue(QStringLiteral("controls/panButton"), static_cast<int>(m_panButton));
-        settings.setValue(QStringLiteral("controls/doubleClickButton"), static_cast<int>(m_doubleClickButton));
-        settings.setValue(QStringLiteral("controls/volumeUp"), m_volumeUpKey.toString());
-        settings.setValue(QStringLiteral("controls/volumeDown"), m_volumeDownKey.toString());
-        settings.setValue(QStringLiteral("controls/mute"), m_muteKey.toString());
-        settings.setValue(QStringLiteral("controls/seekBackward"), m_seekBackwardKey.toString());
-        settings.setValue(QStringLiteral("controls/seekForward"), m_seekForwardKey.toString());
-        settings.setValue(QStringLiteral("controls/loopA"), m_loopAKey.toString());
-        settings.setValue(QStringLiteral("controls/loopB"), m_loopBKey.toString());
-        settings.setValue(QStringLiteral("controls/loopClear"), m_loopClearKey.toString());
-        settings.setValue(QStringLiteral("controls/zoomIn"), m_zoomInKey.toString());
-        settings.setValue(QStringLiteral("controls/zoomOut"), m_zoomOutKey.toString());
-        settings.setValue(QStringLiteral("controls/zoomReset"), m_zoomResetKey.toString());
-        settings.setValue(QStringLiteral("controls/frameBack"), m_frameBackKey.toString());
-        settings.setValue(QStringLiteral("controls/frameForward"), m_frameForwardKey.toString());
-        settings.setValue(QStringLiteral("controls/switchSubtitles"), m_switchSubtitlesKey.toString());
-        settings.setValue(QStringLiteral("controls/subtitlePosUp"), m_subtitlePosUpKey.toString());
-        settings.setValue(QStringLiteral("controls/subtitlePosDown"), m_subtitlePosDownKey.toString());
-        settings.setValue(QStringLiteral("controls/subtitleSizeUp"), m_subtitleSizeUpKey.toString());
-        settings.setValue(QStringLiteral("controls/subtitleSizeDown"), m_subtitleSizeDownKey.toString());
-        settings.setValue(QStringLiteral("controls/captureScreenshot"), m_captureScreenshotKey.toString());
-        settings.setValue(QStringLiteral("controls/rotateVideo"), m_rotateVideoKey.toString());
-        settings.setValue(QStringLiteral("controls/cutWithZoom"), m_cutWithZoom);
-        settings.sync();
+        if (m_controlSettings) {
+            m_controlSettings->seekDurationSeconds = m_seekDurationSeconds;
+            m_controlSettings->fontPath = selectedFontPath;
+            m_controlSettings->fontFamily = selectedFontFamily == m_defaultApplicationFont.family() && selectedFontPath.isEmpty() ? QString() : selectedFontFamily;
+            m_controlSettings->fontSize = selectedFontSize;
+            m_controlSettings->seekWheelMode = m_seekWheelMode;
+            m_controlSettings->zoomWheelMode = m_zoomWheelMode;
+            m_controlSettings->volumeWheelMode = m_volumeWheelMode;
+            m_controlSettings->timerBesideProgress = m_timerBesideProgress;
+            m_controlSettings->panButton = m_panButton;
+            m_controlSettings->doubleClickButton = m_doubleClickButton;
+            m_controlSettings->volumeUpKey = m_volumeUpKey;
+            m_controlSettings->volumeDownKey = m_volumeDownKey;
+            m_controlSettings->muteKey = m_muteKey;
+            m_controlSettings->seekBackwardKey = m_seekBackwardKey;
+            m_controlSettings->seekForwardKey = m_seekForwardKey;
+            m_controlSettings->loopAKey = m_loopAKey;
+            m_controlSettings->loopBKey = m_loopBKey;
+            m_controlSettings->loopClearKey = m_loopClearKey;
+            m_controlSettings->zoomInKey = m_zoomInKey;
+            m_controlSettings->zoomOutKey = m_zoomOutKey;
+            m_controlSettings->zoomResetKey = m_zoomResetKey;
+            m_controlSettings->frameBackKey = m_frameBackKey;
+            m_controlSettings->frameForwardKey = m_frameForwardKey;
+            m_controlSettings->switchSubtitlesKey = m_switchSubtitlesKey;
+            m_controlSettings->subtitlePosUpKey = m_subtitlePosUpKey;
+            m_controlSettings->subtitlePosDownKey = m_subtitlePosDownKey;
+            m_controlSettings->subtitleSizeUpKey = m_subtitleSizeUpKey;
+            m_controlSettings->subtitleSizeDownKey = m_subtitleSizeDownKey;
+            m_controlSettings->captureScreenshotKey = m_captureScreenshotKey;
+            m_controlSettings->rotateVideoKey = m_rotateVideoKey;
+            m_controlSettings->speedUpKey = m_speedUpKey;
+            m_controlSettings->speedDownKey = m_speedDownKey;
+            m_controlSettings->speedJump = m_speedJump;
+            m_controlSettings->holdSpeedKey = m_holdSpeedKey;
+            m_controlSettings->cutWithZoom = m_cutWithZoom;
+            m_controlSettings->save();
+            applyInterfaceFont(m_controlSettings->fontPath, m_controlSettings->fontFamily, m_controlSettings->fontSize);
+        }
         updateSeekButtonLabels();
         dialog.accept();
     });
@@ -739,38 +1032,6 @@ void MainWindow::mpvWakeupCallback(void* context) {
     if (!window->m_mpvWakeQueued.exchange(true)) {
         emit window->mpvWakeup();
     }
-}
-
-void MainWindow::initializeRuntimeLog() {
-    const QString base = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
-    if (base.isEmpty()) return;
-    QDir().mkpath(base);
-    m_runtimeLogPath = QDir(base).filePath(QStringLiteral("REX_Player_Runtime.log"));
-
-    QFile file(m_runtimeLogPath);
-    if (file.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Append)) {
-        QTextStream out(&file);
-        out << "\n===== REX Player session started "
-            << QDateTime::currentDateTime().toString(Qt::ISODateWithMs)
-            << " =====\n";
-        out << "Application: " << QCoreApplication::applicationName()
-            << " " << QCoreApplication::applicationVersion() << "\n";
-        out << "OS: " << QSysInfo::prettyProductName()
-            << " | Kernel: " << QSysInfo::kernelVersion()
-            << " | CPU: " << QSysInfo::currentCpuArchitecture() << "\n";
-        out.flush();
-    }
-}
-
-void MainWindow::appendRuntimeLog(const QString& message) {
-    if (m_runtimeLogPath.isEmpty()) return;
-    QFile file(m_runtimeLogPath);
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Append)) return;
-    QTextStream out(&file);
-    out << QDateTime::currentDateTime().toString(Qt::ISODateWithMs)
-        << " | " << message << "\n";
-    out.flush();
-    file.flush();
 }
 
 QString MainWindow::mpvEventName(int eventId) const {
@@ -798,8 +1059,8 @@ QString MainWindow::mpvEventName(int eventId) const {
 }
 
 bool MainWindow::initializeMpv() {
-    initializeRuntimeLog();
-    appendRuntimeLog(QStringLiteral("initializeMpv: creating libmpv instance"));
+    if (m_runtimeLogger) m_runtimeLogger->initialize();
+    m_runtimeLogger->append(QStringLiteral("initializeMpv: creating libmpv instance"));
     std::setlocale(LC_NUMERIC, "C");
     m_mpv = mpv_create();
     if (!m_mpv) { showError(QStringLiteral("Could not create libmpv instance.")); return false; }
@@ -828,12 +1089,12 @@ bool MainWindow::initializeMpv() {
         showError(QStringLiteral("Could not configure libmpv.")); return false;
     }
     if (mpv_initialize(m_mpv) < 0) {
-        appendRuntimeLog(QStringLiteral("initializeMpv: mpv_initialize FAILED"));
+        m_runtimeLogger->append(QStringLiteral("initializeMpv: mpv_initialize FAILED"));
         showError(QStringLiteral("Could not initialize libmpv.")); return false;
     }
-    appendRuntimeLog(QStringLiteral("initializeMpv: mpv_initialize succeeded"));
+    m_runtimeLogger->append(QStringLiteral("initializeMpv: mpv_initialize succeeded"));
     const int logResult = mpv_request_log_messages(m_mpv, "info");
-    appendRuntimeLog(QStringLiteral("initializeMpv: requested mpv info logs, result=%1").arg(logResult));
+    m_runtimeLogger->append(QStringLiteral("initializeMpv: requested mpv info logs, result=%1").arg(logResult));
     setPropertyDouble("saturation", m_saturation);
     setPropertyDouble("brightness", m_brightness);
     setPropertyDouble("contrast", m_contrast);
@@ -846,7 +1107,7 @@ void MainWindow::loadFile(const QString& path) {
     clearAbLoop();
     const QString absolute = QFileInfo(path).absoluteFilePath();
     addToPlaylist(absolute);
-    const int index = m_playlist ? m_playlist->currentRow() : -1;
+    const int index = m_playlistController ? m_playlistController->indexOf(absolute) : -1;
     if (index >= 0) playPlaylistIndex(index);
     else {
         const QByteArray encoded = absolute.toUtf8();
@@ -856,64 +1117,114 @@ void MainWindow::loadFile(const QString& path) {
 }
 
 void MainWindow::addToPlaylist(const QString& path) {
-    if (!m_playlist || path.isEmpty()) return;
+    if (!m_playlistController || !m_playlist || path.isEmpty()) return;
     const QString absolute = QFileInfo(path).absoluteFilePath();
-    for (int i = 0; i < m_playlist->count(); ++i) {
-        if (m_playlist->item(i)->data(Qt::UserRole).toString() == absolute) {
-            m_playlist->setCurrentRow(i);
-            return;
-        }
+    const int existingIndex = m_playlistController->indexOf(absolute);
+    if (existingIndex >= 0) {
+        m_playlistController->setCurrentIndex(existingIndex);
+        m_playlist->setCurrentRow(existingIndex);
+        return;
     }
-    const bool wasEmpty = m_playlist->count() == 0;
-    auto* item = new QListWidgetItem(QFileInfo(absolute).fileName(), m_playlist);
+    const bool added = m_playlistController->addPath(absolute);
+    if (!added) return;
+    auto* item = new QListWidgetItem(m_playlist);
     item->setToolTip(absolute);
     item->setData(Qt::UserRole, absolute);
-    if (wasEmpty) m_playlist->setCurrentItem(item);
+
+    auto* rowWidget = new QWidget(m_playlist);
+    auto* rowLayout = new QHBoxLayout(rowWidget);
+    rowLayout->setContentsMargins(6, 2, 4, 2);
+    rowLayout->setSpacing(4);
+
+    auto* fileLabel = new QLabel(QFileInfo(absolute).fileName(), rowWidget);
+    fileLabel->setToolTip(absolute);
+    fileLabel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    fileLabel->setTextInteractionFlags(Qt::NoTextInteraction);
+    fileLabel->setProperty("playlist-path", absolute);
+    fileLabel->installEventFilter(this);
+    rowLayout->addWidget(fileLabel, 1);
+
+    auto* removeButton = new QPushButton(QStringLiteral("x"), rowWidget);
+    removeButton->setFixedSize(24, 24);
+    removeButton->setToolTip(QStringLiteral("Remove this file from the playlist"));
+    removeButton->setStyleSheet(QStringLiteral(
+        "QPushButton{background:#2b2b2b;color:#ddd;border:0;border-radius:4px;font-weight:700;}"
+        "QPushButton:hover{background:#8b2f2f;color:#fff;}"));
+    connect(removeButton, &QPushButton::clicked, this, [this, item] {
+        if (m_playlist) removePlaylistItem(m_playlist->row(item));
+    });
+    rowLayout->addWidget(removeButton);
+
+    m_playlist->setItemWidget(item, rowWidget);
+    item->setSizeHint(rowWidget->sizeHint());
+
+    if (m_playlistController->count() == 1) {
+        m_playlistController->setCurrentIndex(0);
+        m_playlist->setCurrentRow(0);
+    }
+    updatePlaylistCurrentRowStyle();
 }
 
 void MainWindow::playPlaylistIndex(int index, bool promptResume) {
-    if (!m_playlist || index < 0 || index >= m_playlist->count()) return;
+    if (!m_playlistController || !m_playlist || index < 0 || index >= m_playlistController->count()) return;
     saveCurrentPlaybackPosition();
 
     // A newly selected file starts with normal hardware decoding and
     // no manual rotation or flip transforms.
-    clearFlipHardwareOverride();
-    m_videoRotation = 0;
-    m_flipHorizontal = false;
-    m_flipVertical = false;
-    const char* removeFlipHArgs[] = {"vf-remove", "@rex-flip-h", nullptr};
-    const char* removeFlipVArgs[] = {"vf-remove", "@rex-flip-v", nullptr};
-    command(removeFlipHArgs);
-    command(removeFlipVArgs);
-    const char* resetRotationArgs[] = {"set", "video-rotate", "0", nullptr};
-    command(resetRotationArgs);
+    if (m_videoTransformer) m_videoTransformer->reset();
 
-    auto* item = m_playlist->item(index);
-    const QString path = item->data(Qt::UserRole).toString();
+    const QString path = m_playlistController->pathAt(index);
     if (path.isEmpty() || !QFileInfo::exists(path)) return;
-    m_currentPlaylistIndex = index;
+    m_playlistController->setCurrentIndex(index);
     m_playlist->setCurrentRow(index);
+    updatePlaylistCurrentRowStyle();
     const QByteArray encoded = path.toUtf8();
     const char* args[] = {"loadfile", encoded.constData(), "replace", nullptr};
     if (m_mpv) mpv_command_async(m_mpv, 0, args);
     m_promptResumeNextLoad = promptResume;
     m_pendingResumePath = path;
-    m_titleLabel->setText(QFileInfo(path).fileName());
-    setWindowTitle(QStringLiteral("%1 — REX Player").arg(QFileInfo(path).fileName()));
+    setWindowTitle(QStringLiteral("%1 - Rex Player").arg(QFileInfo(path).fileName()));
+}
+
+void MainWindow::updatePlaylistCurrentRowStyle() {
+    if (!m_playlist) return;
+
+    for (int i = 0; i < m_playlist->count(); ++i) {
+        auto* rowWidget = m_playlist->itemWidget(m_playlist->item(i));
+        if (!rowWidget) continue;
+
+        const bool current = i == m_playlist->currentRow();
+        rowWidget->setStyleSheet(current
+            ? QStringLiteral(
+                  "QWidget{background:#18352b;color:#e8f5ee;border-radius:4px;}"
+                  "QLabel{background:transparent;color:#e8f5ee;}"
+                  "QPushButton{background:#24463a;color:#dff3e8;border:0;border-radius:4px;font-weight:700;}"
+                  "QPushButton:hover{background:#35634f;color:#fff;}")
+            : QStringLiteral(
+                  "QWidget{background:transparent;color:#eee;}"
+                  "QLabel{background:transparent;color:#eee;}"
+                  "QPushButton{background:#2b2b2b;color:#ddd;border:0;border-radius:4px;font-weight:700;}"
+                  "QPushButton:hover{background:#8b2f2f;color:#fff;}"));
+    }
 }
 
 void MainWindow::syncPlaylistSelection() {
-    if (m_playlist && m_currentPlaylistIndex >= 0 && m_currentPlaylistIndex < m_playlist->count()) m_playlist->setCurrentRow(m_currentPlaylistIndex);
+    if (m_playlistController && m_playlist &&
+        m_playlistController->currentIndex() >= 0 &&
+        m_playlistController->currentIndex() < m_playlist->count()) {
+        m_playlist->setCurrentRow(m_playlistController->currentIndex());
+    }
+    updatePlaylistCurrentRowStyle();
 }
 
 void MainWindow::command(const char** args) {
     if (!m_mpv || !args) return;
     QStringList parts;
     for (int i = 0; args[i] != nullptr; ++i) parts << QString::fromUtf8(args[i]);
-    appendRuntimeLog(QStringLiteral("COMMAND async: %1").arg(parts.join(QStringLiteral(" | "))));
+    m_runtimeLogger->append(QStringLiteral("COMMAND async: %1").arg(parts.join(QStringLiteral(" | "))));
     const int result = mpv_command_async(m_mpv, 0, args);
     if (result < 0) {
-        appendRuntimeLog(QStringLiteral("COMMAND submit FAILED: %1").arg(result));
+        m_runtimeLogger->append(QStringLiteral("COMMAND submit FAILED: %1").arg(result));
     }
 }
 void MainWindow::togglePause() { const char* args[] = {"cycle", "pause", nullptr}; command(args); }
@@ -928,155 +1239,110 @@ double MainWindow::getPropertyDouble(const char* name) const { if (!m_mpv) retur
 QString MainWindow::getPropertyString(const char* name) const { if (!m_mpv) return {}; char* value = nullptr; if (mpv_get_property(m_mpv, name, MPV_FORMAT_STRING, &value) < 0 || !value) return {}; const QString result = QString::fromUtf8(value); mpv_free(value); return result; }
 void MainWindow::setPropertyDouble(const char* name, double value) {
     if (!m_mpv) return;
-    appendRuntimeLog(QStringLiteral("SET_PROPERTY async: %1=%2").arg(QString::fromUtf8(name)).arg(QString::number(value, 'g', 12)));
+    m_runtimeLogger->append(QStringLiteral("SET_PROPERTY async: %1=%2").arg(QString::fromUtf8(name)).arg(QString::number(value, 'g', 12)));
     const int result = mpv_set_property_async(m_mpv, 0, name, MPV_FORMAT_DOUBLE, &value);
-    if (result < 0) appendRuntimeLog(QStringLiteral("SET_PROPERTY submit FAILED: %1 result=%2").arg(QString::fromUtf8(name)).arg(result));
+    if (result < 0) m_runtimeLogger->append(QStringLiteral("SET_PROPERTY submit FAILED: %1 result=%2").arg(QString::fromUtf8(name)).arg(result));
 }
 void MainWindow::updateSeekButtonLabels() { if (!m_seekBackButton || !m_seekForwardButton) return; m_seekBackButton->setText(QStringLiteral("−10s")); m_seekForwardButton->setText(QStringLiteral("+10s")); }
 void MainWindow::adjustVideoZoom(double amount) { setPropertyDouble("video-zoom", std::clamp(getPropertyDouble("video-zoom") + amount, -2.0, 3.0)); }
-void MainWindow::clearFlipHardwareOverride() {
-    if (!m_mpv || !m_flipHwdecOverride) return;
+void MainWindow::resizeWindowForVideoAspect() {
+    if (!m_mpv || isFullScreen() || isMaximized() || isMinimized() || !m_videoWidget) return;
 
-    const QString currentHwdec = getPropertyString("hwdec").trimmed();
-    appendRuntimeLog(QStringLiteral("FLIP HWDEC: clearing override; current=%1 saved=%2")
-        .arg(currentHwdec, m_flipPreHwdec));
+    int64_t displayWidth = 0;
+    int64_t displayHeight = 0;
+    const bool haveDisplayWidth =
+        mpv_get_property(m_mpv, "video-out-params/dw", MPV_FORMAT_INT64, &displayWidth) >= 0;
+    const bool haveDisplayHeight =
+        mpv_get_property(m_mpv, "video-out-params/dh", MPV_FORMAT_INT64, &displayHeight) >= 0;
 
-    // Restore the user's previous hwdec choice only if it is still the
-    // copy-back value we installed for the flip session. This mirrors
-    // REX Player's behaviour and avoids overwriting a manual user change.
-    if (currentHwdec == QStringLiteral("auto-copy")) {
-        const QByteArray saved = m_flipPreHwdec.toUtf8();
-        const char* args[] = {"set", "hwdec", saved.constData(), nullptr};
-        command(args);
-        appendRuntimeLog(QStringLiteral("FLIP HWDEC: queued restore %1")
-            .arg(m_flipPreHwdec));
+    if (!haveDisplayWidth || !haveDisplayHeight || displayWidth <= 0 || displayHeight <= 0) {
+        mpv_get_property(m_mpv, "video-params/w", MPV_FORMAT_INT64, &displayWidth);
+        mpv_get_property(m_mpv, "video-params/h", MPV_FORMAT_INT64, &displayHeight);
     }
 
-    m_flipPreHwdec.clear();
-    m_flipHwdecOverride = false;
+    if (displayWidth <= 0 || displayHeight <= 0) return;
+
+    const double aspect = static_cast<double>(displayWidth) /
+                          static_cast<double>(displayHeight);
+    if (!std::isfinite(aspect) || aspect <= 0.0) return;
+
+    QScreen* currentScreen = screen();
+    if (!currentScreen) currentScreen = QGuiApplication::primaryScreen();
+    if (!currentScreen) return;
+
+    const QRect available = currentScreen->availableGeometry();
+    const int screenMargin = 32;
+    const int controlsHeight = m_controls ? m_controls->sizeHint().height() : 0;
+    const int maxVideoWidth = std::max(320, available.width() - screenMargin * 2);
+    const int maxVideoHeight = std::max(180, available.height() - controlsHeight - screenMargin * 2);
+
+    const int preferredWidth = std::clamp(m_videoWidget->width(), 640, 1400);
+    int videoWidth = std::min(preferredWidth, maxVideoWidth);
+    int videoHeight = static_cast<int>(std::lround(videoWidth / aspect));
+
+    if (videoHeight > maxVideoHeight) {
+        videoHeight = maxVideoHeight;
+        videoWidth = static_cast<int>(std::lround(videoHeight * aspect));
+    }
+
+    videoWidth = std::clamp(videoWidth, 320, maxVideoWidth);
+    videoHeight = std::clamp(
+        static_cast<int>(std::lround(videoWidth / aspect)),
+        180,
+        maxVideoHeight);
+
+    videoWidth = std::min(
+        videoWidth,
+        static_cast<int>(std::lround(videoHeight * aspect)));
+    videoHeight = static_cast<int>(std::lround(videoWidth / aspect));
+
+    const int targetHeight = videoHeight + controlsHeight;
+    if (targetHeight <= 0 || videoWidth <= 0) return;
+
+    resize(videoWidth, targetHeight);
 }
 
-void MainWindow::applyVideoTransforms() {
-    if (!m_mpv) return;
-
-    const bool flipsActive = m_flipHorizontal || m_flipVertical;
-    appendRuntimeLog(QStringLiteral("TRANSFORM: apply rotation=%1 flipH=%2 flipV=%3 hwdec=%4 hwdec-current=%5")
-        .arg(m_videoRotation)
-        .arg(m_flipHorizontal ? QStringLiteral("on") : QStringLiteral("off"))
-        .arg(m_flipVertical ? QStringLiteral("on") : QStringLiteral("off"))
-        .arg(getPropertyString("hwdec"))
-        .arg(getPropertyString("hwdec-current")));
-
-    // Keep rotation native in mpv. Flip filters are CPU-frame filters, so
-    // when hardware decoding is active we temporarily switch to mpv's
-    // copy-back mode. This is the same basic approach used by REX Player.
-    if (flipsActive && !m_flipHwdecOverride) {
-        const QString activeHwdec = getPropertyString("hwdec-current").trimmed();
-        const QString configuredHwdec = getPropertyString("hwdec").trimmed();
-        const bool hardwareActive =
-            !activeHwdec.isEmpty() &&
-            activeHwdec != QStringLiteral("no") &&
-            activeHwdec != QStringLiteral("none");
-        const bool alreadyCopyBack =
-            activeHwdec == QStringLiteral("auto-copy") ||
-            activeHwdec.endsWith(QStringLiteral("-copy"));
-
-        if (hardwareActive && !alreadyCopyBack) {
-            m_flipPreHwdec = configuredHwdec.isEmpty() ? QStringLiteral("auto") : configuredHwdec;
-
-            const char* args[] = {"set", "hwdec", "auto-copy", nullptr};
-            command(args);
-            appendRuntimeLog(QStringLiteral("FLIP HWDEC: queued %1 -> auto-copy")
-                .arg(m_flipPreHwdec));
-            m_flipHwdecOverride = true;
-        }
+void MainWindow::captureScreenshot() {
+    if (!m_screenshotController || !m_mpv || getPropertyString("filename").isEmpty()) {
+        showError(QStringLiteral("REX Player — No video is currently loaded"));
+        return;
     }
+    m_screenshotController->capture(windowTitle(), getPropertyString("path"));
+}
 
-    if (!flipsActive) {
-        clearFlipHardwareOverride();
-    }
+void MainWindow::showDisplayDialog() {
+    if (m_displayController) m_displayController->showDialog();
+}
 
-    qint64 rotation = m_videoRotation;
-    const int rotationResult = mpv_set_property(
-        m_mpv, "video-rotate", MPV_FORMAT_INT64, &rotation);
-    appendRuntimeLog(QStringLiteral("TRANSFORM: video-rotate=%1 result=%2 (%3)")
-        .arg(m_videoRotation)
-        .arg(rotationResult)
-        .arg(QString::fromUtf8(mpv_error_string(rotationResult))));
-
-    // Use mpv's native hflip/vflip filters, as REX Player does. The
-    // previous lavfi=[hflip]/lavfi=[vflip] form can fail when the decoded
-    // frames remain hardware-backed.
-    const bool waitForCopyBack = flipsActive && m_flipHwdecOverride;
-    if (waitForCopyBack) {
-        const QString activeHwdec = getPropertyString("hwdec-current").trimmed();
-        // hwdec-current reports the actual backend, e.g. "vaapi-copy",
-        // not the configured value "auto-copy". Treat any *-copy backend
-        // as ready. If mpv has fallen back to software ("no"/"none"),
-        // CPU-frame filters are also safe to install.
-        const bool copyBackReady =
-            activeHwdec.endsWith(QStringLiteral("-copy")) ||
-            activeHwdec == QStringLiteral("no") ||
-            activeHwdec == QStringLiteral("none");
-        if (!copyBackReady) {
-            appendRuntimeLog(QStringLiteral("TRANSFORM: waiting for hwdec copy-back; current=%1")
-                .arg(activeHwdec.isEmpty() ? QStringLiteral("<empty>") : activeHwdec));
-            QTimer::singleShot(100, this, &MainWindow::applyVideoTransforms);
-            return;
-        }
-    }
-
-    const char* removeHArgs[] = {"vf", "remove", "@rex-flip-h", nullptr};
-    const int removeHResult = mpv_command(m_mpv, removeHArgs);
-    appendRuntimeLog(QStringLiteral("TRANSFORM: remove @rex-flip-h result=%1 (%2)")
-        .arg(removeHResult).arg(QString::fromUtf8(mpv_error_string(removeHResult))));
-
-    const char* removeVArgs[] = {"vf", "remove", "@rex-flip-v", nullptr};
-    const int removeVResult = mpv_command(m_mpv, removeVArgs);
-    appendRuntimeLog(QStringLiteral("TRANSFORM: remove @rex-flip-v result=%1 (%2)")
-        .arg(removeVResult).arg(QString::fromUtf8(mpv_error_string(removeVResult))));
-
-    if (m_flipHorizontal) {
-        const char* addHArgs[] = {"vf", "add", "@rex-flip-h:hflip", nullptr};
-        const int result = mpv_command(m_mpv, addHArgs);
-        appendRuntimeLog(QStringLiteral("TRANSFORM: add horizontal flip result=%1 (%2)")
-            .arg(result).arg(QString::fromUtf8(mpv_error_string(result))));
-    }
-
-    if (m_flipVertical) {
-        const char* addVArgs[] = {"vf", "add", "@rex-flip-v:vflip", nullptr};
-        const int result = mpv_command(m_mpv, addVArgs);
-        appendRuntimeLog(QStringLiteral("TRANSFORM: add vertical flip result=%1 (%2)")
-            .arg(result).arg(QString::fromUtf8(mpv_error_string(result))));
-    }
-
-    appendRuntimeLog(QStringLiteral("TRANSFORM: apply complete hwdec=%1 hwdec-current=%2")
-        .arg(getPropertyString("hwdec"))
-        .arg(getPropertyString("hwdec-current")));
-    QTimer::singleShot(100, this, &MainWindow::resizeWindowForVideoAspect);
+void MainWindow::saveLogReport() {
+    if (m_diagnosticReporter) m_diagnosticReporter->saveReport();
 }
 
 void MainWindow::rotateVideo90() {
-    if (!m_mpv) return;
-    m_videoRotation = (m_videoRotation + 90) % 360;
-    appendRuntimeLog(QStringLiteral("USER ACTION: Rotate clicked; new rotation=%1").arg(m_videoRotation));
-    applyVideoTransforms();
+    if (!m_videoTransformer) return;
+    const int nextRotation = (m_videoTransformer->rotation() + 90) % 360;
+    m_videoTransformer->setRotation(nextRotation);
+    m_runtimeLogger->append(QStringLiteral("USER ACTION: Rotate clicked; new rotation=%1").arg(nextRotation));
+    m_videoTransformer->apply();
+    QTimer::singleShot(100, this, &MainWindow::resizeWindowForVideoAspect);
 }
 
 void MainWindow::toggleFlipHorizontal() {
-    if (!m_mpv) return;
-    m_flipHorizontal = !m_flipHorizontal;
-    appendRuntimeLog(QStringLiteral("USER ACTION: Flip H clicked; new state=%1")
-        .arg(m_flipHorizontal ? QStringLiteral("on") : QStringLiteral("off")));
-    applyVideoTransforms();
+    if (!m_videoTransformer) return;
+    m_videoTransformer->toggleFlipHorizontal();
+    m_runtimeLogger->append(QStringLiteral("USER ACTION: Flip H clicked; new state=%1")
+        .arg(m_videoTransformer->flipHorizontal() ? QStringLiteral("on") : QStringLiteral("off")));
+    m_videoTransformer->apply();
+    QTimer::singleShot(100, this, &MainWindow::resizeWindowForVideoAspect);
 }
 
 void MainWindow::toggleFlipVertical() {
-    if (!m_mpv) return;
-    m_flipVertical = !m_flipVertical;
-    appendRuntimeLog(QStringLiteral("USER ACTION: Flip V clicked; new state=%1")
-        .arg(m_flipVertical ? QStringLiteral("on") : QStringLiteral("off")));
-    applyVideoTransforms();
+    if (!m_videoTransformer) return;
+    m_videoTransformer->toggleFlipVertical();
+    m_runtimeLogger->append(QStringLiteral("USER ACTION: Flip V clicked; new state=%1")
+        .arg(m_videoTransformer->flipVertical() ? QStringLiteral("on") : QStringLiteral("off")));
+    m_videoTransformer->apply();
+    QTimer::singleShot(100, this, &MainWindow::resizeWindowForVideoAspect);
 }
 
 void MainWindow::resetVideoTransform() { setPropertyDouble("video-zoom", 0.0); setPropertyDouble("video-pan-x", 0.0); setPropertyDouble("video-pan-y", 0.0); m_videoPanX = 0.0; m_videoPanY = 0.0; }
@@ -1150,9 +1416,10 @@ void MainWindow::cutAbSelection() {
         const QString output = m_cutOutputPath;
         const bool success = exitStatus == QProcess::NormalExit && exitCode == 0 && QFileInfo::exists(output);
         if (success) {
+            showToast(QStringLiteral("A-B Cut Saved"));
             QMessageBox::information(
                 this, QStringLiteral("A-B cut complete"),
-                QStringLiteral("Saved:\n%1\n\n%2").arg(output, m_cutWithZoom && (getPropertyDouble("video-zoom") > 0.0001 || std::abs(getPropertyDouble("video-pan-x")) > 0.0001 || std::abs(getPropertyDouble("video-pan-y")) > 0.0001 || std::abs(getPropertyDouble("video-rotate")) > 0.0001 || m_flipHorizontal || m_flipVertical) ? QStringLiteral("The current zoom/pan/rotation/flip was baked into the video, so the video was re-encoded; audio/subtitles were copied when supported.") : QStringLiteral("Streams were copied without re-encoding. Because this is stream-copy cutting, the start may align to a nearby keyframe.")));
+                QStringLiteral("Saved:\n%1\n\n%2").arg(output, m_cutWithZoom && (getPropertyDouble("video-zoom") > 0.0001 || std::abs(getPropertyDouble("video-pan-x")) > 0.0001 || std::abs(getPropertyDouble("video-pan-y")) > 0.0001 || std::abs(getPropertyDouble("video-rotate")) > 0.0001 || (m_videoTransformer && m_videoTransformer->hasTransforms())) ? QStringLiteral("The current zoom/pan/rotation/flip was baked into the video, so the video was re-encoded; audio/subtitles were copied when supported.") : QStringLiteral("Streams were copied without re-encoding. Because this is stream-copy cutting, the start may align to a nearby keyframe.")));
         } else {
             if (QFileInfo::exists(output)) QFile::remove(output);
             const QString detail = error.isEmpty() ? QStringLiteral("FFmpeg exited with code %1.").arg(exitCode) : error;
@@ -1192,11 +1459,11 @@ void MainWindow::cutAbSelection() {
     // transcoding. Only the user's additional manual rotation must be
     // explicitly filtered here.
     const bool bakeRotation = m_cutWithZoom && sourceWidth > 0 && sourceHeight > 0 &&
-                               m_videoRotation != 0;
+                               m_videoTransformer && m_videoTransformer->rotation() != 0;
     const bool bakeFlipHorizontal = m_cutWithZoom && sourceWidth > 0 && sourceHeight > 0 &&
-                                     m_flipHorizontal;
+                                     m_videoTransformer && m_videoTransformer->flipHorizontal();
     const bool bakeFlipVertical = m_cutWithZoom && sourceWidth > 0 && sourceHeight > 0 &&
-                                   m_flipVertical;
+                                   m_videoTransformer && m_videoTransformer->flipVertical();
     const bool bakeTransform = bakeZoom || bakeRotation || bakeFlipHorizontal || bakeFlipVertical;
 
     if (bakeTransform) {
@@ -1209,11 +1476,11 @@ void MainWindow::cutAbSelection() {
             ? sourceWidth : sourceHeight;
 
         QStringList filters;
-        if (m_videoRotation == 90) {
+        if (m_videoTransformer && m_videoTransformer->rotation() == 90) {
             filters << QStringLiteral("transpose=clock");
-        } else if (m_videoRotation == 180) {
+        } else if (m_videoTransformer && m_videoTransformer->rotation() == 180) {
             filters << QStringLiteral("hflip") << QStringLiteral("vflip");
-        } else if (m_videoRotation == 270) {
+        } else if (m_videoTransformer && m_videoTransformer->rotation() == 270) {
             filters << QStringLiteral("transpose=cclock");
         }
         if (bakeFlipHorizontal) {
@@ -1269,109 +1536,19 @@ void MainWindow::cutAbSelection() {
     m_cutProcess->start(ffmpeg, args);
 }
 
-void MainWindow::saveLogReport() {
-    const QString timestamp = QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMdd_HHmmss"));
-    const QString defaultName = QDir::home().filePath(QStringLiteral("REX_Player_Log_%1.txt").arg(timestamp));
-    const QString path = QFileDialog::getSaveFileName(this, QStringLiteral("Save REX Player log report"), defaultName, QStringLiteral("Text files (*.txt);;All files (*)"));
-    if (path.isEmpty()) return;
-
-    QFile file(path);
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
-        QMessageBox::warning(this, QStringLiteral("Save Log"), QStringLiteral("Could not write the log report:\n%1").arg(file.errorString()));
-        return;
-    }
-
-    QTextStream out(&file);
-    out << "REX Player - Diagnostic Log Report\n";
-    out << "=================================\n\n";
-    out << "Generated: " << QDateTime::currentDateTime().toString(Qt::ISODate) << "\n";
-    out << "Application: " << QCoreApplication::applicationName() << " " << QCoreApplication::applicationVersion() << "\n";
-    out << "Qt: " << QT_VERSION_STR << "\n";
-    out << "OS: " << QSysInfo::prettyProductName() << "\n";
-    out << "Kernel: " << QSysInfo::kernelType() << " " << QSysInfo::kernelVersion() << "\n";
-    out << "CPU architecture: " << QSysInfo::currentCpuArchitecture() << "\n";
-    out << "Build ABI: " << QSysInfo::buildAbi() << "\n";
-    out << "Host name: " << QSysInfo::machineHostName() << "\n";
-    out << "LC_NUMERIC: " << qgetenv("LC_NUMERIC") << "\n";
-    out << "QT_QPA_PLATFORM: " << qgetenv("QT_QPA_PLATFORM") << "\n";
-    out << "WAYLAND_DISPLAY: " << qgetenv("WAYLAND_DISPLAY") << "\n";
-    out << "DISPLAY: " << qgetenv("DISPLAY") << "\n\n";
-
-    auto writeString = [&out, this](const char* key, const char* label) {
-        const QString value = getPropertyString(key);
-        if (!value.isEmpty()) out << label << ": " << value << "\n";
-    };
-    auto writeDouble = [&out, this](const char* key, const char* label) {
-        const double value = getPropertyDouble(key);
-        if (std::isfinite(value)) out << label << ": " << QString::number(value, 'g', 12) << "\n";
-    };
-
-    out << "Playback / Media\n----------------\n";
-    writeString("path", "Path");
-    writeString("filename", "Filename");
-    writeString("media-title", "Media title");
-    writeString("file-format", "Container");
-    writeDouble("duration", "Duration (s)");
-    writeDouble("bitrate", "Overall bitrate");
-    writeString("video-codec", "Video codec");
-    writeString("video-format", "Video format");
-    writeDouble("video-params/w", "Video width");
-    writeDouble("video-params/h", "Video height");
-    writeDouble("container-fps", "Container FPS");
-    writeDouble("video-bitrate", "Video bitrate");
-    writeString("video-params/pixelformat", "Pixel format");
-    writeString("video-params/chroma-location", "Chroma location");
-    writeString("video-params/colormatrix", "Color matrix");
-    writeString("video-params/primaries", "Color primaries");
-    writeString("video-params/transfer", "Color transfer");
-    writeDouble("video-params/rotate", "Rotation");
-    writeString("audio-codec", "Audio codec");
-    writeString("audio-format", "Audio format");
-    writeDouble("audio-samplerate", "Audio sample rate");
-    writeString("audio-channels", "Audio channels");
-    writeString("audio-channel-layout", "Audio channel layout");
-    writeDouble("audio-bitrate", "Audio bitrate");
-    writeString("hwdec", "HW decoder setting");
-    writeString("hwdec-current", "Active HW decoder");
-    writeString("vo", "Video output");
-    writeString("gpu-api", "GPU API");
-    writeDouble("time-pos", "Position (s)");
-    writeDouble("speed", "Speed");
-    writeDouble("video-zoom", "Video zoom");
-    writeDouble("saturation", "Saturation");
-    writeDouble("brightness", "Brightness");
-    writeDouble("contrast", "Contrast");
-    writeDouble("video-pan-x", "Video pan X");
-    writeDouble("video-pan-y", "Video pan Y");
-    writeString("pause", "Paused");
-
-    out << "\nTracks\n------\n";
-    mpv_node tracks{};
-    if (m_mpv && mpv_get_property(m_mpv, "track-list", MPV_FORMAT_NODE, &tracks) >= 0 && tracks.format == MPV_FORMAT_NODE_ARRAY && tracks.u.list) {
-        for (int i = 0; i < tracks.u.list->num; ++i) {
-            const mpv_node* track = &tracks.u.list->values[i];
-            out << "Track " << (i + 1)
-                << ": type=" << nodeString(mapValue(track->u.list, "type"))
-                << ", id=" << nodeInt(mapValue(track->u.list, "id"))
-                << ", lang=" << nodeString(mapValue(track->u.list, "lang"))
-                << ", title=" << nodeString(mapValue(track->u.list, "title"))
-                << ", codec=" << nodeString(mapValue(track->u.list, "codec"))
-                << ", external=" << nodeString(mapValue(track->u.list, "external-filename"))
-                << ", selected=" << (nodeFlag(mapValue(track->u.list, "selected")) ? "yes" : "no") << "\n";
-        }
-        mpv_free_node_contents(&tracks);
-    } else {
-        out << "Unable to read track-list.\n";
-    }
-
-    out << "\nA-B / Controls\n--------------\n";
+QString MainWindow::diagnosticControlState() const {
+    QString state;
+    QTextStream out(&state);
     out << "A-B start: " << m_abLoopStart << "\n";
     out << "A-B end: " << m_abLoopEnd << "\n";
+    out << "Interface font family: " << QApplication::font().family() << "\n";
+    out << "Interface font size: " << QApplication::font().pointSizeF() << "\n";
+    out << "Custom font file: " << (m_controlSettings ? m_controlSettings->fontPath : QString()) << "\n";
     out << "Seek duration (seconds): " << m_seekDurationSeconds << "\n";
     out << "Seek wheel: " << m_seekWheelMode << "\n";
     out << "Zoom wheel: " << m_zoomWheelMode << "\n";
     out << "Volume wheel: " << m_volumeWheelMode << "\n";
-    out << "Pan gesture: Alt + Ctrl + left-drag\n";
+    out << "Pan gesture: Alt + Ctrl + configured pan-button drag\n";
     out << "Double-click button: " << static_cast<int>(m_doubleClickButton) << "\n";
     out << "Double-click zones: " << (m_doubleClickZones ? "enabled" : "disabled") << "\n";
     out << "Volume up shortcut: " << m_volumeUpKey.toString() << "\n";
@@ -1388,81 +1565,28 @@ void MainWindow::saveLogReport() {
     out << "Frame back shortcut: " << m_frameBackKey.toString() << "\n";
     out << "Frame forward shortcut: " << m_frameForwardKey.toString() << "\n";
     out << "Switch subtitles shortcut: " << m_switchSubtitlesKey.toString() << "\n";
-    out << "Autoplay next item: " << (m_autoplayPlaylist ? "enabled" : "disabled") << "\n";
+    out << "Autoplay next item: "
+        << ((m_playlistController && m_playlistController->autoplay()) ? "enabled" : "disabled") << "\n";
+    out << "Loop playlist: "
+        << ((m_playlistController && m_playlistController->loop()) ? "enabled" : "disabled") << "\n";
 
     out << "\nPlaylist\n--------\n";
     if (m_playlist) {
         out << "Count: " << m_playlist->count() << "\n";
-        out << "Current index: " << m_currentPlaylistIndex << "\n";
-        for (int i = 0; i < m_playlist->count(); ++i)
-            out << (i + 1) << ": " << m_playlist->item(i)->data(Qt::UserRole).toString() << "\n";
+        out << "Current index: "
+            << (m_playlistController ? m_playlistController->currentIndex() : -1) << "\n";
+        for (int i = 0; i < m_playlist->count(); ++i) {
+            const auto* item = m_playlist->item(i);
+            if (item) out << (i + 1) << ": " << item->data(Qt::UserRole).toString() << "\n";
+        }
     }
-
-    out << "\nEnd of report\n";
-    file.close();
-    QMessageBox::information(this, QStringLiteral("Log saved"), QStringLiteral("Diagnostic report saved to:\n%1").arg(path));
+    return state;
 }
 
-void MainWindow::updatePlaybackInhibit(bool active) {
-#ifdef Q_OS_WIN
-    if (active == m_playbackInhibited) return;
-    if (active) {
-        SetThreadExecutionState(ES_CONTINUOUS | ES_DISPLAY_REQUIRED);
-    } else {
-        SetThreadExecutionState(ES_CONTINUOUS);
-    }
-    m_playbackInhibited = active;
-#elif defined(Q_OS_LINUX)
-    if (active) {
-        // Do not trust the cached flag alone: an inhibitor helper can exit or
-        // fail after it was started. Re-create it whenever it is not running.
-        if (!m_powerInhibitProcess || m_powerInhibitProcess->state() == QProcess::NotRunning) {
-            if (m_powerInhibitProcess) {
-                m_powerInhibitProcess->deleteLater();
-                m_powerInhibitProcess = nullptr;
-            }
 
-            m_powerInhibitProcess = new QProcess(this);
-            const QString gnomeInhibit = QStandardPaths::findExecutable(QStringLiteral("gnome-session-inhibit"));
-            if (!gnomeInhibit.isEmpty()) {
-                // GNOME's own idle inhibitor covers screen dimming/blanking.
-                m_powerInhibitProcess->setProgram(gnomeInhibit);
-                m_powerInhibitProcess->setArguments({
-                    QStringLiteral("--app-id=rex-player"),
-                    QStringLiteral("--reason=Video playback"),
-                    QStringLiteral("--inhibit=idle"),
-                    QStringLiteral("--inhibit-only")
-                });
-            } else {
-                // Fallback for non-GNOME Linux desktops using logind.
-                m_powerInhibitProcess->setProgram(QStringLiteral("systemd-inhibit"));
-                m_powerInhibitProcess->setArguments({
-                    QStringLiteral("--what=idle"),
-                    QStringLiteral("--who=REX Player"),
-                    QStringLiteral("--why=Video playback"),
-                    QStringLiteral("--mode=block"),
-                    QStringLiteral("sleep"),
-                    QStringLiteral("infinity")
-                });
-            }
-            m_powerInhibitProcess->start();
-        }
-        m_playbackInhibited = m_powerInhibitProcess &&
-                              m_powerInhibitProcess->state() != QProcess::NotRunning;
-    } else {
-        if (m_powerInhibitProcess) {
-            m_powerInhibitProcess->terminate();
-            if (!m_powerInhibitProcess->waitForFinished(500)) {
-                m_powerInhibitProcess->kill();
-            }
-            m_powerInhibitProcess->deleteLater();
-            m_powerInhibitProcess = nullptr;
-        }
-        m_playbackInhibited = false;
-    }
-#else
-    m_playbackInhibited = active;
-#endif
+
+void MainWindow::updatePlaybackInhibit(bool active) {
+    if (m_playbackInhibitor) m_playbackInhibitor->setActive(active);
 }
 
 void MainWindow::updateHardwareButton() {
@@ -1476,84 +1600,104 @@ void MainWindow::updateHardwareButton() {
 }
 
 void MainWindow::showTracksMenu() {
-    if (!m_mpv) return;
-    mpv_node tracks{};
-    if (mpv_get_property(m_mpv, "track-list", MPV_FORMAT_NODE, &tracks) < 0 || tracks.format != MPV_FORMAT_NODE_ARRAY || !tracks.u.list) { mpv_free_node_contents(&tracks); return; }
-    auto* menu = new QMenu(this); menu->setAttribute(Qt::WA_DeleteOnClose);
-    auto* audioMenu = menu->addMenu(QStringLiteral("Audio"));
-    auto* subtitleMenu = menu->addMenu(QStringLiteral("Subtitles"));
-    const mpv_node_list* list = tracks.u.list;
-    bool hasAudio = false;
-    bool hasSubtitles = false;
-    auto addTrack = [this](QMenu* target, const QString& label, int id, bool selected, const char* property) {
-        auto* action = target->addAction(label);
-        action->setCheckable(true);
-        action->setChecked(selected);
-        connect(action, &QAction::triggered, this, [this, id, property] {
-            if (id < 0) {
-                static char noTrack[] = "no";
-                char* value = noTrack;
-                mpv_set_property_async(m_mpv, 0, property, MPV_FORMAT_STRING, &value);
-            } else {
-                int64_t value = id;
-                mpv_set_property_async(m_mpv, 0, property, MPV_FORMAT_INT64, &value);
-            }
-        });
-    };
-    addTrack(audioMenu, QStringLiteral("Auto"), -1, false, "aid");
-    mpv_node aid{};
-    if (mpv_get_property(m_mpv, "aid", MPV_FORMAT_NODE, &aid) >= 0 && aid.format == MPV_FORMAT_INT64) audioMenu->actions().first()->setChecked(aid.u.int64 < 0);
-    mpv_free_node_contents(&aid);
-    auto* autoSubtitle = subtitleMenu->addAction(QStringLiteral("Off"));
-    autoSubtitle->setCheckable(true);
-    mpv_node sid{};
-    if (mpv_get_property(m_mpv, "sid", MPV_FORMAT_NODE, &sid) >= 0 && sid.format == MPV_FORMAT_INT64) autoSubtitle->setChecked(sid.u.int64 < 0);
-    mpv_free_node_contents(&sid);
-    connect(autoSubtitle, &QAction::triggered, this, [this] {
-        static char noSubtitle[] = "no";
-        char* value = noSubtitle;
-        mpv_set_property_async(m_mpv, 0, "sid", MPV_FORMAT_STRING, &value);
-    });
-    for (int i = 0; i < list->num; ++i) {
-        const mpv_node& track = list->values[i];
-        if (track.format != MPV_FORMAT_NODE_MAP || !track.u.list) continue;
-        const QString type = nodeString(mapValue(track.u.list, "type"));
-        const int id = nodeInt(mapValue(track.u.list, "id"));
-        if (id < 0) continue;
-        const QString lang = nodeString(mapValue(track.u.list, "lang"));
-        const QString title = nodeString(mapValue(track.u.list, "title"));
-        const QString external = nodeString(mapValue(track.u.list, "external-filename"));
-        const bool selected = nodeFlag(mapValue(track.u.list, "selected"));
-        QString label = title;
-        if (label.isEmpty()) label = lang;
-        if (label.isEmpty() && !external.isEmpty()) label = QFileInfo(external).fileName();
-        if (label.isEmpty()) label = QStringLiteral("Track %1").arg(id);
-        if (!lang.isEmpty() && title != lang) label += QStringLiteral(" (%1)").arg(lang);
-        if (type == QStringLiteral("audio")) {
-            addTrack(audioMenu, label, id, selected, "aid");
-            hasAudio = true;
-        } else if (type == QStringLiteral("sub")) {
-            auto* action = subtitleMenu->addAction(label);
-            action->setCheckable(true);
-            action->setChecked(selected);
-            connect(action, &QAction::triggered, this, [this, id] {
-                int64_t value = id;
-                mpv_set_property_async(m_mpv, 0, "sid", MPV_FORMAT_INT64, &value);
-            });
-            hasSubtitles = true;
-        }
-    }
-    audioMenu->setEnabled(hasAudio);
-    subtitleMenu->setEnabled(hasSubtitles || subtitleMenu->actions().size() > 0);
-    if (auto* button = qobject_cast<QPushButton*>(sender())) menu->popup(button->mapToGlobal(QPoint(0, button->height())));
-    else menu->popup(QCursor::pos());
-    mpv_free_node_contents(&tracks);
+    if (m_trackController) m_trackController->showMenu(qobject_cast<QWidget*>(sender()));
 }
 
-void MainWindow::saveSelectedAudioTrack() {
-    if (!m_mpv) return;
+void MainWindow::increasePlaybackSpeed() {
+    const double current = getPropertyDouble("speed");
+    const double base = std::isfinite(current) ? current : 1.0;
+    const double next = std::clamp(std::round((base + m_speedJump) * 20.0) / 20.0, 0.25, 3.0);
+    setPropertyDouble("speed", next);
+    if (m_runtimeLogger) {
+        m_runtimeLogger->append(
+            QStringLiteral("PLAYBACK SPEED: %1x").arg(next, 0, 'f', 2));
+    }
+}
 
-    if (m_audioSaveProcess && m_audioSaveProcess->state() != QProcess::NotRunning) {
+void MainWindow::decreasePlaybackSpeed() {
+    const double current = getPropertyDouble("speed");
+    const double base = std::isfinite(current) ? current : 1.0;
+    const double next = std::clamp(std::round((base - m_speedJump) * 20.0) / 20.0, 0.25, 3.0);
+    setPropertyDouble("speed", next);
+    if (m_runtimeLogger) {
+        m_runtimeLogger->append(
+            QStringLiteral("PLAYBACK SPEED: %1x").arg(next, 0, 'f', 2));
+    }
+}
+
+void MainWindow::showSpeedMenu() {
+    if (!m_speedButton) return;
+
+    QMenu menu(this);
+    menu.setStyleSheet(QStringLiteral(
+        "QMenu{padding:2px;}"
+        "QListWidget{background:#222;color:#fff;border:0;outline:0;}"
+        "QListWidget::item{padding:5px 12px;min-height:22px;}"
+        "QListWidget::item:selected{background:#3a3a3a;color:#fff;}"
+        "QListWidget::item:hover{background:#303030;}"
+        "QScrollBar:vertical{width:10px;background:#171717;margin:0;}"
+        "QScrollBar::handle:vertical{background:#555;border-radius:4px;min-height:24px;}"
+        "QScrollBar::add-line:vertical,QScrollBar::sub-line:vertical{height:0;}"
+    ));
+
+    auto* speedList = new QListWidget(&menu);
+    speedList->setSelectionMode(QAbstractItemView::SingleSelection);
+    speedList->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
+    speedList->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    speedList->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    speedList->setFixedWidth(96);
+    speedList->setFixedHeight(320);
+
+    const double currentSpeed = std::clamp(getPropertyDouble("speed"), 0.25, 3.0);
+
+    for (int i = 5; i <= 60; ++i) {
+        const double speed = i * 0.05;
+        const QString label = QStringLiteral("%1x").arg(speed, 0, 'f', 2);
+        auto* item = new QListWidgetItem(label, speedList);
+        item->setData(Qt::UserRole, speed);
+        if (std::abs(currentSpeed - speed) < 0.001) {
+            item->setSelected(true);
+            speedList->setCurrentItem(item);
+        }
+    }
+
+    auto* widgetAction = new QWidgetAction(&menu);
+    widgetAction->setDefaultWidget(speedList);
+    menu.addAction(widgetAction);
+
+    connect(speedList, &QListWidget::itemClicked, &menu,
+            [this, &menu](QListWidgetItem* item) {
+        if (!item) return;
+        const double speed = item->data(Qt::UserRole).toDouble();
+        setPropertyDouble("speed", speed);
+        if (m_runtimeLogger) {
+            m_runtimeLogger->append(
+                QStringLiteral("PLAYBACK SPEED: %1x").arg(speed, 0, 'f', 2));
+        }
+        menu.close();
+    });
+
+    // Place the popup above the Speed button.
+    const QSize menuSize = menu.sizeHint();
+    const QPoint buttonTopLeft = m_speedButton->mapToGlobal(QPoint(0, 0));
+    int x = buttonTopLeft.x();
+    int y = buttonTopLeft.y() - menuSize.height();
+
+    if (QScreen* screen = m_speedButton->screen()) {
+        const QRect available = screen->availableGeometry();
+        x = std::clamp(
+            x,
+            available.left(),
+            std::max(available.left(), available.right() - menuSize.width() + 1));
+        y = std::max(available.top(), y);
+    }
+
+    menu.exec(QPoint(x, y));
+}
+void MainWindow::saveSelectedAudioTrack() {
+    if (!m_mpv || !m_audioExporter) return;
+
+    if (m_audioExporter->isRunning()) {
         QMessageBox::information(this, QStringLiteral("Save Audio"),
                                  QStringLiteral("An audio export is already in progress."));
         return;
@@ -1563,7 +1707,7 @@ void MainWindow::saveSelectedAudioTrack() {
     if (mpv_get_property(m_mpv, "track-list", MPV_FORMAT_NODE, &tracks) < 0 ||
         tracks.format != MPV_FORMAT_NODE_ARRAY || !tracks.u.list) {
         mpv_free_node_contents(&tracks);
-        appendRuntimeLog(QStringLiteral("AUDIO SAVE: could not read track-list"));
+        m_runtimeLogger->append(QStringLiteral("AUDIO SAVE: could not read track-list"));
         QMessageBox::warning(this, QStringLiteral("Save Audio"),
                              QStringLiteral("Could not read the current audio track."));
         return;
@@ -1580,24 +1724,31 @@ void MainWindow::saveSelectedAudioTrack() {
     for (int i = 0; i < tracks.u.list->num; ++i) {
         const mpv_node& track = tracks.u.list->values[i];
         if (track.format != MPV_FORMAT_NODE_MAP || !track.u.list) continue;
-        if (nodeString(mapValue(track.u.list, "type")) != QStringLiteral("audio")) continue;
-        const bool isSelected = nodeFlag(mapValue(track.u.list, "selected"));
+        if (MpvNodeUtils::nodeString(MpvNodeUtils::mapValue(track.u.list, "type")) != QStringLiteral("audio")) {
+            continue;
+        }
+
+        const bool isSelected = MpvNodeUtils::nodeFlag(
+            MpvNodeUtils::mapValue(track.u.list, "selected"));
         if (isSelected) selectedAudioIndex = audioIndex;
 
         if (isSelected) {
-            selectedId = nodeInt(mapValue(track.u.list, "id"));
-        ffIndex = nodeInt(mapValue(track.u.list, "ff-index"));
-        trackTitle = nodeString(mapValue(track.u.list, "title"));
-        codec = nodeString(mapValue(track.u.list, "codec")).trimmed().toLower();
-            externalFilename = nodeString(mapValue(track.u.list, "external-filename"));
+            selectedId = MpvNodeUtils::nodeInt(MpvNodeUtils::mapValue(track.u.list, "id"));
+            ffIndex = MpvNodeUtils::nodeInt(MpvNodeUtils::mapValue(track.u.list, "ff-index"));
+            trackTitle = MpvNodeUtils::nodeString(MpvNodeUtils::mapValue(track.u.list, "title"));
+            codec = MpvNodeUtils::nodeString(MpvNodeUtils::mapValue(track.u.list, "codec"))
+                        .trimmed().toLower();
+            externalFilename =
+                MpvNodeUtils::nodeString(MpvNodeUtils::mapValue(track.u.list, "external-filename"));
         }
+
         ++audioIndex;
         if (isSelected) break;
     }
     mpv_free_node_contents(&tracks);
 
     if (selectedId < 0) {
-        appendRuntimeLog(QStringLiteral("AUDIO SAVE: no selected audio track"));
+        m_runtimeLogger->append(QStringLiteral("AUDIO SAVE: no selected audio track"));
         QMessageBox::information(this, QStringLiteral("Save Audio"),
                                  QStringLiteral("No audio track is currently selected."));
         return;
@@ -1609,7 +1760,7 @@ void MainWindow::saveSelectedAudioTrack() {
     if (inputUrl.isLocalFile()) inputPath = inputUrl.toLocalFile();
 
     if (inputPath.isEmpty()) {
-        appendRuntimeLog(QStringLiteral("AUDIO SAVE: selected track %1 has no source path").arg(selectedId));
+        m_runtimeLogger->append(QStringLiteral("AUDIO SAVE: selected track %1 has no source path").arg(selectedId));
         QMessageBox::warning(this, QStringLiteral("Save Audio"),
                              QStringLiteral("The selected audio track has no accessible source."));
         return;
@@ -1625,8 +1776,9 @@ void MainWindow::saveSelectedAudioTrack() {
     else if (codec == QStringLiteral("opus")) extension = QStringLiteral("opus");
     else if (codec == QStringLiteral("vorbis")) extension = QStringLiteral("ogg");
     else if (codec == QStringLiteral("pcm_s16le") || codec == QStringLiteral("pcm_s24le") ||
-             codec == QStringLiteral("pcm_s32le") || codec == QStringLiteral("pcm_f32le")) extension = QStringLiteral("wav");
-    else if (codec == QStringLiteral("ac3")) extension = QStringLiteral("ac3");
+             codec == QStringLiteral("pcm_s32le") || codec == QStringLiteral("pcm_f32le")) {
+        extension = QStringLiteral("wav");
+    } else if (codec == QStringLiteral("ac3")) extension = QStringLiteral("ac3");
     else if (codec == QStringLiteral("eac3")) extension = QStringLiteral("eac3");
     else if (codec == QStringLiteral("dts")) extension = QStringLiteral("dts");
 
@@ -1634,20 +1786,23 @@ void MainWindow::saveSelectedAudioTrack() {
     if (baseName.isEmpty()) baseName = QStringLiteral("audio");
     if (!trackTitle.isEmpty()) {
         QString safeTitle = trackTitle;
-        safeTitle.replace(QRegularExpression(QStringLiteral("[^A-Za-z0-9._-]+")), QStringLiteral("_"));
+        safeTitle.replace(QRegularExpression(QStringLiteral("[^A-Za-z0-9._-]+")),
+                          QStringLiteral("_"));
         safeTitle = safeTitle.trimmed();
         if (!safeTitle.isEmpty()) baseName += QStringLiteral("_") + safeTitle;
     }
 
     QString musicDir = QStandardPaths::writableLocation(QStandardPaths::MusicLocation);
     if (musicDir.isEmpty()) musicDir = QDir::homePath();
-    const QString defaultName = QDir(musicDir).filePath(baseName + QStringLiteral(".") + extension);
-    const QString filter = QStringLiteral("Audio files (*.%1);;Matroska audio (*.mka);;All files (*)").arg(extension);
+    const QString defaultName =
+        QDir(musicDir).filePath(baseName + QStringLiteral(".") + extension);
+    const QString filter =
+        QStringLiteral("Audio files (*.%1);;Matroska audio (*.mka);;All files (*)").arg(extension);
 
     const QString outputPath = QFileDialog::getSaveFileName(
         this, QStringLiteral("Save selected audio track"), defaultName, filter);
     if (outputPath.isEmpty()) {
-        appendRuntimeLog(QStringLiteral("AUDIO SAVE: user cancelled save dialog"));
+        m_runtimeLogger->append(QStringLiteral("AUDIO SAVE: user cancelled save dialog"));
         return;
     }
 
@@ -1657,6 +1812,7 @@ void MainWindow::saveSelectedAudioTrack() {
                              QStringLiteral("The output file must be different from the source media."));
         return;
     }
+
     if (outputInfo.exists()) {
         const auto answer = QMessageBox::question(
             this, QStringLiteral("Overwrite file?"),
@@ -1667,9 +1823,11 @@ void MainWindow::saveSelectedAudioTrack() {
 
     const QString ffmpeg = QStandardPaths::findExecutable(QStringLiteral("ffmpeg"));
     if (ffmpeg.isEmpty()) {
-        appendRuntimeLog(QStringLiteral("AUDIO SAVE: ffmpeg not found"));
-        QMessageBox::warning(this, QStringLiteral("Save Audio"),
-                             QStringLiteral("FFmpeg is required to save the selected audio track. Install ffmpeg and try again."));
+        m_runtimeLogger->append(QStringLiteral("AUDIO SAVE: ffmpeg not found"));
+        QMessageBox::warning(
+            this, QStringLiteral("Save Audio"),
+            QStringLiteral("FFmpeg is required to save the selected audio track. "
+                           "Install ffmpeg and try again."));
         return;
     }
 
@@ -1677,86 +1835,25 @@ void MainWindow::saveSelectedAudioTrack() {
         ? QStringLiteral("0:%1").arg(ffIndex)
         : QStringLiteral("0:a:%1").arg(std::max(0, selectedAudioIndex));
 
-    appendRuntimeLog(QStringLiteral("AUDIO SAVE: selected id=%1 audio-index=%2 ff-index=%3 codec=%4 external=%5")
+    m_runtimeLogger->append(QStringLiteral(
+        "AUDIO SAVE: selected id=%1 audio-index=%2 ff-index=%3 codec=%4 external=%5")
         .arg(selectedId)
         .arg(selectedAudioIndex)
         .arg(ffIndex)
         .arg(codec.isEmpty() ? QStringLiteral("<unknown>") : codec)
         .arg(externalFilename.isEmpty() ? QStringLiteral("no") : externalFilename));
-    appendRuntimeLog(QStringLiteral("AUDIO SAVE: input=%1 output=%2 map=%3")
-        .arg(sourcePath, outputPath, mapSpecifier));
+    m_runtimeLogger->append(QStringLiteral("AUDIO SAVE: input=%1 output=%2 map=%3")
+                         .arg(sourcePath, outputPath, mapSpecifier));
 
-    m_audioSaveOutputPath = outputPath;
-    m_audioSaveProcess = new QProcess(this);
-    m_audioSaveProcess->setProcessChannelMode(QProcess::SeparateChannels);
     m_saveAudioButton->setEnabled(false);
 
-    connect(m_audioSaveProcess, &QProcess::finished, this,
-            [this](int exitCode, QProcess::ExitStatus exitStatus) {
-        const QString stderrText = QString::fromLocal8Bit(m_audioSaveProcess->readAllStandardError()).trimmed();
-        const QString stdoutText = QString::fromLocal8Bit(m_audioSaveProcess->readAllStandardOutput()).trimmed();
-        const QString output = m_audioSaveOutputPath;
-        const bool success = exitStatus == QProcess::NormalExit &&
-                             exitCode == 0 &&
-                             QFileInfo::exists(output) &&
-                             QFileInfo(output).size() > 0;
-
-        appendRuntimeLog(QStringLiteral("AUDIO SAVE: ffmpeg finished exit=%1 status=%2 outputExists=%3 outputSize=%4")
-            .arg(exitCode)
-            .arg(exitStatus == QProcess::NormalExit ? QStringLiteral("normal") : QStringLiteral("crashed"))
-            .arg(QFileInfo::exists(output) ? QStringLiteral("yes") : QStringLiteral("no"))
-            .arg(QFileInfo::exists(output) ? QString::number(QFileInfo(output).size()) : QStringLiteral("0")));
-        if (!stderrText.isEmpty()) appendRuntimeLog(QStringLiteral("AUDIO SAVE: ffmpeg stderr: %1").arg(stderrText));
-        if (!stdoutText.isEmpty()) appendRuntimeLog(QStringLiteral("AUDIO SAVE: ffmpeg stdout: %1").arg(stdoutText));
-
-        if (success) {
-            showError(QStringLiteral("REX Player — Audio saved: %1").arg(QFileInfo(output).fileName()));
-            QMessageBox::information(this, QStringLiteral("Save Audio"),
-                                     QStringLiteral("Audio track saved successfully:\n%1").arg(output));
-        } else {
-            showError(QStringLiteral("REX Player — Audio save failed"));
-            QMessageBox::warning(this, QStringLiteral("Save Audio"),
-                                 QStringLiteral("Could not save the selected audio track.\n\n%1")
-                                     .arg(stderrText.isEmpty()
-                                              ? QStringLiteral("FFmpeg returned an error.")
-                                              : stderrText));
-            QFile::remove(output);
-        }
-
+    QString startError;
+    if (!m_audioExporter->start(ffmpeg, sourcePath, mapSpecifier, outputPath, &startError)) {
         m_saveAudioButton->setEnabled(true);
-        m_audioSaveProcess->deleteLater();
-        m_audioSaveProcess = nullptr;
-        m_audioSaveOutputPath.clear();
-    });
-
-    QStringList args;
-    args << QStringLiteral("-hide_banner")
-         << QStringLiteral("-nostdin")
-         << QStringLiteral("-i") << sourcePath
-         << QStringLiteral("-map") << mapSpecifier
-         << QStringLiteral("-vn")
-         << QStringLiteral("-sn")
-         << QStringLiteral("-dn")
-         << QStringLiteral("-c:a") << QStringLiteral("copy")
-         << QStringLiteral("-y") << outputPath;
-
-    appendRuntimeLog(QStringLiteral("AUDIO SAVE: starting ffmpeg"));
-    m_audioSaveProcess->start(ffmpeg, args);
-    if (!m_audioSaveProcess->waitForStarted(1000)) {
-        const QString error = m_audioSaveProcess->errorString();
-        appendRuntimeLog(QStringLiteral("AUDIO SAVE: failed to start ffmpeg: %1").arg(error));
-        m_saveAudioButton->setEnabled(true);
-        m_audioSaveProcess->deleteLater();
-        m_audioSaveProcess = nullptr;
-        m_audioSaveOutputPath.clear();
-        QMessageBox::warning(this, QStringLiteral("Save Audio"),
-                             QStringLiteral("Could not start FFmpeg:\n%1").arg(error));
+        QMessageBox::warning(
+            this, QStringLiteral("Save Audio"),
+            QStringLiteral("Could not start FFmpeg:\n%1").arg(startError));
     }
-}
-
-QString MainWindow::playbackPositionKey(const QString& path) const {
-    const QByteArray digest = QCryptographicHash::hash(path.toUtf8(), QCryptographicHash::Sha256).toHex();
-    return QStringLiteral("playback/positions/%1").arg(QString::fromLatin1(digest));
 }
 
 void MainWindow::saveCurrentPlaybackPosition() {
@@ -1764,9 +1861,9 @@ void MainWindow::saveCurrentPlaybackPosition() {
     const double pos = getPropertyDouble("time-pos");
     const double duration = getPropertyDouble("duration");
     if (!std::isfinite(pos) || pos <= 0.5 || duration <= 0.0) return;
-    QSettings settings(QStringLiteral("REX Player"), QStringLiteral("REX Player"));
-    settings.setValue(playbackPositionKey(m_pendingResumePath), pos);
-    settings.sync();
+    if (m_playbackPositions) {
+        m_playbackPositions->save(m_pendingResumePath, pos);
+    }
 }
 
 void MainWindow::pumpMpvEvents() {
@@ -1777,20 +1874,35 @@ void MainWindow::pumpMpvEvents() {
         mpv_event* event = mpv_wait_event(m_mpv, 0);
         if (!event || event->event_id == MPV_EVENT_NONE) break;
 
-        appendRuntimeLog(QStringLiteral("MPV_EVENT: %1 (%2)").arg(mpvEventName(event->event_id)).arg(event->event_id));
+        m_runtimeLogger->append(QStringLiteral("MPV_EVENT: %1 (%2)").arg(mpvEventName(event->event_id)).arg(event->event_id));
         if (event->event_id == MPV_EVENT_LOG_MESSAGE && event->data) {
             const auto* log = static_cast<mpv_event_log_message*>(event->data);
-            appendRuntimeLog(QStringLiteral("MPV_LOG [%1] %2: %3")
+            m_runtimeLogger->append(QStringLiteral("MPV_LOG [%1] %2: %3")
                 .arg(QString::fromUtf8(log->level ? log->level : ""))
                 .arg(QString::fromUtf8(log->prefix ? log->prefix : ""))
                 .arg(QString::fromUtf8(log->text ? log->text : "").trimmed()));
         }
         if (event->event_id == MPV_EVENT_FILE_LOADED) {
+            // Update the native window title from the file mpv actually loaded.
+            // This is deliberately done on FILE_LOADED rather than only when
+            // issuing loadfile, so the title stays correct for every loading
+            // path (startup argument, Open, drag/drop, playlist and next/previous).
+            const QString loadedFilename = getPropertyString("filename").trimmed();
+            const QString loadedPath = getPropertyString("path").trimmed();
+            const QString titleName = !loadedFilename.isEmpty()
+                ? QFileInfo(loadedFilename).fileName()
+                : QFileInfo(loadedPath).fileName();
+            if (!titleName.isEmpty()) {
+                setWindowTitle(QStringLiteral("%1 - Rex Player").arg(titleName));
+                m_runtimeLogger->append(
+                    QStringLiteral("WINDOW TITLE: %1 - Rex Player").arg(titleName));
+            }
+
             // Transform state is reset by playPlaylistIndex() when a genuinely
             // new file is selected. Do not reset it here: video-reload is also
             // used to rebuild the decoder for transform mode, and that reload
             // Preserve the requested rotation and flip state.
-            applyVideoTransforms();
+            if (m_videoTransformer) m_videoTransformer->apply();
             // The video viewport is embedded in the Qt window, so mpv cannot
             // resize the parent window itself. Resize the normal window here
             // using mpv's actual display dimensions. This makes the windowed
@@ -1800,25 +1912,73 @@ void MainWindow::pumpMpvEvents() {
                 QTimer::singleShot(0, this, &MainWindow::resizeWindowForVideoAspect);
             }
             if (m_promptResumeNextLoad && !m_pendingResumePath.isEmpty()) {
-                QSettings settings(QStringLiteral("REX Player"), QStringLiteral("REX Player"));
-                const double saved = settings.value(playbackPositionKey(m_pendingResumePath), 0.0).toDouble();
+                const double saved =
+                    m_playbackPositions ? m_playbackPositions->load(m_pendingResumePath) : 0.0;
                 const double duration = getPropertyDouble("duration");
                 m_promptResumeNextLoad = false;
                 if (saved >= 5.0 && duration > 0.0 && saved < duration - 5.0) {
-                    QMessageBox box(QMessageBox::Question,
-                                    QStringLiteral("Resume playback?"),
-                                    QStringLiteral("This video was previously played at %1.\n\nChoose whether to start over or continue from the last played position.")
-                                        .arg(formatTime(saved)),
-                                    QMessageBox::NoButton,
-                                    this);
-                    auto* startOver = box.addButton(QStringLiteral("Start from beginning"), QMessageBox::NoRole);
-                    auto* resume = box.addButton(QStringLiteral("Resume from last position"), QMessageBox::YesRole);
-                    box.setDefaultButton(static_cast<QPushButton*>(resume));
-                    box.exec();
-                    if (box.clickedButton() == resume) {
+                    QSettings resumeSettings(
+                        QStringLiteral("REX Player"), QStringLiteral("REX Player"));
+                    constexpr int kNoRememberedResumeChoice = -1;
+                    constexpr int kStartFromBeginning = 0;
+                    constexpr int kResumeFromLastPosition = 1;
+                    const int rememberedChoice = resumeSettings.value(
+                        QStringLiteral("playback/resume-choice"),
+                        kNoRememberedResumeChoice).toInt();
+
+                    if (rememberedChoice == kResumeFromLastPosition) {
+                        m_runtimeLogger->append(
+                            QStringLiteral("RESUME: applying remembered choice = resume"));
                         setPropertyDouble("time-pos", saved);
-                    } else if (box.clickedButton() == startOver) {
+                    } else if (rememberedChoice == kStartFromBeginning) {
+                        m_runtimeLogger->append(
+                            QStringLiteral("RESUME: applying remembered choice = start"));
                         setPropertyDouble("time-pos", 0.0);
+                    } else {
+                        QMessageBox box(
+                            QMessageBox::Question,
+                            QStringLiteral("Resume playback?"),
+                            QStringLiteral(
+                                "This video was previously played at %1.\n\n"
+                                "Choose whether to start over or continue from the last played position.")
+                                .arg(formatTime(saved)),
+                            QMessageBox::NoButton,
+                            this);
+
+                        auto* rememberChoice = new QCheckBox(
+                            QStringLiteral("Remember my choice"), &box);
+                        rememberChoice->setToolTip(
+                            QStringLiteral(
+                                "Use this choice automatically for future resume prompts. "
+                                "The setting can be reset from Controls."));
+                        box.setCheckBox(rememberChoice);
+
+                        auto* startOver = box.addButton(
+                            QStringLiteral("Start from beginning"), QMessageBox::NoRole);
+                        auto* resume = box.addButton(
+                            QStringLiteral("Resume from last position"), QMessageBox::YesRole);
+                        box.setDefaultButton(static_cast<QPushButton*>(resume));
+                        box.exec();
+
+                        const bool shouldResume = box.clickedButton() == resume;
+                        const bool shouldStartOver = box.clickedButton() == startOver;
+
+                        if (rememberChoice->isChecked() && (shouldResume || shouldStartOver)) {
+                            resumeSettings.setValue(
+                                QStringLiteral("playback/resume-choice"),
+                                shouldResume ? kResumeFromLastPosition : kStartFromBeginning);
+                            resumeSettings.sync();
+                            m_runtimeLogger->append(
+                                QStringLiteral("RESUME: remembered choice = %1")
+                                    .arg(shouldResume ? QStringLiteral("resume")
+                                                       : QStringLiteral("start")));
+                        }
+
+                        if (shouldResume) {
+                            setPropertyDouble("time-pos", saved);
+                        } else if (shouldStartOver) {
+                            setPropertyDouble("time-pos", 0.0);
+                        }
                     }
                 }
             }
@@ -1829,12 +1989,12 @@ void MainWindow::pumpMpvEvents() {
                 updatePlaybackInhibit(false);
 
                 const bool hasNext = m_playlist &&
-                                     m_currentPlaylistIndex >= 0 &&
-                                     m_currentPlaylistIndex + 1 < m_playlist->count();
-                const bool hasPlaylist = m_playlist && m_playlist->count() > 0;
-                if (m_autoplayPlaylist && hasNext) {
+                                     m_playlistController &&
+                                     m_playlistController->nextIndex() >= 0;
+                const bool hasPlaylist = m_playlistController && m_playlistController->count() > 0;
+                if (m_playlistController && m_playlistController->autoplay() && hasNext) {
                     playNext();
-                } else if (m_autoplayPlaylist && m_loopPlaylist && hasPlaylist) {
+                } else if (m_playlistController && m_playlistController->autoplay() && m_playlistController->loop() && hasPlaylist) {
                     playPlaylistIndex(0, false);
                 } else if (isFullScreen()) {
                     // Return to the normal window when playback really ends.
@@ -1847,6 +2007,8 @@ void MainWindow::pumpMpvEvents() {
         }
     }
 }
+
+
 
 void MainWindow::updatePlaybackUi() {
     if (!m_mpv) return;
@@ -1886,50 +2048,7 @@ void MainWindow::decreaseSubtitlePosition() {
 }
 
 void MainWindow::cycleSubtitles() {
-    if (!m_mpv) return;
-
-    QList<int> subtitleIds;
-    mpv_node tracks{};
-    if (mpv_get_property(m_mpv, "track-list", MPV_FORMAT_NODE, &tracks) >= 0 &&
-        tracks.format == MPV_FORMAT_NODE_ARRAY && tracks.u.list) {
-        for (int i = 0; i < tracks.u.list->num; ++i) {
-            const mpv_node& track = tracks.u.list->values[i];
-            if (track.format != MPV_FORMAT_NODE_MAP || !track.u.list) continue;
-            const QString type = nodeString(mapValue(track.u.list, "type"));
-            if (type != QStringLiteral("sub")) continue;
-            const int id = nodeInt(mapValue(track.u.list, "id"));
-            if (id >= 0) subtitleIds.append(id);
-        }
-    }
-    mpv_free_node_contents(&tracks);
-
-    char* sidValue = nullptr;
-    QString currentSid = QStringLiteral("no");
-    if (mpv_get_property(m_mpv, "sid", MPV_FORMAT_STRING, &sidValue) >= 0) {
-        if (sidValue) currentSid = QString::fromUtf8(sidValue);
-        mpv_free(sidValue);
-    }
-
-    QString nextSid;
-    if (currentSid == QStringLiteral("no") || currentSid == QStringLiteral("auto")) {
-        nextSid = subtitleIds.isEmpty() ? QStringLiteral("no") : QString::number(subtitleIds.first());
-    } else {
-        bool ok = false;
-        const int currentId = currentSid.toInt(&ok);
-        int nextIndex = -1;
-        if (ok) {
-            nextIndex = subtitleIds.indexOf(currentId) + 1;
-        }
-        if (nextIndex >= 0 && nextIndex < subtitleIds.size()) {
-            nextSid = QString::number(subtitleIds.at(nextIndex));
-        } else {
-            nextSid = QStringLiteral("no");
-        }
-    }
-
-    const QByteArray encoded = nextSid.toUtf8();
-    const char* args[] = {"set", "sid", encoded.constData(), nullptr};
-    command(args);
+    if (m_trackController) m_trackController->cycleSubtitles();
 }
 
 void MainWindow::increaseSubtitleSize() { const double current = getPropertyDouble("sub-scale"); setPropertyDouble("sub-scale", std::clamp((current > 0.0 ? current : 1.0) + 0.1, 0.1, 100.0)); }
@@ -1938,45 +2057,182 @@ QString MainWindow::formatTime(double seconds) const { if (!std::isfinite(second
 void MainWindow::openFile() { const QString path = QFileDialog::getOpenFileName(this, QStringLiteral("Open video")); if (!path.isEmpty()) loadFile(path); }
 void MainWindow::addFiles() {
     const QStringList paths = QFileDialog::getOpenFileNames(this, QStringLiteral("Add media files"));
-    if (paths.isEmpty()) return;
-    const int currentIndex = m_playlist ? m_playlist->currentRow() : -1;
-    const bool wasEmpty = m_playlist && m_playlist->count() == 0;
+    if (paths.isEmpty() || !m_playlistController || !m_playlist) return;
+    const int currentIndex = m_playlistController->currentIndex();
+    const bool wasEmpty = m_playlistController->count() == 0;
     for (const QString& path : paths) addToPlaylist(path);
-    if (!m_playlist) return;
-    if (wasEmpty) {
-        if (m_playlist->count() > 0) { m_playlist->setCurrentRow(0); playlistActivated(); }
+    if (wasEmpty && m_playlistController->count() > 0) {
+        m_playlistController->setCurrentIndex(0);
+        m_playlist->setCurrentRow(0);
+        playlistActivated();
     } else if (currentIndex >= 0 && currentIndex < m_playlist->count()) {
+        m_playlistController->setCurrentIndex(currentIndex);
         m_playlist->setCurrentRow(currentIndex);
     }
 }
 void MainWindow::addFolder() {
     const QString path = QFileDialog::getExistingDirectory(this, QStringLiteral("Add media folder"));
-    if (path.isEmpty() || !m_playlist) return;
-    const int currentIndex = m_playlist->currentRow();
-    const bool wasEmpty = m_playlist->count() == 0;
+    if (path.isEmpty() || !m_playlistController || !m_playlist) return;
+    const int currentIndex = m_playlistController->currentIndex();
+    const bool wasEmpty = m_playlistController->count() == 0;
     QDir dir(path);
     const QFileInfoList files = dir.entryInfoList(QDir::Files | QDir::Readable, QDir::Name | QDir::IgnoreCase);
     for (const QFileInfo& info : files) if (isMediaFile(info)) addToPlaylist(info.absoluteFilePath());
-    if (wasEmpty) {
-        if (m_playlist->count() > 0) { m_playlist->setCurrentRow(0); playlistActivated(); }
+    if (wasEmpty && m_playlistController->count() > 0) {
+        m_playlistController->setCurrentIndex(0);
+        m_playlist->setCurrentRow(0);
+        playlistActivated();
     } else if (currentIndex >= 0 && currentIndex < m_playlist->count()) {
+        m_playlistController->setCurrentIndex(currentIndex);
         m_playlist->setCurrentRow(currentIndex);
     }
 }
-void MainWindow::clearPlaylist() { if (m_playlist) m_playlist->clear(); m_currentPlaylistIndex = -1; }
-void MainWindow::playlistActivated() { if (m_playlist && m_playlist->currentItem()) playPlaylistIndex(m_playlist->currentRow()); }
-void MainWindow::playPrevious() { if (!m_playlist || m_playlist->count() == 0) return; int index = m_currentPlaylistIndex >= 0 ? m_currentPlaylistIndex : m_playlist->currentRow(); if (index > 0) playPlaylistIndex(index - 1); }
-void MainWindow::playNext() { if (!m_playlist || m_playlist->count() == 0) return; int index = m_currentPlaylistIndex >= 0 ? m_currentPlaylistIndex : m_playlist->currentRow(); if (index + 1 < m_playlist->count()) playPlaylistIndex(index + 1, false); }
+void MainWindow::savePlaylist() {
+    if (!m_playlist || m_playlist->count() == 0) {
+        QMessageBox::information(this, QStringLiteral("Save playlist"),
+                                 QStringLiteral("The playlist is empty."));
+        return;
+    }
+
+    const QString path = QFileDialog::getSaveFileName(
+        this, QStringLiteral("Save playlist"), QString(),
+        QStringLiteral("M3U8 Playlist (*.m3u8);;M3U Playlist (*.m3u);;All files (*.*)"));
+    if (path.isEmpty()) return;
+
+    QString savePath = path;
+    if (QFileInfo(savePath).suffix().isEmpty()) savePath += QStringLiteral(".m3u8");
+
+    QFile file(savePath);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
+        m_runtimeLogger->append(QStringLiteral("PLAYLIST SAVE: failed: %1").arg(file.errorString()));
+        QMessageBox::warning(this, QStringLiteral("Save playlist"),
+                             QStringLiteral("Could not save the playlist:\n%1").arg(file.errorString()));
+        return;
+    }
+
+    QTextStream stream(&file);
+    stream.setEncoding(QStringConverter::Utf8);
+    stream << QStringLiteral("#EXTM3U\n");
+    for (int i = 0; i < m_playlist->count(); ++i) {
+        const QString mediaPath = m_playlist->item(i)->data(Qt::UserRole).toString();
+        if (!mediaPath.isEmpty()) stream << mediaPath << QLatin1Char('\n');
+    }
+    file.close();
+    m_runtimeLogger->append(QStringLiteral("PLAYLIST SAVE: saved %1 item(s) to %2")
+                             .arg(m_playlist->count()).arg(savePath));
+}
+
+void MainWindow::openPlaylist() {
+    const QString path = QFileDialog::getOpenFileName(
+        this, QStringLiteral("Open playlist"), QString(),
+        QStringLiteral("Playlist files (*.m3u8 *.m3u);;All files (*.*)"));
+    if (path.isEmpty()) return;
+
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        m_runtimeLogger->append(QStringLiteral("PLAYLIST OPEN: failed: %1").arg(file.errorString()));
+        QMessageBox::warning(this, QStringLiteral("Open playlist"),
+                             QStringLiteral("Could not open the playlist:\n%1").arg(file.errorString()));
+        return;
+    }
+
+    QStringList paths;
+    QTextStream stream(&file);
+    stream.setEncoding(QStringConverter::Utf8);
+    while (!stream.atEnd()) {
+        const QString line = stream.readLine().trimmed();
+        if (line.isEmpty() || line.startsWith(QLatin1Char('#'))) continue;
+        paths.append(line);
+    }
+    file.close();
+
+    m_playlist->clear();
+    m_playlistController->clear();
+    int missingCount = 0;
+    for (const QString& mediaPath : paths) {
+        const QFileInfo info(mediaPath);
+        QFileInfo resolvedInfo = info;
+        if (resolvedInfo.isRelative()) resolvedInfo = QFileInfo(QFileInfo(path).dir(), resolvedInfo.filePath());
+        if (!resolvedInfo.exists() || !resolvedInfo.isFile()) {
+            ++missingCount;
+            continue;
+        }
+        addToPlaylist(resolvedInfo.absoluteFilePath());
+    }
+
+    if (m_playlistController->count() > 0) {
+        m_playlistController->setCurrentIndex(0);
+        m_playlist->setCurrentRow(0);
+        playlistActivated();
+    }
+
+    m_runtimeLogger->append(QStringLiteral(
+        "PLAYLIST OPEN: loaded %1 item(s) from %2; missing=%3")
+        .arg(m_playlistController->count()).arg(path).arg(missingCount));
+
+    if (missingCount > 0) {
+        QMessageBox::information(
+            this, QStringLiteral("Open playlist"),
+            QStringLiteral("%1 playlist item(s) could not be found and were skipped.").arg(missingCount));
+    }
+}
+
+void MainWindow::removePlaylistItem(int index) {
+    if (!m_playlistController || !m_playlist || index < 0 || index >= m_playlist->count()) return;
+
+    const QString removedPath = m_playlistController->pathAt(index);
+    const bool wasCurrent = index == m_playlistController->currentIndex();
+    QListWidgetItem* item = m_playlist->takeItem(index);
+    delete item;
+    m_playlistController->removeAt(index);
+
+    if (m_playlist->count() == 0) {
+        m_playlistController->clear();
+    } else if (wasCurrent) {
+        const int nextSelection = std::clamp(index, 0, m_playlist->count() - 1);
+        m_playlistController->setCurrentIndex(nextSelection);
+        m_playlist->setCurrentRow(nextSelection);
+    } else {
+        syncPlaylistSelection();
+    }
+
+    m_runtimeLogger->append(
+        QStringLiteral("PLAYLIST REMOVE: %1").arg(removedPath));
+}
+
+void MainWindow::clearPlaylist() {
+    if (m_playlist) m_playlist->clear();
+    if (m_playlistController) m_playlistController->clear();
+}
+void MainWindow::playlistActivated() {
+    if (m_playlistController && m_playlist && m_playlist->currentItem()) {
+        m_playlistController->setCurrentIndex(m_playlist->currentRow());
+        playPlaylistIndex(m_playlist->currentRow());
+    }
+}
+void MainWindow::playPrevious() {
+    if (!m_playlistController || m_playlistController->count() == 0) return;
+    const int index = m_playlistController->previousIndex();
+    if (index >= 0) playPlaylistIndex(index);
+}
+void MainWindow::playNext() {
+    if (!m_playlistController || m_playlistController->count() == 0) return;
+    const int index = m_playlistController->nextIndex();
+    if (index >= 0) playPlaylistIndex(index, false);
+}
 void MainWindow::dragEnterEvent(QDragEnterEvent* event) { if (event->mimeData()->hasUrls()) event->acceptProposedAction(); }
 void MainWindow::dropEvent(QDropEvent* event) {
     const auto urls = event->mimeData()->urls();
-    const int currentIndex = m_playlist ? m_playlist->currentRow() : -1;
-    const bool wasEmpty = m_playlist && m_playlist->count() == 0;
+    const int currentIndex = m_playlistController ? m_playlistController->currentIndex() : -1;
+    const bool wasEmpty = m_playlistController && m_playlistController->count() == 0;
     for (const auto& url : urls) if (url.isLocalFile()) addToPlaylist(url.toLocalFile());
     if (m_playlist) {
-        if (wasEmpty) {
-            if (m_playlist->count() > 0) { m_playlist->setCurrentRow(0); playlistActivated(); }
+        if (wasEmpty && m_playlistController->count() > 0) {
+            m_playlistController->setCurrentIndex(0);
+            m_playlist->setCurrentRow(0);
+            playlistActivated();
         } else if (currentIndex >= 0 && currentIndex < m_playlist->count()) {
+            m_playlistController->setCurrentIndex(currentIndex);
             m_playlist->setCurrentRow(currentIndex);
         }
     }
@@ -2008,6 +2264,18 @@ void MainWindow::keyPressEvent(QKeyEvent* event) {
     if (keyMatches(event, m_subtitleSizeDownKey)) { decreaseSubtitleSize(); event->accept(); return; }
     if (keyMatches(event, m_captureScreenshotKey)) { captureScreenshot(); event->accept(); return; }
     if (keyMatches(event, m_rotateVideoKey)) { rotateVideo90(); event->accept(); return; }
+    if (keyMatches(event, m_holdSpeedKey)) {
+        if (!m_holdSpeedActive) {
+            m_holdSpeedPrevious = getPropertyDouble("speed");
+            if (!std::isfinite(m_holdSpeedPrevious) || m_holdSpeedPrevious <= 0.0) m_holdSpeedPrevious = 1.0;
+            m_holdSpeedActive = true;
+            m_holdSpeedKeyCode = event->key();
+            setPropertyDouble("speed", 2.0);
+            if (m_runtimeLogger) m_runtimeLogger->append(QStringLiteral("PLAYBACK SPEED HOLD: 2.00x"));
+        }
+        event->accept();
+        return;
+    }
     if (keyMatches(event, m_volumeUpKey)) { volumeUp(); event->accept(); return; }
     if (keyMatches(event, m_volumeDownKey)) { volumeDown(); event->accept(); return; }
     if (keyMatches(event, m_muteKey)) { toggleMute(); event->accept(); return; }
@@ -2037,7 +2305,47 @@ void MainWindow::keyPressEvent(QKeyEvent* event) {
     }
 }
 
+
+void MainWindow::keyReleaseEvent(QKeyEvent* event) {
+    if (m_holdSpeedActive && event->key() == m_holdSpeedKeyCode) {
+        const double restoreSpeed = (std::isfinite(m_holdSpeedPrevious) && m_holdSpeedPrevious > 0.0)
+            ? m_holdSpeedPrevious : 1.0;
+        m_holdSpeedActive = false;
+        m_holdSpeedKeyCode = Qt::Key_unknown;
+        setPropertyDouble("speed", restoreSpeed);
+        if (m_runtimeLogger) {
+            m_runtimeLogger->append(QStringLiteral("PLAYBACK SPEED HOLD: restored %1x").arg(restoreSpeed, 0, 'f', 2));
+        }
+        event->accept();
+        return;
+    }
+    QMainWindow::keyReleaseEvent(event);
+}
+
 bool MainWindow::eventFilter(QObject* watched, QEvent* event) {
+    if (m_playlist && watched && watched->property("playlist-path").isValid()) {
+        const QString path = watched->property("playlist-path").toString();
+        const int index = m_playlistController ? m_playlistController->indexOf(path) : -1;
+        if (index >= 0 && index < m_playlist->count()) {
+            if (event->type() == QEvent::MouseButtonPress) {
+                const auto* mouseEvent = static_cast<QMouseEvent*>(event);
+                if (mouseEvent->button() == Qt::LeftButton) {
+                    m_playlist->setCurrentRow(index);
+                    m_playlistController->setCurrentIndex(index);
+                    updatePlaylistCurrentRowStyle();
+                }
+            } else if (event->type() == QEvent::MouseButtonDblClick) {
+                const auto* mouseEvent = static_cast<QMouseEvent*>(event);
+                if (mouseEvent->button() == Qt::LeftButton) {
+                    m_playlist->setCurrentRow(index);
+                    m_playlistController->setCurrentIndex(index);
+                    playlistActivated();
+                    return true;
+                }
+            }
+        }
+    }
+
     if ((watched == m_timeLabel || watched == m_progressTimeLabel) &&
         event->type() == QEvent::MouseButtonPress) {
         m_showRemainingTime = !m_showRemainingTime;
@@ -2104,7 +2412,7 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* event) {
     if (event->type() == QEvent::MouseButtonPress) {
         const auto* e = static_cast<QMouseEvent*>(event);
         const Qt::KeyboardModifiers modifiers = e->modifiers() & (Qt::ShiftModifier | Qt::ControlModifier | Qt::AltModifier | Qt::MetaModifier);
-        if (e->button() == Qt::LeftButton &&
+        if (m_panButton != Qt::NoButton && e->button() == m_panButton &&
             modifiers == (Qt::AltModifier | Qt::ControlModifier)) {
             m_panningVideo = true;
             m_panStart = e->position();
@@ -2129,7 +2437,7 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* event) {
 
     if (event->type() == QEvent::MouseButtonRelease) {
         const auto* e = static_cast<QMouseEvent*>(event);
-        if (e->button() == Qt::LeftButton && m_panningVideo) {
+        if (e->button() == m_panButton && m_panningVideo) {
             m_panningVideo = false;
             return true;
         }
@@ -2183,7 +2491,7 @@ void MainWindow::toggleControls() {
     };
     auto addSection = [&layout](const QString& title) {
         auto* label = new QLabel(title, layout->parentWidget());
-        label->setStyleSheet(QStringLiteral("font-weight:600; font-size:14px; margin-top:6px;"));
+        label->setStyleSheet(QStringLiteral("font-weight:600; margin-top:6px;"));
         layout->addWidget(label);
     };
     auto addRow = [&layout](const QString& name, const QString& value) {
@@ -2239,14 +2547,14 @@ void MainWindow::toggleControls() {
             for (int i = 0; i < tracks.u.list->num; ++i) {
                 const mpv_node& track = tracks.u.list->values[i];
                 if (track.format != MPV_FORMAT_NODE_MAP || !track.u.list) continue;
-                const QString type = nodeString(mapValue(track.u.list, "type"));
-                const int id = nodeInt(mapValue(track.u.list, "id"));
+                const QString type = MpvNodeUtils::nodeString(MpvNodeUtils::mapValue(track.u.list, "type"));
+                const int id = MpvNodeUtils::nodeInt(MpvNodeUtils::mapValue(track.u.list, "id"));
                 if (id < 0) continue;
-                QString label = nodeString(mapValue(track.u.list, "title"));
-                const QString lang = nodeString(mapValue(track.u.list, "lang"));
-                const QString codec = nodeString(mapValue(track.u.list, "codec"));
-                const QString external = nodeString(mapValue(track.u.list, "external-filename"));
-                const bool selected = nodeFlag(mapValue(track.u.list, "selected"));
+                QString label = MpvNodeUtils::nodeString(MpvNodeUtils::mapValue(track.u.list, "title"));
+                const QString lang = MpvNodeUtils::nodeString(MpvNodeUtils::mapValue(track.u.list, "lang"));
+                const QString codec = MpvNodeUtils::nodeString(MpvNodeUtils::mapValue(track.u.list, "codec"));
+                const QString external = MpvNodeUtils::nodeString(MpvNodeUtils::mapValue(track.u.list, "external-filename"));
+                const bool selected = MpvNodeUtils::nodeFlag(MpvNodeUtils::mapValue(track.u.list, "selected"));
                 if (label.isEmpty()) label = lang;
                 if (label.isEmpty()) label = external.isEmpty() ? QStringLiteral("Track") : QFileInfo(external).fileName();
                 if (label.isEmpty()) label = QStringLiteral("Track");
@@ -2324,186 +2632,6 @@ void MainWindow::toggleFullscreen() {
     }
 }
 
-void MainWindow::resizeWindowForVideoAspect() {
-    if (!m_mpv || isFullScreen() || isMaximized() || isMinimized() || !m_videoWidget) return;
-
-    int64_t displayWidth = 0;
-    int64_t displayHeight = 0;
-
-    // Use mpv's display dimensions first. Unlike raw coded dimensions, these
-    // already account for the video's display aspect ratio (including
-    // non-square pixels and rotation handled by mpv).
-    const bool haveDisplayWidth =
-        mpv_get_property(m_mpv, "video-out-params/dw", MPV_FORMAT_INT64, &displayWidth) >= 0;
-    const bool haveDisplayHeight =
-        mpv_get_property(m_mpv, "video-out-params/dh", MPV_FORMAT_INT64, &displayHeight) >= 0;
-
-    if (!haveDisplayWidth || !haveDisplayHeight || displayWidth <= 0 || displayHeight <= 0) {
-        mpv_get_property(m_mpv, "video-params/w", MPV_FORMAT_INT64, &displayWidth);
-        mpv_get_property(m_mpv, "video-params/h", MPV_FORMAT_INT64, &displayHeight);
-    }
-
-    if (displayWidth <= 0 || displayHeight <= 0) return;
-
-    const double aspect = static_cast<double>(displayWidth) /
-                          static_cast<double>(displayHeight);
-    if (!std::isfinite(aspect) || aspect <= 0.0) return;
-
-    QScreen* currentScreen = screen();
-    if (!currentScreen) currentScreen = QGuiApplication::primaryScreen();
-    if (!currentScreen) return;
-
-    const QRect available = currentScreen->availableGeometry();
-    const int screenMargin = 32;
-    const int controlsHeight = m_controls ? m_controls->sizeHint().height() : 0;
-    const int maxVideoWidth = std::max(320, available.width() - screenMargin * 2);
-    const int maxVideoHeight = std::max(180, available.height() - controlsHeight - screenMargin * 2);
-
-    // Keep the current window width as the preferred viewing size, but never
-    // allow the automatically chosen size to exceed the available screen.
-    const int preferredWidth = std::clamp(m_videoWidget->width(), 640, 1400);
-    int videoWidth = std::min(preferredWidth, maxVideoWidth);
-    int videoHeight = static_cast<int>(std::lround(videoWidth / aspect));
-
-    // Portrait/tall videos need to be reduced to fit above the controls.
-    if (videoHeight > maxVideoHeight) {
-        videoHeight = maxVideoHeight;
-        videoWidth = static_cast<int>(std::lround(videoHeight * aspect));
-    }
-
-    videoWidth = std::clamp(videoWidth, 320, maxVideoWidth);
-    videoHeight = std::clamp(
-        static_cast<int>(std::lround(videoWidth / aspect)),
-        180,
-        maxVideoHeight);
-
-    // Recalculate once after clamping so the video viewport itself keeps the
-    // exact display aspect ratio. The controls are outside that viewport.
-    videoWidth = std::min(
-        videoWidth,
-        static_cast<int>(std::lround(videoHeight * aspect)));
-    videoHeight = static_cast<int>(std::lround(videoWidth / aspect));
-
-    const int targetHeight = videoHeight + controlsHeight;
-    if (targetHeight <= 0 || videoWidth <= 0) return;
-
-    resize(videoWidth, targetHeight);
-}
-
-void MainWindow::captureScreenshot() {
-    if (!m_mpv || getPropertyString("filename").isEmpty()) {
-        showError(QStringLiteral("REX Player — No video is currently loaded"));
-        return;
-    }
-
-    const QString picturesPath = QStandardPaths::writableLocation(QStandardPaths::PicturesLocation);
-    if (picturesPath.isEmpty()) {
-        showError(QStringLiteral("REX Player — Could not locate the Pictures folder"));
-        return;
-    }
-
-    const QString screenshotDir = QDir(picturesPath).filePath(QStringLiteral("REX Player"));
-    if (!QDir().mkpath(screenshotDir)) {
-        showError(QStringLiteral("REX Player — Could not create the screenshot folder"));
-        return;
-    }
-
-    // mpv's screenshot command captures the currently rendered video frame,
-    // including the active video presentation and subtitles. Use a unique
-    // template so existing screenshots are never overwritten.
-    const QByteArray dirUtf8 = QDir::toNativeSeparators(screenshotDir).toUtf8();
-    const char* setDirArgs[] = {"set", "screenshot-dir", dirUtf8.constData(), nullptr};
-    if (mpv_command(m_mpv, setDirArgs) < 0) {
-        showError(QStringLiteral("REX Player — Could not configure screenshot folder"));
-        return;
-    }
-
-    const QString videoTitle = windowTitle();
-    const QString videoPath = getPropertyString("path");
-
-    const char* screenshotArgs[] = {"screenshot", nullptr};
-    if (mpv_command(m_mpv, screenshotArgs) < 0) {
-        showError(QStringLiteral("REX Player — Screenshot failed"));
-        return;
-    }
-
-    showError(QStringLiteral("REX Player — Screenshot captured"));
-
-    // Keep the capture confirmation visible briefly, then restore the title
-    // of the video that was playing when the screenshot was taken. Guard the
-    // delayed restore so it cannot overwrite the title of a newly loaded video.
-    QTimer::singleShot(2000, this, [this, videoTitle, videoPath] {
-        if (!m_mpv || getPropertyString("path") != videoPath) return;
-        setWindowTitle(videoTitle);
-    });
-}
-
-void MainWindow::showDisplayDialog() {
-    QDialog dialog(this);
-    dialog.setWindowTitle(QStringLiteral("Display"));
-    dialog.setModal(true);
-    dialog.resize(460, 280);
-
-    auto* layout = new QVBoxLayout(&dialog);
-    auto* form = new QFormLayout();
-    form->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
-
-    const int currentSaturation = std::clamp(static_cast<int>(std::lround(getPropertyDouble("saturation"))), -100, 100);
-    const int currentBrightness = std::clamp(static_cast<int>(std::lround(getPropertyDouble("brightness"))), -100, 100);
-    const int currentContrast = std::clamp(static_cast<int>(std::lround(getPropertyDouble("contrast"))), -100, 100);
-
-    auto makeSlider = [&](const QString& name, int value, const char* property, int* storedValue, const char* settingKey) {
-        auto* row = new QWidget(&dialog);
-        auto* rowLayout = new QHBoxLayout(row);
-        rowLayout->setContentsMargins(0, 0, 0, 0);
-        auto* slider = new QSlider(Qt::Horizontal, row);
-        slider->setRange(-100, 100);
-        slider->setValue(value);
-        auto* valueLabel = new QLabel(QString::number(value), row);
-        valueLabel->setMinimumWidth(42);
-        valueLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
-        rowLayout->addWidget(slider, 1);
-        rowLayout->addWidget(valueLabel);
-        connect(slider, &QSlider::valueChanged, &dialog, [this, property, storedValue, settingKey, valueLabel](int v) {
-            valueLabel->setText(QString::number(v));
-            *storedValue = v;
-            setPropertyDouble(property, v);
-            QSettings settings(QStringLiteral("REX Player"), QStringLiteral("REX Player"));
-            settings.setValue(QString::fromUtf8(settingKey), v);
-            settings.sync();
-        });
-        form->addRow(name, row);
-        return slider;
-    };
-
-    auto* saturation = makeSlider(QStringLiteral("Saturation"), currentSaturation, "saturation", &m_saturation, "display/saturation");
-    auto* brightness = makeSlider(QStringLiteral("Brightness"), currentBrightness, "brightness", &m_brightness, "display/brightness");
-    auto* contrast = makeSlider(QStringLiteral("Contrast"), currentContrast, "contrast", &m_contrast, "display/contrast");
-    layout->addLayout(form);
-
-    auto* note = new QLabel(QStringLiteral("Range: −100 to +100. Changes are applied and remembered immediately."), &dialog);
-    note->setWordWrap(true);
-    layout->addWidget(note);
-
-    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Close, &dialog);
-    auto* reset = buttons->addButton(QStringLiteral("Reset defaults"), QDialogButtonBox::ResetRole);
-    layout->addWidget(buttons);
-    connect(reset, &QPushButton::clicked, &dialog, [&] {
-        saturation->setValue(0);
-        brightness->setValue(0);
-        contrast->setValue(0);
-    });
-    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::accept);
-
-    dialog.adjustSize();
-    const int margin = 16;
-    const QSize size = dialog.size();
-    const QPoint global = mapToGlobal(QPoint(
-        std::max(margin, width() - size.width() - margin),
-        std::max(margin, height() - size.height() - margin)));
-    dialog.move(global);
-    dialog.exec();
-}
 void MainWindow::setControlsVisible(bool visible) { if (m_controls) m_controls->setVisible(visible); }
 void MainWindow::togglePlaylist() { if (m_playlistDock) m_playlistDock->setVisible(!m_playlistDock->isVisible()); }
 void MainWindow::resizeEvent(QResizeEvent* event) {
@@ -2517,4 +2645,23 @@ void MainWindow::resizeEvent(QResizeEvent* event) {
 }
 
 void MainWindow::closeEvent(QCloseEvent* event) { saveCurrentPlaybackPosition(); if (m_mpv) { const char* args[] = {"quit", nullptr}; mpv_command(m_mpv, args); } QMainWindow::closeEvent(event); }
+void MainWindow::showToast(const QString& message) {
+    if (!m_toastLabel || !m_rootWidget) return;
+
+    m_toastLabel->setText(message);
+    m_toastLabel->adjustSize();
+
+    const int controlsHeight =
+        (m_controls && m_controls->isVisible()) ? m_controls->height() : 0;
+    const int bottomMargin = controlsHeight + 16;
+    const int x = std::max(0, (m_rootWidget->width() - m_toastLabel->width()) / 2);
+    const int y = std::max(0, m_rootWidget->height() -
+                              bottomMargin - m_toastLabel->height());
+
+    m_toastLabel->move(x, y);
+    m_toastLabel->raise();
+    m_toastLabel->show();
+    m_toastTimer.start(1800);
+}
+
 void MainWindow::showError(const QString& message) { setWindowTitle(QStringLiteral("REX Player — %1").arg(message)); }
