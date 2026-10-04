@@ -457,7 +457,7 @@ void MainWindow::buildUi() {
     progressRow->setAlignment(Qt::AlignVCenter);
     controlsLayout->addLayout(progressRow);
 
-    // Two control rows matching the reference layout exactly.
+    // Main-panel controls normally take keyboard focus when clicked. Install the event filter on\n    // focusable descendants so we can optionally return keyboard focus to the video shortly\n    // after the mouse action has completed.\n    // Two control rows matching the reference layout exactly.
     // Row 1: fullscreen/open/decoder/A-B, playback cluster, volume/tracks/playlist/menu.
     // Row 2: settings/capture/transforms on the left and About on the right.
     auto* row1 = new QHBoxLayout();
@@ -729,6 +729,14 @@ void MainWindow::buildUi() {
 
     applyMainPanelButtonMode();
 
+    if (m_controls) {
+        const auto controlWidgets = m_controls->findChildren<QWidget*>();
+        for (QWidget* widget : controlWidgets) {
+            if (widget && widget->focusPolicy() != Qt::NoFocus)
+                widget->installEventFilter(this);
+        }
+    }
+
     // Keep the control bar in the root vertical layout so it stays at the
     // bottom of the window in normal mode.
     layout->addWidget(m_controls);
@@ -840,6 +848,7 @@ void MainWindow::applyControlSettingsToRuntime() {
     m_volumeWheelMode = m_controlSettings->volumeWheelMode;
     m_timerBesideProgress = m_controlSettings->timerBesideProgress;
     m_mainPanelIcons = m_controlSettings->mainPanelIcons;
+    m_returnFocusToVideoAfterMouseAction = m_controlSettings->returnFocusToVideoAfterMouseAction;
     m_panButton = m_controlSettings->panButton;
     m_doubleClickButton = m_controlSettings->doubleClickButton;
     m_seekDurationSeconds = m_controlSettings->seekDurationSeconds;
@@ -1038,6 +1047,12 @@ void MainWindow::showControlsDialog() {
     selectData(mainPanelStyle, m_mainPanelIcons);
     mainPanelStyle->setToolTip(QStringLiteral("Choose whether the main playback control buttons use monochrome icons or text labels."));
     form->addRow(QStringLiteral("Main panel buttons"), mainPanelStyle);
+    auto* mouseFocusMode = new QComboBox(&dialog);
+    mouseFocusMode->addItem(QStringLiteral("Return focus to video"), true);
+    mouseFocusMode->addItem(QStringLiteral("Keep focus on control"), false);
+    selectData(mouseFocusMode, m_returnFocusToVideoAfterMouseAction);
+    mouseFocusMode->setToolTip(QStringLiteral("Choose whether mouse actions on playback controls return keyboard focus to the video after 20 ms."));
+    form->addRow(QStringLiteral("Mouse action focus"), mouseFocusMode);
     auto* saveSettingsButton = new QPushButton(QStringLiteral("Save Settings"), &dialog);
     saveSettingsButton->setToolTip(QStringLiteral("Save the current REX Player control settings to a profile file."));
     auto* loadSettingsButton = new QPushButton(QStringLiteral("Load Settings"), &dialog);
@@ -1250,6 +1265,7 @@ void MainWindow::showControlsDialog() {
         selectData(volumeWheel, QStringLiteral("ctrl-wheel"));
         timerPositionButton->setChecked(true);
         selectData(mainPanelStyle, true);
+        selectData(mouseFocusMode, true);
         selectData(panButton, static_cast<int>(Qt::MiddleButton));
         selectData(doubleClickButton, static_cast<int>(Qt::LeftButton));
         volumeUp->setKeySequence(QKeySequence(Qt::SHIFT | Qt::Key_V));
@@ -1298,6 +1314,7 @@ void MainWindow::showControlsDialog() {
         m_volumeWheelMode = volumeWheel->currentData().toString();
         m_timerBesideProgress = timerPositionButton->isChecked();
         m_mainPanelIcons = mainPanelStyle->currentData().toBool();
+        m_returnFocusToVideoAfterMouseAction = mouseFocusMode->currentData().toBool();
         m_panButton = static_cast<Qt::MouseButton>(panButton->currentData().toInt());
         m_doubleClickButton = static_cast<Qt::MouseButton>(doubleClickButton->currentData().toInt());
         m_volumeUpKey = volumeUp->keySequence();
@@ -1338,6 +1355,7 @@ void MainWindow::showControlsDialog() {
             m_controlSettings->volumeWheelMode = m_volumeWheelMode;
             m_controlSettings->timerBesideProgress = m_timerBesideProgress;
             m_controlSettings->mainPanelIcons = m_mainPanelIcons;
+            m_controlSettings->returnFocusToVideoAfterMouseAction = m_returnFocusToVideoAfterMouseAction;
             m_controlSettings->panButton = m_panButton;
             m_controlSettings->doubleClickButton = m_doubleClickButton;
             m_controlSettings->volumeUpKey = m_volumeUpKey;
