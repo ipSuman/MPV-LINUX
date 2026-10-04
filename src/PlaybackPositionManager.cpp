@@ -4,7 +4,8 @@
 #include <QSettings>
 
 PlaybackPositionManager::PlaybackPositionManager(QObject* parent)
-    : QObject(parent) {
+    : QObject(parent),
+      m_settings(QStringLiteral("REX Player"), QStringLiteral("REX Player")) {
 }
 
 QString PlaybackPositionManager::keyFor(const QString& path) const {
@@ -16,14 +17,11 @@ QString PlaybackPositionManager::keyFor(const QString& path) const {
 void PlaybackPositionManager::save(const QString& path, double position) {
     if (path.isEmpty()) return;
 
-    QSettings settings(QStringLiteral("REX Player"), QStringLiteral("REX Player"));
-    settings.setValue(keyFor(path), position);
-    settings.sync();
+    m_settings.setValue(keyFor(path), position);
 }
 
 double PlaybackPositionManager::load(const QString& path) const {
     if (path.isEmpty()) return 0.0;
 
-    QSettings settings(QStringLiteral("REX Player"), QStringLiteral("REX Player"));
-    return settings.value(keyFor(path), 0.0).toDouble();
+    return m_settings.value(keyFor(path), 0.0).toDouble();
 }
