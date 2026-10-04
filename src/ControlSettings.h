@@ -46,4 +46,6 @@ public:
 
     void load();
     void save() const;
+    bool saveToFile(const QString& filePath) const;
+    bool loadFromFile(const QString& filePath);
 };
