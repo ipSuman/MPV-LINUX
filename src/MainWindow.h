@@ -239,4 +239,5 @@ private:
     QTimer m_cursorHideTimer;
     QTimer m_toastTimer;
     bool m_playlistWasVisibleBeforeFullscreen = false;
+    int m_lastPlaylistHighlightIndex = -2;
 };
