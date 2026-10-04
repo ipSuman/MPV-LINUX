@@ -18,6 +18,8 @@ void ControlSettings::load() {
     volumeWheelMode = settings.value(QStringLiteral("controls/volumeWheel"), volumeWheelMode).toString();
     timerBesideProgress = settings.value(QStringLiteral("controls/timerBesideProgress"), timerBesideProgress).toBool();
     mainPanelIcons = settings.value(QStringLiteral("controls/mainPanelIcons"), mainPanelIcons).toBool();
+    returnFocusToVideoAfterMouseAction = settings.value(QStringLiteral("controls/returnFocusToVideoAfterMouseAction"), returnFocusToVideoAfterMouseAction).toBool();
+    returnFocusToVideoAfterMouseAction = settings.value(QStringLiteral("controls/returnFocusToVideoAfterMouseAction"), returnFocusToVideoAfterMouseAction).toBool();
     panButton = static_cast<Qt::MouseButton>(
         settings.value(QStringLiteral("controls/panButton"), static_cast<int>(panButton)).toInt());
     doubleClickButton = static_cast<Qt::MouseButton>(
@@ -78,6 +80,8 @@ bool ControlSettings::saveToFile(const QString& filePath) const {
     settings.setValue(QStringLiteral("controls/volumeWheel"), volumeWheelMode);
     settings.setValue(QStringLiteral("controls/timerBesideProgress"), timerBesideProgress);
     settings.setValue(QStringLiteral("controls/mainPanelIcons"), mainPanelIcons);
+    settings.setValue(QStringLiteral("controls/returnFocusToVideoAfterMouseAction"), returnFocusToVideoAfterMouseAction);
+    settings.setValue(QStringLiteral("controls/returnFocusToVideoAfterMouseAction"), returnFocusToVideoAfterMouseAction);
     settings.setValue(QStringLiteral("controls/panButton"), static_cast<int>(panButton));
     settings.setValue(QStringLiteral("controls/doubleClickButton"), static_cast<int>(doubleClickButton));
 #define SAVE_PROFILE_KEY(field, key) settings.setValue(QStringLiteral(key), field.toString())
