@@ -7,6 +7,7 @@
 #include <QStandardPaths>
 #include <QSysInfo>
 #include <QTextStream>
+#include <QStringConverter>
 #include <utility>
 
 RuntimeLogger::RuntimeLogger(QObject* parent)
@@ -80,7 +81,14 @@ QString RuntimeLogger::path() const {
 
 QString RuntimeLogger::contents() const {
     if (m_path.isEmpty()) return {};
+
     QFile file(m_path);
-    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) return {};
-    return QString::fromUtf8(file.readAll());
+    QString result;
+    if (file.open(QIODevice::ReadOnly | QIODevice::Text))
+        result = QString::fromUtf8(file.readAll());
+
+    // Include buffered entries in reports without forcing a disk flush on the
+    // playback/UI thread.
+    for (const QString& line : m_pending) result += line;
+    return result;
 }
