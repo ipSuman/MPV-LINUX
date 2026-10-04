@@ -32,6 +32,8 @@
 #include <QMimeData>
 #include <QMouseEvent>
 #include <QPushButton>
+#include <QPainter>
+#include <QPixmap>
 #include <QRegularExpression>
 #include <QFile>
 #include <QProcess>
@@ -109,6 +111,101 @@ void addWheelModes(QComboBox* combo) {
 void selectData(QComboBox* combo, const QVariant& value) {
     const int index = combo->findData(value);
     if (index >= 0) combo->setCurrentIndex(index);
+}
+
+enum class MainPanelIcon {
+    Fullscreen, Open, Hardware, Cut, SaveAudio, Speed, Previous, SeekBack,
+    Play, Pause, SeekForward, Next, Tracks, Playlist, Menu, Controls, Display,
+    Capture, Rotate, FlipH, FlipV, About
+};
+
+QIcon makeMainPanelIcon(MainPanelIcon icon) {
+    QPixmap pixmap(24, 24);
+    pixmap.fill(Qt::transparent);
+    QPainter p(&pixmap);
+    p.setRenderHint(QPainter::Antialiasing, true);
+    const QPen pen(QColor("#ffffff"), 2.0, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
+    p.setPen(pen);
+    p.setBrush(QColor("#ffffff"));
+
+    switch (icon) {
+    case MainPanelIcon::Fullscreen:
+        p.drawLine(4, 9, 4, 4); p.drawLine(4, 4, 9, 4);
+        p.drawLine(15, 4, 20, 4); p.drawLine(20, 4, 20, 9);
+        p.drawLine(4, 15, 4, 20); p.drawLine(4, 20, 9, 20);
+        p.drawLine(15, 20, 20, 20); p.drawLine(20, 20, 20, 15);
+        break;
+    case MainPanelIcon::Open:
+        p.setPen(Qt::NoPen); p.drawRoundedRect(3, 6, 18, 14, 2, 2);
+        p.setBrush(QColor("#222222")); p.drawRect(5, 10, 14, 8);
+        p.setBrush(QColor("#ffffff")); p.drawRect(4, 5, 7, 3); p.drawRect(9, 7, 9, 3);
+        break;
+    case MainPanelIcon::Hardware:
+        p.setBrush(Qt::NoBrush); p.drawRoundedRect(6, 6, 12, 12, 2, 2);
+        for (int x : {9, 12, 15}) { p.drawLine(x, 2, x, 6); p.drawLine(x, 18, x, 22); }
+        for (int y : {9, 12, 15}) { p.drawLine(2, y, 6, y); p.drawLine(18, y, 22, y); }
+        break;
+    case MainPanelIcon::Cut:
+        p.drawEllipse(QPointF(6, 6), 2.3, 2.3); p.drawEllipse(QPointF(6, 18), 2.3, 2.3);
+        p.drawLine(8, 7.5, 20, 3); p.drawLine(8, 16.5, 20, 21);
+        p.drawLine(12, 10, 20, 21); p.drawLine(12, 14, 20, 3);
+        break;
+    case MainPanelIcon::SaveAudio:
+        p.setPen(Qt::NoPen); p.drawPolygon(QPolygonF{QPointF(3,9),QPointF(7,9),QPointF(12,5),QPointF(12,19),QPointF(7,15),QPointF(3,15)});
+        p.setPen(pen); p.setBrush(Qt::NoBrush); p.drawLine(16, 9, 16, 15); p.drawLine(13.5, 12.5, 16, 15); p.drawLine(18.5, 12.5, 16, 15);
+        break;
+    case MainPanelIcon::Speed:
+        p.drawArc(4, 4, 16, 16, 0, 180 * 16); p.drawLine(12, 12, 17, 8); p.setPen(Qt::NoPen); p.drawEllipse(QPointF(12, 16), 1.5, 1.5);
+        break;
+    case MainPanelIcon::Previous:
+        p.setPen(Qt::NoPen); p.drawRect(4, 5, 2, 14); p.drawPolygon(QPolygonF{QPointF(19,6),QPointF(9,12),QPointF(19,18)});
+        break;
+    case MainPanelIcon::SeekBack:
+        p.setPen(pen); p.drawArc(3, 5, 17, 17, 45 * 16, 280 * 16); p.drawLine(3, 5, 3, 10); p.drawLine(3, 5, 8, 5);
+        p.setPen(Qt::NoPen); p.drawPolygon(QPolygonF{QPointF(13,8),QPointF(7,12),QPointF(13,16)}); p.drawRect(13,11,6,2);
+        break;
+    case MainPanelIcon::Play:
+        p.setPen(Qt::NoPen); p.drawPolygon(QPolygonF{QPointF(7,4),QPointF(19,12),QPointF(7,20)}); break;
+    case MainPanelIcon::Pause:
+        p.setPen(Qt::NoPen); p.drawRect(6,4,4,16); p.drawRect(14,4,4,16); break;
+    case MainPanelIcon::SeekForward:
+        p.setPen(pen); p.drawArc(4, 5, 17, 17, -45 * 16, -280 * 16); p.drawLine(21, 5, 21, 10); p.drawLine(21, 5, 16, 5);
+        p.setPen(Qt::NoPen); p.drawPolygon(QPolygonF{QPointF(11,8),QPointF(17,12),QPointF(11,16)}); p.drawRect(5,11,6,2);
+        break;
+    case MainPanelIcon::Next:
+        p.setPen(Qt::NoPen); p.drawRect(18,5,2,14); p.drawPolygon(QPolygonF{QPointF(5,6),QPointF(15,12),QPointF(5,18)}); break;
+    case MainPanelIcon::Tracks:
+        p.setPen(pen); p.drawLine(4,6,15,6); p.drawLine(4,12,20,12); p.drawLine(4,18,14,18); p.drawEllipse(QPointF(18,6),2,2); break;
+    case MainPanelIcon::Playlist:
+        p.setPen(pen); p.drawLine(4,6,14,6); p.drawLine(4,12,14,12); p.drawLine(4,18,10,18); p.setPen(Qt::NoPen); p.drawPolygon(QPolygonF{QPointF(16,15),QPointF(22,18),QPointF(16,21)}); break;
+    case MainPanelIcon::Menu:
+        p.setPen(Qt::NoPen); p.drawRect(4,5,16,2); p.drawRect(4,11,16,2); p.drawRect(4,17,16,2); break;
+    case MainPanelIcon::Controls:
+        p.setPen(pen); p.drawLine(5,4,5,20); p.drawLine(12,4,12,20); p.drawLine(19,4,19,20); p.setBrush(QColor("#ffffff")); p.drawEllipse(QPointF(5,9),2,2); p.drawEllipse(QPointF(12,15),2,2); p.drawEllipse(QPointF(19,10),2,2); break;
+    case MainPanelIcon::Display:
+        p.setBrush(Qt::NoBrush); p.drawRoundedRect(3,4,18,14,2,2); p.drawLine(8,21,16,21); p.drawLine(12,18,12,21); break;
+    case MainPanelIcon::Capture:
+        p.setBrush(Qt::NoBrush); p.drawRect(4,7,16,12); p.drawRect(9,5,6,2); p.drawEllipse(QPointF(12,13),3.5,3.5); break;
+    case MainPanelIcon::Rotate:
+        p.setBrush(Qt::NoBrush); p.drawArc(4,5,16,16,45*16,260*16); p.setBrush(QColor("#ffffff")); p.setPen(Qt::NoPen); p.drawPolygon(QPolygonF{QPointF(5,4),QPointF(5,10),QPointF(10,7)}); break;
+    case MainPanelIcon::FlipH:
+        p.setPen(pen); p.setBrush(Qt::NoBrush); p.drawRect(4,5,16,14); p.drawLine(12,3,12,21); p.setPen(Qt::NoPen); p.drawPolygon(QPolygonF{QPointF(9,9),QPointF(4,12),QPointF(9,15)}); p.drawPolygon(QPolygonF{QPointF(15,9),QPointF(20,12),QPointF(15,15)}); break;
+    case MainPanelIcon::FlipV:
+        p.setPen(pen); p.setBrush(Qt::NoBrush); p.drawRect(5,4,14,16); p.drawLine(3,12,21,12); p.setPen(Qt::NoPen); p.drawPolygon(QPolygonF{QPointF(9,9),QPointF(12,4),QPointF(15,9)}); p.drawPolygon(QPolygonF{QPointF(9,15),QPointF(12,20),QPointF(15,15)}); break;
+    case MainPanelIcon::About:
+        p.setPen(pen); p.setBrush(Qt::NoBrush); p.drawEllipse(QPointF(12,12),9,9); p.setPen(Qt::NoPen); p.setBrush(QColor("#ffffff")); p.drawRect(11,10,2,7); p.drawRect(11,7,2,2); break;
+    }
+    return QIcon(pixmap);
+}
+
+void setMainPanelButtonIcon(QPushButton* button, MainPanelIcon icon, const QString& tooltip) {
+    if (!button) return;
+    button->setText(QString());
+    button->setIcon(makeMainPanelIcon(icon));
+    button->setIconSize(QSize(20, 20));
+    button->setFixedSize(34, 30);
+    button->setToolTip(tooltip);
+    button->setAccessibleName(tooltip);
 }
 }
 
@@ -329,17 +426,20 @@ void MainWindow::buildUi() {
     row1->setContentsMargins(0, 0, 0, 0);
     row1->setSpacing(10);
 
-    auto* fullscreenButton = new QPushButton(QStringLiteral("⛶"), m_controls);
+    auto* fullscreenButton = new QPushButton(m_controls);
+    setMainPanelButtonIcon(fullscreenButton, MainPanelIcon::Fullscreen, QStringLiteral("Fullscreen"));
     fullscreenButton->setToolTip(QStringLiteral("Toggle fullscreen"));
     fullscreenButton->setFixedWidth(32);
     connect(fullscreenButton, &QPushButton::clicked, this, &MainWindow::toggleFullscreen);
     row1->addWidget(fullscreenButton);
 
-    auto* open = new QPushButton(QStringLiteral("Open"), m_controls);
+    auto* open = new QPushButton(m_controls);
+    setMainPanelButtonIcon(open, MainPanelIcon::Open, QStringLiteral("Open media"));
     connect(open, &QPushButton::clicked, this, &MainWindow::openFile);
     row1->addWidget(open);
 
-    m_hwButton = new QPushButton(QStringLiteral("SW"), m_controls);
+    m_hwButton = new QPushButton(m_controls);
+    setMainPanelButtonIcon(m_hwButton, MainPanelIcon::Hardware, QStringLiteral("Toggle hardware/software decoding"));
     m_hwButton->setToolTip(QStringLiteral("Software decoding. Click to enable hardware decoding when supported."));
     connect(m_hwButton, &QPushButton::clicked, this, &MainWindow::toggleHardwareDecoding);
     row1->addWidget(m_hwButton);
@@ -348,17 +448,20 @@ void MainWindow::buildUi() {
     m_abLoopLabel->setToolTip(QStringLiteral("A: set loop start, B: set loop end, L: clear loop"));
     row1->addWidget(m_abLoopLabel);
 
-    m_cutAbButton = new QPushButton(QStringLiteral("AB Cut"), m_controls);
+    m_cutAbButton = new QPushButton(m_controls);
+    setMainPanelButtonIcon(m_cutAbButton, MainPanelIcon::Cut, QStringLiteral("Cut A-B selection"));
     m_cutAbButton->setToolTip(QStringLiteral("Cut the current A-B selection with FFmpeg without re-encoding"));
     connect(m_cutAbButton, &QPushButton::clicked, this, &MainWindow::cutAbSelection);
     row1->addWidget(m_cutAbButton);
 
-    m_saveAudioButton = new QPushButton(QStringLiteral("Save Audio"), m_controls);
+    m_saveAudioButton = new QPushButton(m_controls);
+    setMainPanelButtonIcon(m_saveAudioButton, MainPanelIcon::SaveAudio, QStringLiteral("Save selected audio track"));
     m_saveAudioButton->setToolTip(QStringLiteral("Save the selected audio track"));
     connect(m_saveAudioButton, &QPushButton::clicked, this, &MainWindow::saveSelectedAudioTrack);
     row1->addWidget(m_saveAudioButton);
     
-    m_speedButton = new QPushButton(QStringLiteral("Speed"), m_controls);
+    m_speedButton = new QPushButton(m_controls);
+    setMainPanelButtonIcon(m_speedButton, MainPanelIcon::Speed, QStringLiteral("Change playback speed"));
     m_speedButton->setToolTip(QStringLiteral("Change playback speed"));
     connect(m_speedButton, &QPushButton::clicked, this, &MainWindow::showSpeedMenu);
     row1->addWidget(m_speedButton);
@@ -371,13 +474,15 @@ void MainWindow::buildUi() {
 
     row1->addStretch(1);
 
-    m_previousButton = new QPushButton(QStringLiteral("|«  "), m_controls);
+    m_previousButton = new QPushButton(m_controls);
+    setMainPanelButtonIcon(m_previousButton, MainPanelIcon::Previous, QStringLiteral("Previous"));
     m_previousButton->setToolTip(QStringLiteral("Previous item"));
     m_previousButton->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
     connect(m_previousButton, &QPushButton::clicked, this, &MainWindow::playPrevious);
     row1->addWidget(m_previousButton);
 
-    m_seekBackButton = new QPushButton(QStringLiteral("−10s"), m_controls);
+    m_seekBackButton = new QPushButton(m_controls);
+    setMainPanelButtonIcon(m_seekBackButton, MainPanelIcon::SeekBack, QStringLiteral("Seek backward"));
     m_seekBackButton->setToolTip(QStringLiteral("Seek backward 10 seconds"));
     connect(m_seekBackButton, &QPushButton::clicked, this, [this] {
         const char* args[] = {"seek", "-10", "relative", "exact", nullptr};
@@ -385,12 +490,14 @@ void MainWindow::buildUi() {
     });
     row1->addWidget(m_seekBackButton);
 
-    m_playButton = new QPushButton(QStringLiteral("  ▶  "), m_controls);
+    m_playButton = new QPushButton(m_controls);
+    setMainPanelButtonIcon(m_playButton, MainPanelIcon::Play, QStringLiteral("Play / Pause"));
     m_playButton->setToolTip(QStringLiteral("Play / pause"));
     connect(m_playButton, &QPushButton::clicked, this, &MainWindow::togglePause);
     row1->addWidget(m_playButton);
 
-    m_seekForwardButton = new QPushButton(QStringLiteral("+10s"), m_controls);
+    m_seekForwardButton = new QPushButton(m_controls);
+    setMainPanelButtonIcon(m_seekForwardButton, MainPanelIcon::SeekForward, QStringLiteral("Seek forward"));
     m_seekForwardButton->setToolTip(QStringLiteral("Seek forward 10 seconds"));
     connect(m_seekForwardButton, &QPushButton::clicked, this, [this] {
         const char* args[] = {"seek", "10", "relative", "exact", nullptr};
@@ -398,7 +505,8 @@ void MainWindow::buildUi() {
     });
     row1->addWidget(m_seekForwardButton);
 
-    m_nextButton = new QPushButton(QStringLiteral("  »|"), m_controls);
+    m_nextButton = new QPushButton(m_controls);
+    setMainPanelButtonIcon(m_nextButton, MainPanelIcon::Next, QStringLiteral("Next"));
     m_nextButton->setToolTip(QStringLiteral("Next item"));
     m_nextButton->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
     connect(m_nextButton, &QPushButton::clicked, this, &MainWindow::playNext);
@@ -414,17 +522,20 @@ void MainWindow::buildUi() {
     connect(m_volumeSlider, &QSlider::valueChanged, this, &MainWindow::setVolume);
     row1->addWidget(m_volumeSlider);
 
-    auto* tracks = new QPushButton(QStringLiteral("Tracks"), m_controls);
+    auto* tracks = new QPushButton(m_controls);
+    setMainPanelButtonIcon(tracks, MainPanelIcon::Tracks, QStringLiteral("Audio, subtitle and video tracks"));
     tracks->setToolTip(QStringLiteral("Select audio and subtitle tracks"));
     connect(tracks, &QPushButton::clicked, this, &MainWindow::showTracksMenu);
     row1->addWidget(tracks);
 
-    auto* playlistButton = new QPushButton(QStringLiteral("Playlist"), m_controls);
+    auto* playlistButton = new QPushButton(m_controls);
+    setMainPanelButtonIcon(playlistButton, MainPanelIcon::Playlist, QStringLiteral("Playlist"));
     playlistButton->setToolTip(QStringLiteral("Show or hide playlist"));
     connect(playlistButton, &QPushButton::clicked, this, &MainWindow::togglePlaylist);
     row1->addWidget(playlistButton);
 
-    auto* menu = new QPushButton(QStringLiteral("☰"), m_controls);
+    auto* menu = new QPushButton(m_controls);
+    setMainPanelButtonIcon(menu, MainPanelIcon::Menu, QStringLiteral("Menu"));
     menu->setToolTip(QStringLiteral("Show video information"));
     connect(menu, &QPushButton::clicked, this, &MainWindow::toggleControls);
     row1->addWidget(menu);
@@ -433,39 +544,46 @@ void MainWindow::buildUi() {
     row2->setContentsMargins(42, 0, 0, 0);
     row2->setSpacing(8);
 
-    auto* controlsButton = new QPushButton(QStringLiteral("Controls"), m_controls);
+    auto* controlsButton = new QPushButton(m_controls);
+    setMainPanelButtonIcon(controlsButton, MainPanelIcon::Controls, QStringLiteral("Controls settings"));
     controlsButton->setToolTip(QStringLiteral("Customize mouse and keyboard controls"));
     connect(controlsButton, &QPushButton::clicked, this, &MainWindow::showControlsDialog);
     row2->addWidget(controlsButton);
 
-    auto* displayButton = new QPushButton(QStringLiteral("Display"), m_controls);
+    auto* displayButton = new QPushButton(m_controls);
+    setMainPanelButtonIcon(displayButton, MainPanelIcon::Display, QStringLiteral("Display settings"));
     displayButton->setToolTip(QStringLiteral("Adjust brightness, contrast and saturation"));
     connect(displayButton, &QPushButton::clicked, this, &MainWindow::showDisplayDialog);
     row2->addWidget(displayButton);
 
-    auto* captureButton = new QPushButton(QStringLiteral("Capture"), m_controls);
+    auto* captureButton = new QPushButton(m_controls);
+    setMainPanelButtonIcon(captureButton, MainPanelIcon::Capture, QStringLiteral("Capture screenshot"));
     captureButton->setToolTip(QStringLiteral("Save the current video frame as a screenshot"));
     connect(captureButton, &QPushButton::clicked, this, &MainWindow::captureScreenshot);
     row2->addWidget(captureButton);
 
-    m_rotateButton = new QPushButton(QStringLiteral("Rotate"), m_controls);
+    m_rotateButton = new QPushButton(m_controls);
+    setMainPanelButtonIcon(m_rotateButton, MainPanelIcon::Rotate, QStringLiteral("Rotate video 90 degrees"));
     m_rotateButton->setToolTip(QStringLiteral("Rotate the video 90° clockwise"));
     connect(m_rotateButton, &QPushButton::clicked, this, &MainWindow::rotateVideo90);
     row2->addWidget(m_rotateButton);
 
-    auto* flipHorizontalButton = new QPushButton(QStringLiteral("Flip H"), m_controls);
+    auto* flipHorizontalButton = new QPushButton(m_controls);
+    setMainPanelButtonIcon(flipHorizontalButton, MainPanelIcon::FlipH, QStringLiteral("Flip horizontally"));
     flipHorizontalButton->setToolTip(QStringLiteral("Flip the video horizontally"));
     connect(flipHorizontalButton, &QPushButton::clicked, this, &MainWindow::toggleFlipHorizontal);
     row2->addWidget(flipHorizontalButton);
 
-    auto* flipVerticalButton = new QPushButton(QStringLiteral("Flip V"), m_controls);
+    auto* flipVerticalButton = new QPushButton(m_controls);
+    setMainPanelButtonIcon(flipVerticalButton, MainPanelIcon::FlipV, QStringLiteral("Flip vertically"));
     flipVerticalButton->setToolTip(QStringLiteral("Flip the video vertically"));
     connect(flipVerticalButton, &QPushButton::clicked, this, &MainWindow::toggleFlipVertical);
     row2->addWidget(flipVerticalButton);
 
     row2->addStretch(1);
 
-    auto* aboutButton = new QPushButton(QStringLiteral("About"), m_controls);
+    auto* aboutButton = new QPushButton(m_controls);
+    setMainPanelButtonIcon(aboutButton, MainPanelIcon::About, QStringLiteral("About REX Player"));
     aboutButton->setToolTip(QStringLiteral("About REX Player"));
     connect(aboutButton, &QPushButton::clicked, this, [this] {
         QMessageBox::about(
@@ -1593,7 +1711,7 @@ void MainWindow::updateHardwareButton() {
     if (!m_hwButton || !m_mpv) return;
     const QString current = getPropertyString("hwdec-current").trimmed().toLower();
     const bool hardwareActive = !current.isEmpty() && current != QStringLiteral("no");
-    m_hwButton->setText(hardwareActive ? QStringLiteral("HW") : QStringLiteral("SW"));
+    m_hwButton->setToolTip(hardwareActive ? QStringLiteral("Hardware decoding (on) — click to switch to software") : QStringLiteral("Software decoding (on) — click to switch to hardware"));
     m_hwButton->setToolTip(hardwareActive
         ? QStringLiteral("Hardware decoding active (%1). Click to switch to software decoding.").arg(current)
         : QStringLiteral("Software decoding active. Click to enable hardware decoding when supported."));
@@ -2036,7 +2154,7 @@ void MainWindow::updatePlaybackUi() {
     syncPlaylistSelection();
 }
 
-void MainWindow::updatePlayButton(bool paused) { m_playButton->setText(paused ? QStringLiteral("▶") : QStringLiteral("Ⅱ")); }
+void MainWindow::updatePlayButton(bool paused) { if (m_playButton) m_playButton->setIcon(makeMainPanelIcon(paused ? MainPanelIcon::Play : MainPanelIcon::Pause)); }
 void MainWindow::increaseSubtitlePosition() {
     const double current = std::clamp(getPropertyDouble("sub-pos"), 0.0, 150.0);
     setPropertyDouble("sub-pos", std::max(0.0, current - 1.0));
