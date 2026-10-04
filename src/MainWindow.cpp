@@ -579,7 +579,7 @@ void MainWindow::buildUi() {
     row1->addWidget(menu);
 
     auto* row2 = new QHBoxLayout();
-    row2->setContentsMargins(36, 0, 0, 0);
+    row2->setContentsMargins(33, 0, 0, 0);
     row2->setSpacing(8);
 
     auto* controlsButton = new QPushButton(m_controls);
@@ -1260,7 +1260,7 @@ void MainWindow::showControlsDialog() {
     addShortcut(QStringLiteral("2 (hold) → Temporary 2x playback speed"), holdSpeed);
     contentLayout->addLayout(keyForm);
 
-    auto* note = new QLabel(QStringLiteral("Seek duration applies to the arrow keys, wheel seek and double-click seek zones. Choose 5, 10 or 30 seconds, or a value from 1 to 120 minutes. The −10s and +10s buttons always seek exactly 10 seconds. Speed jump controls how much Alt + Up / Down changes playback speed; choose 0.10x to 1.00x in 0.05x steps. Button style and other changes are saved for the next launch. Clear a shortcut to disable it. Cut with zoom bakes positive video zoom/pan and the current 90°-step rotation into the A-B output and therefore re-encodes the video."), &dialog);
+    auto* note = new QLabel(QStringLiteral("\nSeek duration applies to the arrow keys, wheel seek and double-click seek zones. Choose 5, 10 or 30 seconds, or a value from 1 to 120 minutes.\nThe −10s and +10s buttons always seek exactly 10 seconds.\n\nSpeed jump controls how much Alt + Up / Down changes playback speed; choose 0.10x to 1.00x in 0.05x steps.\nButton style and other changes are saved for the next launch.\nClear a shortcut to disable it.\n\nCut with zoom bakes positive video zoom/pan and the current 90°-step rotation into the A-B output and therefore re-encodes the video."), &dialog);
     note->setWordWrap(true);
     contentLayout->addWidget(note);
     content->setLayout(contentLayout);
