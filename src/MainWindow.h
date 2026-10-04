@@ -189,6 +189,7 @@ private:
     bool m_showRemainingTime = false;
     bool m_timerBesideProgress = false;
     bool m_mainPanelIcons = true;
+    bool m_returnFocusToVideoAfterMouseAction = true;
     bool m_cutWithZoom = false;
     bool m_promptResumeNextLoad = false;
     QString m_pendingResumePath;
