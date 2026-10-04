@@ -129,6 +129,7 @@ private:
     void captureScreenshot();
     void saveLogReport();
     void loadControlSettings();
+    void applyMainPanelButtonMode();
     void applyInterfaceFont(const QString& fontPath, const QString& fontFamily, int pointSize);
     void updatePlaybackInhibit(bool active);
     bool keyMatches(QKeyEvent* event, const QKeySequence& sequence) const;
@@ -186,6 +187,7 @@ private:
     double m_abLoopEnd = -1.0;
     bool m_showRemainingTime = false;
     bool m_timerBesideProgress = false;
+    bool m_mainPanelIcons = true;
     bool m_cutWithZoom = false;
     bool m_promptResumeNextLoad = false;
     QString m_pendingResumePath;
