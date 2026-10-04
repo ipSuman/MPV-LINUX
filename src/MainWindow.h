@@ -130,6 +130,7 @@ private:
     void saveLogReport();
     void loadControlSettings();
     void applyMainPanelButtonMode();
+    void applyControlSettingsToRuntime();
     void applyInterfaceFont(const QString& fontPath, const QString& fontFamily, int pointSize);
     void updatePlaybackInhibit(bool active);
     bool keyMatches(QKeyEvent* event, const QKeySequence& sequence) const;
