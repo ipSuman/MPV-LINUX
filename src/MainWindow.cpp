@@ -2716,6 +2716,28 @@ void MainWindow::keyReleaseEvent(QKeyEvent* event) {
 }
 
 bool MainWindow::eventFilter(QObject* watched, QEvent* event) {
+    // Clicking a playback control gives that widget keyboard focus by default.
+    // Optionally return focus to the video shortly after the mouse action has
+    // completed so keyboard shortcuts continue to target the player.
+    if (m_returnFocusToVideoAfterMouseAction &&
+        m_controls && m_videoWidget &&
+        watched && watched != m_videoWidget &&
+        event->type() == QEvent::MouseButtonRelease) {
+        auto* widget = qobject_cast<QWidget*>(watched);
+        if (widget && m_controls->isAncestorOf(widget) &&
+            widget->focusPolicy() != Qt::NoFocus) {
+            QTimer::singleShot(20, this, [this] {
+                if (!m_returnFocusToVideoAfterMouseAction || !m_videoWidget ||
+                    !isActiveWindow())
+                    return;
+                // Do not steal focus from an open menu or modal dialog.
+                if (QApplication::activePopupWidget() || QApplication::activeModalWidget())
+                    return;
+                m_videoWidget->setFocus(Qt::OtherFocusReason);
+            });
+        }
+    }
+
     if (m_playlist && watched && watched->property("playlist-path").isValid()) {
         const QString path = watched->property("playlist-path").toString();
         const int index = m_playlistController ? m_playlistController->indexOf(path) : -1;
