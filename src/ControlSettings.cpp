@@ -16,6 +16,7 @@ void ControlSettings::load() {
     zoomWheelMode = settings.value(QStringLiteral("controls/zoomWheel"), zoomWheelMode).toString();
     volumeWheelMode = settings.value(QStringLiteral("controls/volumeWheel"), volumeWheelMode).toString();
     timerBesideProgress = settings.value(QStringLiteral("controls/timerBesideProgress"), timerBesideProgress).toBool();
+    mainPanelIcons = settings.value(QStringLiteral("controls/mainPanelIcons"), mainPanelIcons).toBool();
     panButton = static_cast<Qt::MouseButton>(
         settings.value(QStringLiteral("controls/panButton"), static_cast<int>(panButton)).toInt());
     doubleClickButton = static_cast<Qt::MouseButton>(
@@ -72,6 +73,7 @@ void ControlSettings::save() const {
     settings.setValue(QStringLiteral("controls/zoomWheel"), zoomWheelMode);
     settings.setValue(QStringLiteral("controls/volumeWheel"), volumeWheelMode);
     settings.setValue(QStringLiteral("controls/timerBesideProgress"), timerBesideProgress);
+    settings.setValue(QStringLiteral("controls/mainPanelIcons"), mainPanelIcons);
     settings.setValue(QStringLiteral("controls/panButton"), static_cast<int>(panButton));
     settings.setValue(QStringLiteral("controls/doubleClickButton"), static_cast<int>(doubleClickButton));
 
