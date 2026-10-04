@@ -12,7 +12,6 @@ public:
     bool timerBesideProgress = true;
     bool mainPanelIcons = true;
     bool returnFocusToVideoAfterMouseAction = true;
-    bool verboseLogging = false;
     Qt::MouseButton panButton = Qt::MiddleButton;
     Qt::MouseButton doubleClickButton = Qt::LeftButton;
     int seekDurationSeconds = 60;
