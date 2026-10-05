@@ -2031,7 +2031,7 @@ void MainWindow::updateHardwareButton() {
 }
 
 void MainWindow::showTracksMenu() {
-    if (m_trackController) m_trackController->showMenu(qobject_cast<QWidget*>(sender()));
+    if (m_trackController) m_trackController->showMenu(qobject_cast<QWidget*>(sender()), m_videoWidget);
 }
 
 void MainWindow::increasePlaybackSpeed() {
