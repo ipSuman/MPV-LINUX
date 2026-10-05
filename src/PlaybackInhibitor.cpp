@@ -71,20 +71,49 @@ void PlaybackInhibitor::startInhibitor(const QString& program, const QStringList
 
 void PlaybackInhibitor::setActive(bool active) {
 #ifdef Q_OS_WIN
-    if (active == m_active) return;
-
-    if (active) {
-        const EXECUTION_STATE result =
-            SetThreadExecutionState(ES_CONTINUOUS | ES_DISPLAY_REQUIRED);
-        m_active = result != 0;
-        log(QStringLiteral("POWER INHIBIT: enable Windows display execution state result=%1")
-                .arg(result != 0 ? QStringLiteral("success") : QStringLiteral("FAILED")));
-    } else {
-        const EXECUTION_STATE result = SetThreadExecutionState(ES_CONTINUOUS);
-        m_active = false;
-        log(QStringLiteral("POWER INHIBIT: disable Windows execution state result=%1")
-                .arg(result != 0 ? QStringLiteral("success") : QStringLiteral("FAILED")));
+    if (!active) {
+        if (m_powerRequest) {
+            const HANDLE request = reinterpret_cast<HANDLE>(m_powerRequest);
+            const BOOL cleared = PowerClearRequest(request, PowerRequestDisplayRequired);
+            const BOOL closed = CloseHandle(request);
+            m_powerRequest = nullptr;
+            m_active = false;
+            log(QStringLiteral("POWER INHIBIT: Windows display/screensaver request released clear=%1 close=%2")
+                    .arg(cleared ? QStringLiteral("success") : QStringLiteral("FAILED"))
+                    .arg(closed ? QStringLiteral("success") : QStringLiteral("FAILED")));
+        } else {
+            m_active = false;
+        }
+        return;
     }
+
+    if (m_active || m_powerRequest) return;
+
+    REASON_CONTEXT context{};
+    context.Version = POWER_REQUEST_CONTEXT_VERSION;
+    context.Flags = POWER_REQUEST_CONTEXT_SIMPLE_STRING;
+    context.Reason.SimpleReasonString = const_cast<LPWSTR>(L"REX Player video playback");
+
+    const HANDLE request = PowerCreateRequest(&context);
+    if (request == INVALID_HANDLE_VALUE) {
+        m_active = false;
+        log(QStringLiteral("POWER INHIBIT: Windows display/screensaver request creation FAILED error=%1")
+                .arg(static_cast<qulonglong>(GetLastError())));
+        return;
+    }
+
+    if (!PowerSetRequest(request, PowerRequestDisplayRequired)) {
+        const DWORD error = GetLastError();
+        CloseHandle(request);
+        m_active = false;
+        log(QStringLiteral("POWER INHIBIT: Windows display/screensaver request FAILED error=%1")
+                .arg(static_cast<qulonglong>(error)));
+        return;
+    }
+
+    m_powerRequest = reinterpret_cast<void*>(request);
+    m_active = true;
+    log(QStringLiteral("POWER INHIBIT: Windows display/screensaver request acquired"));
 #elif defined(Q_OS_LINUX)
     if (!active) {
         if (m_screenSaverInterface && m_screenSaverCookie != 0) {
