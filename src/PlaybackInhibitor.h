@@ -21,5 +21,4 @@ private:
     RuntimeLogger* m_logger = nullptr;
     QProcess* m_process = nullptr;
     bool m_active = false;
-    bool m_requestedActive = false;
 };
