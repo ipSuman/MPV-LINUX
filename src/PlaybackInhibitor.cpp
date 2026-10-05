@@ -82,7 +82,6 @@ void PlaybackInhibitor::setActive(bool active) {
     }
 #elif defined(Q_OS_LINUX)
     if (!active) {
-        m_requestedActive = false;
         if (m_process) {
             log(QStringLiteral("POWER INHIBIT: stopping inhibitor process"));
             m_process->terminate();
@@ -98,7 +97,6 @@ void PlaybackInhibitor::setActive(bool active) {
         return;
     }
 
-    m_requestedActive = true;
     if (m_active || (m_process && m_process->state() != QProcess::NotRunning)) return;
 
     const QString systemdInhibit =
