@@ -12,7 +12,7 @@ class TrackController final : public QObject {
 public:
     TrackController(mpv_handle* mpv, RuntimeLogger* logger, QObject* parent = nullptr);
 
-    void showMenu(QWidget* anchor = nullptr);
+    void showMenu(QWidget* anchor = nullptr, QWidget* focusTarget = nullptr);
     void cycleSubtitles();
 
 private:
