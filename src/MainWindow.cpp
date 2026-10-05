@@ -811,6 +811,14 @@ void MainWindow::buildUi() {
 void MainWindow::applyMainPanelButtonMode() {
     if (!m_controls) return;
 
+    // Row 2 needs a slightly different left margin in icon mode because
+    // fixed-width icon buttons and preferred-width text buttons have different
+    // content geometry. Keep both modes aligned with Row 1.
+    const auto row2Layouts = m_controls->findChildren<QHBoxLayout*>(QStringLiteral("mainPanelRow2"));
+    for (QHBoxLayout* row2 : row2Layouts) {
+        if (row2) row2->setContentsMargins(m_mainPanelIcons ? 42 : 33, 0, 0, 0);
+    }
+
     const auto buttons = m_controls->findChildren<QPushButton*>();
     for (QPushButton* button : buttons) {
         if (!button || !button->property("main-panel-button").toBool()) continue;
