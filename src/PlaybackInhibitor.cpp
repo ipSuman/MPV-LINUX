@@ -21,6 +21,49 @@ void PlaybackInhibitor::log(const QString& message) const {
     if (m_logger) m_logger->append(message);
 }
 
+void PlaybackInhibitor::startInhibitor(const QString& program, const QStringList& arguments, const QString& source) {
+    if (m_process) {
+        m_process->deleteLater();
+        m_process = nullptr;
+    }
+
+    m_process = new QProcess(this);
+    m_process->setProgram(program);
+    m_process->setArguments(arguments);
+    m_process->setProcessChannelMode(QProcess::SeparateChannels);
+
+    connect(m_process, &QProcess::started, this, [this, source]() {
+        m_active = true;
+        log(QStringLiteral("POWER INHIBIT: %1 started").arg(source));
+    });
+
+    connect(m_process, &QProcess::errorOccurred, this,
+            [this, source](QProcess::ProcessError) {
+        m_active = false;
+        log(QStringLiteral("POWER INHIBIT: %1 error: %2")
+                .arg(source, m_process ? m_process->errorString() : QStringLiteral("unknown")));
+    });
+
+    connect(m_process, &QProcess::finished, this,
+            [this, source](int exitCode, QProcess::ExitStatus exitStatus) {
+        const QString stderrText = m_process
+            ? QString::fromLocal8Bit(m_process->readAllStandardError()).trimmed()
+            : QString();
+        log(QStringLiteral("POWER INHIBIT: %1 exited code=%2 status=%3%4")
+                .arg(source)
+                .arg(exitCode)
+                .arg(exitStatus == QProcess::NormalExit ? QStringLiteral("normal")
+                                                        : QStringLiteral("crash"))
+                .arg(stderrText.isEmpty()
+                         ? QString()
+                         : QStringLiteral(" stderr=%1").arg(stderrText.left(300))));
+        m_active = false;
+    });
+
+    log(QStringLiteral("POWER INHIBIT: starting %1").arg(source));
+    m_process->start();
+}
+
 void PlaybackInhibitor::setActive(bool active) {
 #ifdef Q_OS_WIN
     if (active == m_active) return;
@@ -38,66 +81,8 @@ void PlaybackInhibitor::setActive(bool active) {
                 .arg(result != 0 ? QStringLiteral("success") : QStringLiteral("FAILED")));
     }
 #elif defined(Q_OS_LINUX)
-    if (active && m_active && m_process &&
-        m_process->state() != QProcess::NotRunning) {
-        return;
-    }
-    if (!active && !m_active && !m_process) {
-        return;
-    }
-
-    if (active) {
-        if (!m_process || m_process->state() == QProcess::NotRunning) {
-            if (m_process) {
-                log(QStringLiteral("POWER INHIBIT: previous inhibitor process was not running; replacing it"));
-                m_process->deleteLater();
-                m_process = nullptr;
-            }
-
-            m_process = new QProcess(this);
-            const QString gnomeInhibit =
-                QStandardPaths::findExecutable(QStringLiteral("gnome-session-inhibit"));
-
-            if (!gnomeInhibit.isEmpty()) {
-                m_process->setProgram(gnomeInhibit);
-                m_process->setArguments({
-                    QStringLiteral("--app-id=rex-player"),
-                    QStringLiteral("--reason=Video playback"),
-                    QStringLiteral("--inhibit=idle"),
-                    QStringLiteral("--inhibit-only")
-                });
-                log(QStringLiteral("POWER INHIBIT: starting gnome-session-inhibit"));
-            } else {
-                m_process->setProgram(QStringLiteral("systemd-inhibit"));
-                m_process->setArguments({
-                    QStringLiteral("--what=idle"),
-                    QStringLiteral("--who=REX Player"),
-                    QStringLiteral("--why=Video playback"),
-                    QStringLiteral("--mode=block"),
-                    QStringLiteral("sleep"),
-                    QStringLiteral("infinity")
-                });
-                log(QStringLiteral("POWER INHIBIT: gnome-session-inhibit unavailable; using systemd-inhibit"));
-            }
-
-            m_process->setProcessChannelMode(QProcess::SeparateChannels);
-            m_process->start();
-
-            if (!m_process->waitForStarted(500)) {
-                log(QStringLiteral("POWER INHIBIT: inhibitor process FAILED to start: %1")
-                        .arg(m_process->errorString()));
-            } else {
-                log(QStringLiteral("POWER INHIBIT: inhibitor process started"));
-            }
-        }
-
-        const bool wasActive = m_active;
-        m_active = m_process && m_process->state() != QProcess::NotRunning;
-        if (m_active != wasActive) {
-            log(QStringLiteral("POWER INHIBIT: active=%1")
-                    .arg(m_active ? QStringLiteral("yes") : QStringLiteral("no")));
-        }
-    } else {
+    if (!active) {
+        m_requestedActive = false;
         if (m_process) {
             log(QStringLiteral("POWER INHIBIT: stopping inhibitor process"));
             m_process->terminate();
@@ -110,6 +95,41 @@ void PlaybackInhibitor::setActive(bool active) {
         }
         m_active = false;
         log(QStringLiteral("POWER INHIBIT: disabled"));
+        return;
+    }
+
+    m_requestedActive = true;
+    if (m_active || (m_process && m_process->state() != QProcess::NotRunning)) return;
+
+    const QString systemdInhibit =
+        QStandardPaths::findExecutable(QStringLiteral("systemd-inhibit"));
+    if (!systemdInhibit.isEmpty()) {
+        startInhibitor(systemdInhibit,
+                       {
+                           QStringLiteral("--what=idle"),
+                           QStringLiteral("--who=REX Player"),
+                           QStringLiteral("--why=Video playback"),
+                           QStringLiteral("--mode=block"),
+                           QStringLiteral("sleep"),
+                           QStringLiteral("infinity")
+                       },
+                       QStringLiteral("systemd-inhibit"));
+    } else {
+        const QString gnomeInhibit =
+            QStandardPaths::findExecutable(QStringLiteral("gnome-session-inhibit"));
+        if (!gnomeInhibit.isEmpty()) {
+            startInhibitor(gnomeInhibit,
+                           {
+                               QStringLiteral("--app-id=rex-player"),
+                               QStringLiteral("--reason=Video playback"),
+                               QStringLiteral("--inhibit=idle"),
+                               QStringLiteral("--inhibit-only")
+                           },
+                           QStringLiteral("gnome-session-inhibit"));
+        } else {
+            m_active = true;
+            log(QStringLiteral("POWER INHIBIT: no supported inhibitor executable found"));
+        }
     }
 #else
     m_active = active;
