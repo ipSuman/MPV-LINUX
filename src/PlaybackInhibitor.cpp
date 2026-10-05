@@ -2,6 +2,7 @@
 
 #include <QProcess>
 #ifdef Q_OS_LINUX
+#include <QDBusConnection>
 #include <QDBusInterface>
 #include <QDBusReply>
 #endif
