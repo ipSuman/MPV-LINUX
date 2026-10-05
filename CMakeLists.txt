@@ -8,6 +8,9 @@ set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTORCC ON)
 
 find_package(Qt6 REQUIRED COMPONENTS Widgets Network)
+if(UNIX AND NOT APPLE)
+    find_package(Qt6 REQUIRED COMPONENTS DBus)
+endif()
 
 if(WIN32)
     # Windows builds use the MSYS2/MinGW libmpv package. This keeps the
@@ -109,6 +112,8 @@ target_link_libraries(rex-player PRIVATE
 
 if(WIN32)
     target_link_libraries(rex-player PRIVATE dwmapi)
+elseif(UNIX AND NOT APPLE)
+    target_link_libraries(rex-player PRIVATE Qt6::DBus)
 endif()
 
 if(WIN32)
