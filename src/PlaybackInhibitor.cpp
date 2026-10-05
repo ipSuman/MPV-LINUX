@@ -1,6 +1,10 @@
 #include "PlaybackInhibitor.h"
 
 #include <QProcess>
+#ifdef Q_OS_LINUX
+#include <QDBusInterface>
+#include <QDBusReply>
+#endif
 #include <QStandardPaths>
 #include <QString>
 
@@ -82,8 +86,19 @@ void PlaybackInhibitor::setActive(bool active) {
     }
 #elif defined(Q_OS_LINUX)
     if (!active) {
+        if (m_screenSaverInterface && m_screenSaverCookie != 0) {
+            const QDBusReply<void> reply = m_screenSaverInterface->call(
+                QStringLiteral("UnInhibit"), m_screenSaverCookie);
+            log(QStringLiteral("POWER INHIBIT: D-Bus idle inhibition released result=%1")
+                    .arg(reply.isValid() ? QStringLiteral("success") : reply.error().message()));
+            m_screenSaverCookie = 0;
+        }
+        if (m_screenSaverInterface) {
+            delete m_screenSaverInterface;
+            m_screenSaverInterface = nullptr;
+        }
         if (m_process) {
-            log(QStringLiteral("POWER INHIBIT: stopping inhibitor process"));
+            log(QStringLiteral("POWER INHIBIT: stopping fallback inhibitor process"));
             m_process->terminate();
             if (!m_process->waitForFinished(500)) {
                 m_process->kill();
@@ -97,7 +112,30 @@ void PlaybackInhibitor::setActive(bool active) {
         return;
     }
 
-    if (m_active || (m_process && m_process->state() != QProcess::NotRunning)) return;
+    if (m_active || m_screenSaverCookie != 0 || (m_process && m_process->state() != QProcess::NotRunning)) return;
+
+    m_screenSaverInterface = new QDBusInterface(
+        QStringLiteral("org.freedesktop.ScreenSaver"),
+        QStringLiteral("/org/freedesktop/ScreenSaver"),
+        QStringLiteral("org.freedesktop.ScreenSaver"),
+        QDBusConnection::sessionBus(), this);
+    if (m_screenSaverInterface->isValid()) {
+        const QDBusReply<std::uint32_t> reply = m_screenSaverInterface->call(
+            QStringLiteral("Inhibit"), QStringLiteral("REX Player"), QStringLiteral("Video playback"));
+        if (reply.isValid() && reply.value() != 0) {
+            m_screenSaverCookie = reply.value();
+            m_active = true;
+            log(QStringLiteral("POWER INHIBIT: D-Bus idle inhibition acquired cookie=%1")
+                    .arg(m_screenSaverCookie));
+            return;
+        }
+        log(QStringLiteral("POWER INHIBIT: D-Bus idle inhibition unavailable: %1")
+                .arg(reply.isValid() ? QStringLiteral("invalid cookie") : reply.error().message()));
+    } else {
+        log(QStringLiteral("POWER INHIBIT: D-Bus idle inhibition service unavailable"));
+    }
+    delete m_screenSaverInterface;
+    m_screenSaverInterface = nullptr;
 
     const QString systemdInhibit =
         QStandardPaths::findExecutable(QStringLiteral("systemd-inhibit"));
