@@ -87,10 +87,10 @@ void PlaybackInhibitor::setActive(bool active) {
 #elif defined(Q_OS_LINUX)
     if (!active) {
         if (m_screenSaverInterface && m_screenSaverCookie != 0) {
-            const QDBusReply<void> reply = m_screenSaverInterface->call(
+            const QDBusMessage reply = m_screenSaverInterface->call(
                 QStringLiteral("UnInhibit"), m_screenSaverCookie);
             log(QStringLiteral("POWER INHIBIT: D-Bus idle inhibition released result=%1")
-                    .arg(reply.isValid() ? QStringLiteral("success") : reply.error().message()));
+                    .arg(reply.type() != QDBusMessage::ErrorMessage ? QStringLiteral("success") : reply.errorMessage()));
             m_screenSaverCookie = 0;
         }
         if (m_screenSaverInterface) {
