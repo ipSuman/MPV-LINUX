@@ -24,5 +24,6 @@ private:
     QProcess* m_process = nullptr;
     QDBusInterface* m_screenSaverInterface = nullptr;
     std::uint32_t m_screenSaverCookie = 0;
+    void* m_powerRequest = nullptr;
     bool m_active = false;
 };
