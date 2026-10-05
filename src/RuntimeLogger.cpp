@@ -24,7 +24,7 @@ bool RuntimeLogger::initialize() {
     m_path = QDir(base).filePath(QStringLiteral("REX_Player_Runtime.log"));
 
     QFile file(m_path);
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Append)) {
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
         return false;
     }
 
