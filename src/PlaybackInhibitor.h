@@ -15,8 +15,10 @@ public:
 
 private:
     void log(const QString& message) const;
+    void startInhibitor(const QString& program, const QStringList& arguments, const QString& source);
 
     RuntimeLogger* m_logger = nullptr;
     QProcess* m_process = nullptr;
     bool m_active = false;
+    bool m_requestedActive = false;
 };
