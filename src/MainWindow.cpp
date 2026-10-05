@@ -579,6 +579,7 @@ void MainWindow::buildUi() {
     row1->addWidget(menu);
 
     auto* row2 = new QHBoxLayout();
+    row2->setObjectName(QStringLiteral("mainPanelRow2"));
     row2->setContentsMargins(42, 0, 0, 0);
     row2->setSpacing(8);
 
@@ -816,7 +817,7 @@ void MainWindow::applyMainPanelButtonMode() {
     // content geometry. Keep both modes aligned with Row 1.
     const auto row2Layouts = m_controls->findChildren<QHBoxLayout*>(QStringLiteral("mainPanelRow2"));
     for (QHBoxLayout* row2 : row2Layouts) {
-        if (row2) row2->setContentsMargins(m_mainPanelIcons ? 42 : 33, 0, 0, 0);
+        if (row2) row2->setContentsMargins(m_mainPanelIcons ? 42 : 15, 0, 0, 0);
     }
 
     const auto buttons = m_controls->findChildren<QPushButton*>();
