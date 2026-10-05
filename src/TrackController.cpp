@@ -8,6 +8,8 @@
 #include <QPoint>
 #include <QStringList>
 #include <QWidget>
+#include <QApplication>
+#include <QTimer>
 
 #include <cstdint>
 
@@ -23,7 +25,7 @@ void TrackController::log(const QString& message) const {
     if (m_logger) m_logger->append(message);
 }
 
-void TrackController::showMenu(QWidget* anchor) {
+void TrackController::showMenu(QWidget* anchor, QWidget* focusTarget) {
     if (!m_mpv) return;
 
     mpv_node tracks{};
@@ -36,6 +38,15 @@ void TrackController::showMenu(QWidget* anchor) {
 
     auto* menu = new QMenu(anchor);
     menu->setAttribute(Qt::WA_DeleteOnClose);
+    if (focusTarget) {
+        connect(menu, &QMenu::aboutToHide, menu, [focusTarget] {
+            QTimer::singleShot(20, focusTarget, [focusTarget] {
+                if (!focusTarget || !focusTarget->isVisible() || !focusTarget->isEnabled()) return;
+                if (!QApplication::activeWindow()) return;
+                focusTarget->setFocus(Qt::OtherFocusReason);
+            });
+        });
+    }
     auto* audioMenu = menu->addMenu(QStringLiteral("Audio"));
     auto* subtitleMenu = menu->addMenu(QStringLiteral("Subtitles"));
 
