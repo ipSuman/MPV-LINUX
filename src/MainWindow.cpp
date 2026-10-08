@@ -267,6 +267,14 @@ MainWindow::MainWindow(const QString& mediaPath, QWidget* parent)
     m_speedDownShortcut->setContext(Qt::WindowShortcut);
     connect(m_speedDownShortcut, &QShortcut::activated, this, &MainWindow::decreasePlaybackSpeed);
 
+    m_resetSpeedShortcut = new QShortcut(QKeySequence(Qt::Key_1), this);
+    m_resetSpeedShortcut->setContext(Qt::WindowShortcut);
+    m_resetSpeedShortcut->setAutoRepeat(false);
+    connect(m_resetSpeedShortcut, &QShortcut::activated, this, [this] {
+        setPropertyDouble("speed", 1.0);
+        if (m_runtimeLogger) m_runtimeLogger->append(QStringLiteral("PLAYBACK SPEED: reset to 1.00x (shortcut 1)"));
+    });
+
     m_toastTimer.setSingleShot(true);
     connect(&m_toastTimer, &QTimer::timeout, this, [this] {
         if (m_toastLabel) m_toastLabel->hide();
