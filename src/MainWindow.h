@@ -139,6 +139,7 @@ private:
     void updatePlaybackInhibit(bool active);
     bool keyMatches(QKeyEvent* event, const QKeySequence& sequence) const;
     void saveCurrentPlaybackPosition();
+    void restoreHoldSpeed();
     QString mpvEventName(int eventId) const;
     QString diagnosticControlState() const;
 
@@ -201,6 +202,7 @@ private:
     bool m_promptResumeNextLoad = false;
     QString m_pendingResumePath;
     qint64 m_lastPositionSaveMs = 0;
+    qint64 m_lastHardwareCheckMs = 0;
     qint64 m_lastEscapePressMs = 0;
 
     QString m_seekWheelMode = QStringLiteral("wheel");
