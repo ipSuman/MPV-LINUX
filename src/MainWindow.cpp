@@ -671,6 +671,111 @@ void MainWindow::buildUi() {
         auto* checkButton = new QPushButton(QStringLiteral("Check for Updates"), &dialog);
         layout->addWidget(checkButton);
 
+        auto* changelogButton = new QPushButton(QStringLiteral("View Changelog"), &dialog);
+        layout->addWidget(changelogButton);
+
+        connect(changelogButton, &QPushButton::clicked, &dialog, [this, &dialog] {
+            QDialog changelogDialog(&dialog);
+            changelogDialog.setWindowTitle(QStringLiteral("REX Player — Changelog"));
+            changelogDialog.setModal(true);
+            changelogDialog.resize(680, 600);
+
+            auto* changelogLayout = new QVBoxLayout(&changelogDialog);
+            changelogLayout->setContentsMargins(18, 18, 18, 18);
+            changelogLayout->setSpacing(10);
+
+            auto* heading = new QLabel(
+                QStringLiteral("<b>REX Player Changelog</b><br>"
+                               "<span style='color:#888;'>Current version: %1</span>")
+                    .arg(QCoreApplication::applicationVersion()),
+                &changelogDialog);
+            heading->setTextFormat(Qt::RichText);
+            heading->setWordWrap(true);
+            changelogLayout->addWidget(heading);
+
+            auto* scrollArea = new QScrollArea(&changelogDialog);
+            scrollArea->setWidgetResizable(true);
+
+            auto* content = new QLabel(&changelogDialog);
+            content->setTextFormat(Qt::RichText);
+            content->setWordWrap(true);
+            content->setAlignment(Qt::AlignTop | Qt::AlignLeft);
+            content->setText(QStringLiteral(
+                "<h2>REX Player %1 — Current</h2>"
+                "<p><b>New in the current release:</b></p>"
+                "<ul>"
+                "<li>🎚️ <b>5-band Sound Equalizer</b> with independent frequency-band control.</li>"
+                "<li>🔊 <b>Power Bar</b> volume boost up to 300%, with a warning before enabling boost above normal volume.</li>"
+                "<li>⚡ <b>Playback speed controls</b> with a dedicated speed menu and configurable keyboard speed jumps.</li>"
+                "<li>⌨️ <b>Speed shortcuts</b> can be customized, including the temporary <b>2× hold</b> control and <b>1</b> to reset speed to 1×.</li>"
+                "<li>📋 <b>Playlist improvements</b> including double-click playback, item removal controls, and clearer current-item highlighting.</li>"
+                "<li>▶️ <b>Playback resume improvements</b> with a remembered resume choice.</li>"
+                "<li>💬 <b>Save confirmation toasts</b> for important save operations.</li>"
+                "<li>🚀 <b>Playback performance improvements</b>: lighter UI polling, less synchronous disk work, reduced mpv logging overhead, and more efficient playlist/power-inhibitor updates.</li>"
+                "<li>🪟 <b>Windows responsiveness improvements</b> for keyboard focus and temporary speed handling.</li>"
+                "</ul>"
+
+                "<h2>REX Player 3.5.0</h2>"
+                "<p><b>Major features available in v3.5.0:</b></p>"
+                "<ul>"
+                "<li>⏩ Playback speed control and a scrollable speed menu.</li>"
+                "<li>⌨️ Customizable speed shortcuts and configurable speed-jump amount.</li>"
+                "<li>2️⃣ Temporary 2× playback-speed hold.</li>"
+                "<li>📋 Playlist controls including save/open, autoplay, loop, current-item selection, and playlist management.</li>"
+                "<li>🔤 Customizable subtitle shortcuts, subtitle size and subtitle position controls.</li>"
+                "<li>🖱️ Cursor auto-hide and cursor-aware fullscreen controls.</li>"
+                "<li>⏱️ Configurable playback timer position and elapsed/remaining-time display.</li>"
+                "<li>📝 Runtime logging, diagnostic information, and Save Log reporting.</li>"
+                "<li>💾 Playback-position persistence and resume support.</li>"
+                "</ul>"
+
+                "<h2>REX Player 3.1.2</h2>"
+                "<p><b>v3 introduced the modern REX Player feature set, including:</b></p>"
+                "<ul>"
+                "<li>🔄 90° video rotation.</li>"
+                "<li>↔️ Horizontal and vertical video flipping.</li>"
+                "<li>🔍 Zoom and pan controls, including transform-aware A/B cutting.</li>"
+                "<li>✂️ A/B cutting with FFmpeg stream copy.</li>"
+                "<li>🎵 Save Audio for the selected audio track.</li>"
+                "<li>⛶ Improved fullscreen controls and window sizing.</li>"
+                "<li>🖥️ Hardware/software decoding control.</li>"
+                "<li>🎨 Brightness, contrast and saturation controls.</li>"
+                "<li>🎬 Screenshot capture and video/media information.</li>"
+                "</ul>"
+
+                "<h2>REX Player 2.1.0</h2>"
+                "<p><b>Earlier major release features:</b></p>"
+                "<ul>"
+                "<li>🎬 Core libmpv-based video playback.</li>"
+                "<li>📂 File, folder and drag-and-drop media loading.</li>"
+                "<li>📋 Playlist playback with previous/next navigation.</li>"
+                "<li>⏪/⏩ Seek controls and configurable seeking.</li>"
+                "<li>🔊 Volume and mute controls.</li>"
+                "<li>🔤 Subtitle track handling and subtitle controls.</li>"
+                "<li>🖥️ Fullscreen playback and basic playback/display customization.</li>"
+                "</ul>"
+
+                "<h2>Earlier releases</h2>"
+                "<p>REX Player's earlier versions established the core desktop player, "
+                "libmpv integration, playlist playback, media controls, subtitles, "
+                "fullscreen playback, and the foundation for the later REX Player feature set.</p>"
+
+                "<p style='color:#888;'>"
+                "The changelog is kept inside the application so users can review the "
+                "current release and the feature history without opening a browser.</p>"));
+
+            scrollArea->setWidget(content);
+            changelogLayout->addWidget(scrollArea, 1);
+
+            auto* closeChangelogButton = new QPushButton(QStringLiteral("Close"), &changelogDialog);
+            closeChangelogButton->setDefault(true);
+            changelogLayout->addWidget(closeChangelogButton);
+            connect(closeChangelogButton, &QPushButton::clicked,
+                    &changelogDialog, &QDialog::accept);
+
+            changelogDialog.exec();
+        });
+
         auto* closeButton = new QPushButton(QStringLiteral("Close"), &dialog);
         closeButton->setDefault(true);
         layout->addWidget(closeButton);
