@@ -199,6 +199,8 @@ private:
     bool m_cutWithZoom = false;
     bool m_equalizerEnabled = false;
     std::array<int, 5> m_equalizerGains{{0, 0, 0, 0, 0}};
+    bool m_powerBarEnabled = false;
+    double m_powerBarPercent = 100.0;
     bool m_promptResumeNextLoad = false;
     QString m_pendingResumePath;
     qint64 m_lastPositionSaveMs = 0;
