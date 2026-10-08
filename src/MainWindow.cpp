@@ -2314,7 +2314,7 @@ void MainWindow::showEqualizerDialog() {
         if (m_powerBarEnabled) applyEqualizer();
     });
 
-    connect(powerEnable, &QCheckBox::toggled, &dialog, [this, &dialog, powerSlider](bool enabled) {
+    connect(powerEnable, &QCheckBox::toggled, &dialog, [this, &dialog, powerEnable, powerSlider](bool enabled) {
         if (enabled) {
             const auto answer = QMessageBox::warning(
                 &dialog,
