@@ -634,6 +634,12 @@ void MainWindow::buildUi() {
     connect(flipVerticalButton, &QPushButton::clicked, this, &MainWindow::toggleFlipVertical);
     row2->addWidget(flipVerticalButton);
 
+    auto* equalizerButton = new QPushButton(m_controls);
+    setMainPanelButtonIcon(equalizerButton, MainPanelIcon::Equalizer, QStringLiteral("5-band sound equalizer"));
+    equalizerButton->setToolTip(QStringLiteral("Open 5-band sound equalizer"));
+    connect(equalizerButton, &QPushButton::clicked, this, &MainWindow::showEqualizerDialog);
+    row2->addWidget(equalizerButton);
+
     row2->addStretch(1);
 
     auto* aboutButton = new QPushButton(m_controls);
