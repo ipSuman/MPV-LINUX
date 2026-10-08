@@ -7,6 +7,7 @@
 #include <QTimer>
 #include <QDateTime>
 #include <QFont>
+#include <array>
 
 class QLabel;
 class QListWidget;
@@ -80,6 +81,9 @@ private slots:
     void showTracksMenu();
     void saveSelectedAudioTrack();
     void showSpeedMenu();
+    void showEqualizerDialog();
+    void applyEqualizer();
+    void applyControlFocusPolicy();
     void increasePlaybackSpeed();
     void decreasePlaybackSpeed();
     void cutAbSelection();
@@ -192,6 +196,8 @@ private:
     bool m_returnFocusToVideoAfterMouseAction = true;
     bool m_verboseLogging = false;
     bool m_cutWithZoom = false;
+    bool m_equalizerEnabled = false;
+    std::array<int, 5> m_equalizerGains{{0, 0, 0, 0, 0}};
     bool m_promptResumeNextLoad = false;
     QString m_pendingResumePath;
     qint64 m_lastPositionSaveMs = 0;
@@ -241,4 +247,6 @@ private:
     QTimer m_toastTimer;
     bool m_playlistWasVisibleBeforeFullscreen = false;
     int m_lastPlaylistHighlightIndex = -2;
+    int m_lastPausedState = -1;
+    QString m_lastHardwareDecoder;
 };
