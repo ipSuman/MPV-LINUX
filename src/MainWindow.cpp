@@ -121,7 +121,7 @@ void selectData(QComboBox* combo, const QVariant& value) {
 }
 
 enum class MainPanelIcon {
-    Fullscreen, Open, Hardware, Cut, SaveAudio, Speed, Previous, SeekBack,
+    Fullscreen, Open, Hardware, Cut, SaveAudio, Speed, Equalizer, Previous, SeekBack,
     Play, Pause, SeekForward, Next, Tracks, Playlist, Menu, Controls, Display,
     Capture, Rotate, FlipH, FlipV, About
 };
@@ -163,6 +163,11 @@ QIcon makeMainPanelIcon(MainPanelIcon icon) {
         break;
     case MainPanelIcon::Speed:
         p.drawArc(4, 4, 16, 16, 0, 180 * 16); p.drawLine(12, 12, 17, 8); p.setPen(Qt::NoPen); p.drawEllipse(QPointF(12, 16), 1.5, 1.5);
+        break;
+    case MainPanelIcon::Equalizer:
+        p.setPen(pen); p.drawLine(5, 5, 5, 19); p.drawLine(10, 5, 10, 19); p.drawLine(15, 5, 15, 19); p.drawLine(20, 5, 20, 19);
+        p.setPen(Qt::NoPen); p.setBrush(QColor("#ffffff"));
+        p.drawRect(3, 8, 4, 3); p.drawRect(8, 13, 4, 3); p.drawRect(13, 7, 4, 3); p.drawRect(18, 15, 4, 3);
         break;
     case MainPanelIcon::Previous:
         p.setPen(Qt::NoPen); p.drawRect(4, 5, 2, 14); p.drawPolygon(QPolygonF{QPointF(19,6),QPointF(9,12),QPointF(19,18)});
@@ -213,6 +218,7 @@ QString mainPanelTextForIcon(MainPanelIcon icon) {
     case MainPanelIcon::Cut: return QStringLiteral("AB Cut");
     case MainPanelIcon::SaveAudio: return QStringLiteral("Save Audio");
     case MainPanelIcon::Speed: return QStringLiteral("Speed");
+    case MainPanelIcon::Equalizer: return QStringLiteral("Equalizer");
     case MainPanelIcon::Previous: return QStringLiteral("|«");
     case MainPanelIcon::SeekBack: return QStringLiteral("−10s");
     case MainPanelIcon::Play: return QStringLiteral("▶");
