@@ -281,6 +281,8 @@ MainWindow::MainWindow(const QString& mediaPath, QWidget* parent)
         if (m_runtimeLogger) m_runtimeLogger->append(QStringLiteral("PLAYBACK SPEED: reset to 1.00x (shortcut 1)"));
     });
 
+    qApp->installEventFilter(this);
+
     m_toastTimer.setSingleShot(true);
     connect(&m_toastTimer, &QTimer::timeout, this, [this] {
         if (m_toastLabel) m_toastLabel->hide();
@@ -372,7 +374,10 @@ MainWindow::MainWindow(const QString& mediaPath, QWidget* parent)
     connect(m_screenshotController, &ScreenshotController::logMessage,
             m_runtimeLogger, &RuntimeLogger::append);
 
-    m_uiTimer.setInterval(250);
+    // Keep the UI responsive without polling libmpv too aggressively.
+    // Position/time display at 2 Hz is sufficient and avoids unnecessary
+    // synchronous libmpv property queries during playback.
+    m_uiTimer.setInterval(500);
     connect(&m_uiTimer, &QTimer::timeout, this, &MainWindow::updatePlaybackUi);
     m_uiTimer.start();
     applyControlFocusPolicy();
@@ -2631,10 +2636,21 @@ void MainWindow::updatePlaybackUi() {
     m_currentTimeLabel->setVisible(m_timerBesideProgress);
     m_progressTimeLabel->setVisible(m_timerBesideProgress);
     updatePlayButton(paused != 0);
-    updateHardwareButton();
-    const QString currentPath = getPropertyString("path");
-    updatePlaybackInhibit(paused == 0 && !currentPath.isEmpty());
-    if (m_pendingResumePath == currentPath &&
+
+    // hwdec-current is a synchronous libmpv query. It changes rarely, so do
+    // not poll it on every UI tick during normal playback.
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    if (now - m_lastHardwareCheckMs >= 2000) {
+        m_lastHardwareCheckMs = now;
+        updateHardwareButton();
+    }
+
+    QString currentPath;
+    // The path is only needed while resolving a pending resume entry. Avoid
+    // another synchronous string query during ordinary playback.
+    if (!m_pendingResumePath.isEmpty()) currentPath = getPropertyString("path");
+    updatePlaybackInhibit(paused == 0 && (duration > 0.0 || !currentPath.isEmpty()));
+    if (!currentPath.isEmpty() && m_pendingResumePath == currentPath &&
         (QDateTime::currentMSecsSinceEpoch() - m_lastPositionSaveMs) >= 1000) {
         saveCurrentPlaybackPosition();
         m_lastPositionSaveMs = QDateTime::currentMSecsSinceEpoch();
@@ -2898,7 +2914,6 @@ void MainWindow::keyPressEvent(QKeyEvent* event) {
             m_holdSpeedActive = true;
             m_holdSpeedKeyCode = event->key();
             setPropertyDouble("speed", 2.0);
-            if (m_videoWidget) m_videoWidget->grabKeyboard();
             if (m_runtimeLogger) m_runtimeLogger->append(QStringLiteral("PLAYBACK SPEED HOLD: 2.00x"));
         }
         event->accept();
@@ -2934,17 +2949,21 @@ void MainWindow::keyPressEvent(QKeyEvent* event) {
 }
 
 
+void MainWindow::restoreHoldSpeed() {
+    if (!m_holdSpeedActive) return;
+    const double restoreSpeed = (std::isfinite(m_holdSpeedPrevious) && m_holdSpeedPrevious > 0.0)
+        ? m_holdSpeedPrevious : 1.0;
+    m_holdSpeedActive = false;
+    m_holdSpeedKeyCode = Qt::Key_unknown;
+    setPropertyDouble("speed", restoreSpeed);
+    if (m_runtimeLogger) {
+        m_runtimeLogger->append(QStringLiteral("PLAYBACK SPEED HOLD: restored %1x").arg(restoreSpeed, 0, 'f', 2));
+    }
+}
+
 void MainWindow::keyReleaseEvent(QKeyEvent* event) {
     if (m_holdSpeedActive && event->key() == m_holdSpeedKeyCode) {
-        const double restoreSpeed = (std::isfinite(m_holdSpeedPrevious) && m_holdSpeedPrevious > 0.0)
-            ? m_holdSpeedPrevious : 1.0;
-        m_holdSpeedActive = false;
-        m_holdSpeedKeyCode = Qt::Key_unknown;
-        if (m_videoWidget && QWidget::keyboardGrabber() == m_videoWidget) m_videoWidget->releaseKeyboard();
-        setPropertyDouble("speed", restoreSpeed);
-        if (m_runtimeLogger) {
-            m_runtimeLogger->append(QStringLiteral("PLAYBACK SPEED HOLD: restored %1x").arg(restoreSpeed, 0, 'f', 2));
-        }
+        restoreHoldSpeed();
         event->accept();
         return;
     }
@@ -2952,6 +2971,28 @@ void MainWindow::keyReleaseEvent(QKeyEvent* event) {
 }
 
 bool MainWindow::eventFilter(QObject* watched, QEvent* event) {
+    // The libmpv video surface is a native child window on Windows. It can
+    // become the actual keyboard event receiver instead of MainWindow.
+    // Route player key events through the same handlers so shortcuts and
+    // key-release actions work regardless of which player child has focus.
+    if (watched == m_videoWidget) {
+        if (event->type() == QEvent::KeyPress) {
+            keyPressEvent(static_cast<QKeyEvent*>(event));
+            return true;
+        }
+        if (event->type() == QEvent::KeyRelease) {
+            keyReleaseEvent(static_cast<QKeyEvent*>(event));
+            return true;
+        }
+    }
+
+    // Never leave temporary 2x playback active when Windows deactivates the
+    // application before a key-release event can reach the focused widget.
+    if (watched == qApp &&
+        (event->type() == QEvent::ApplicationDeactivate || event->type() == QEvent::WindowDeactivate)) {
+        restoreHoldSpeed();
+    }
+
     // Clicking a playback control gives that widget keyboard focus by default.
     // Optionally return focus to the video shortly after the mouse action has
     // completed so keyboard shortcuts continue to target the player.
