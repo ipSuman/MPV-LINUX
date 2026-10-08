@@ -936,6 +936,7 @@ void MainWindow::applyControlSettingsToRuntime() {
     if (m_speedDownShortcut) m_speedDownShortcut->setKey(m_speedDownKey);
     applyInterfaceFont(m_controlSettings->fontPath, m_controlSettings->fontFamily, m_controlSettings->fontSize);
     applyMainPanelButtonMode();
+    applyControlFocusPolicy();
 }
 
 void MainWindow::loadControlSettings() {
@@ -1382,6 +1383,7 @@ void MainWindow::showControlsDialog() {
         m_timerBesideProgress = timerPositionButton->isChecked();
         m_mainPanelIcons = mainPanelStyle->currentData().toBool();
         m_returnFocusToVideoAfterMouseAction = mouseFocusMode->currentData().toBool();
+        applyControlFocusPolicy();
         m_verboseLogging = verboseLoggingButton->isChecked();
         if (m_mpv) {
             const int logResult = mpv_request_log_messages(m_mpv, m_verboseLogging ? "info" : "no");
