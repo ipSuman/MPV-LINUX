@@ -2968,8 +2968,12 @@ void MainWindow::keyPressEvent(QKeyEvent* event) {
     }
     if (keyMatches(event, m_holdSpeedKey)) {
         if (!m_holdSpeedActive) {
-            m_holdSpeedPrevious = getPropertyDouble("speed");
-            if (!std::isfinite(m_holdSpeedPrevious) || m_holdSpeedPrevious <= 0.0) m_holdSpeedPrevious = 1.0;
+            // Key 2 is a temporary 2x playback hold. Always return to the
+            // normal playback speed when the key is released. Do not read
+            // mpv's current speed here: the speed property is changed
+            // asynchronously, so a duplicate Windows key event can otherwise
+            // capture the temporary 2x value and make the hold restore to 2x.
+            m_holdSpeedPrevious = 1.0;
             m_holdSpeedActive = true;
             m_holdSpeedKeyCode = event->key();
             setPropertyDouble("speed", 2.0);
