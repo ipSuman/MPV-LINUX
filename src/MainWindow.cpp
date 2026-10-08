@@ -361,6 +361,7 @@ MainWindow::MainWindow(const QString& mediaPath, QWidget* parent)
     m_uiTimer.setInterval(250);
     connect(&m_uiTimer, &QTimer::timeout, this, &MainWindow::updatePlaybackUi);
     m_uiTimer.start();
+    applyControlFocusPolicy();
 
     if (!mediaPath.isEmpty()) loadFile(mediaPath);
 }
@@ -846,6 +847,8 @@ void MainWindow::applyMainPanelButtonMode() {
     }
 
     // These two buttons have state-dependent labels in text mode.
+    m_lastPausedState = -1;
+    m_lastHardwareDecoder.clear();
     updatePlayButton(getPropertyDouble("pause") != 0.0);
     updateHardwareButton();
 }
@@ -2023,6 +2026,8 @@ void MainWindow::updatePlaybackInhibit(bool active) {
 void MainWindow::updateHardwareButton() {
     if (!m_hwButton || !m_mpv) return;
     const QString current = getPropertyString("hwdec-current").trimmed().toLower();
+    if (m_lastHardwareDecoder == current) return;
+    m_lastHardwareDecoder = current;
     const bool hardwareActive = !current.isEmpty() && current != QStringLiteral("no");
 
     if (m_mainPanelIcons) {
@@ -2497,6 +2502,9 @@ void MainWindow::updatePlaybackUi() {
 
 void MainWindow::updatePlayButton(bool paused) {
     if (!m_playButton) return;
+    const int state = paused ? 1 : 0;
+    if (m_lastPausedState == state) return;
+    m_lastPausedState = state;
     if (m_mainPanelIcons) {
         m_playButton->setText(QString());
         m_playButton->setIcon(makeMainPanelIcon(paused ? MainPanelIcon::Play : MainPanelIcon::Pause));
