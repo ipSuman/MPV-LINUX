@@ -853,6 +853,20 @@ void MainWindow::applyMainPanelButtonMode() {
     updateHardwareButton();
 }
  
+void MainWindow::applyControlFocusPolicy() {
+    if (!m_controls) return;
+    const auto buttons = m_controls->findChildren<QPushButton*>();
+    for (QPushButton* button : buttons) {
+        if (!button || !button->property("main-panel-button").toBool()) continue;
+        button->setFocusPolicy(m_returnFocusToVideoAfterMouseAction ? Qt::NoFocus : Qt::StrongFocus);
+    }
+    // Keep the volume slider wheel-capable; the existing mouse-release filter
+    // returns focus to the video after a slider interaction.
+    if (m_volumeSlider) m_volumeSlider->setFocusPolicy(Qt::WheelFocus);
+    if (m_returnFocusToVideoAfterMouseAction && m_videoWidget)
+        m_videoWidget->setFocus(Qt::OtherFocusReason);
+}
+
 void MainWindow::applyControlSettingsToRuntime() {
     if (!m_controlSettings) return;
     m_seekWheelMode = m_controlSettings->seekWheelMode;
@@ -2742,6 +2756,13 @@ void MainWindow::keyPressEvent(QKeyEvent* event) {
     if (keyMatches(event, m_subtitleSizeDownKey)) { decreaseSubtitleSize(); event->accept(); return; }
     if (keyMatches(event, m_captureScreenshotKey)) { captureScreenshot(); event->accept(); return; }
     if (keyMatches(event, m_rotateVideoKey)) { rotateVideo90(); event->accept(); return; }
+    if (!event->isAutoRepeat() && event->key() == Qt::Key_1 &&
+        event->modifiers() == Qt::NoModifier) {
+        setPropertyDouble("speed", 1.0);
+        if (m_runtimeLogger) m_runtimeLogger->append(QStringLiteral("PLAYBACK SPEED: reset to 1.00x (key 1)"));
+        event->accept();
+        return;
+    }
     if (keyMatches(event, m_holdSpeedKey)) {
         if (!m_holdSpeedActive) {
             m_holdSpeedPrevious = getPropertyDouble("speed");
@@ -2749,6 +2770,7 @@ void MainWindow::keyPressEvent(QKeyEvent* event) {
             m_holdSpeedActive = true;
             m_holdSpeedKeyCode = event->key();
             setPropertyDouble("speed", 2.0);
+            if (m_videoWidget) m_videoWidget->grabKeyboard();
             if (m_runtimeLogger) m_runtimeLogger->append(QStringLiteral("PLAYBACK SPEED HOLD: 2.00x"));
         }
         event->accept();
@@ -2790,6 +2812,7 @@ void MainWindow::keyReleaseEvent(QKeyEvent* event) {
             ? m_holdSpeedPrevious : 1.0;
         m_holdSpeedActive = false;
         m_holdSpeedKeyCode = Qt::Key_unknown;
+        if (m_videoWidget && QWidget::keyboardGrabber() == m_videoWidget) m_videoWidget->releaseKeyboard();
         setPropertyDouble("speed", restoreSpeed);
         if (m_runtimeLogger) {
             m_runtimeLogger->append(QStringLiteral("PLAYBACK SPEED HOLD: restored %1x").arg(restoreSpeed, 0, 'f', 2));
