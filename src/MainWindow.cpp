@@ -2173,6 +2173,112 @@ void MainWindow::showSpeedMenu() {
 
     menu.exec(QPoint(x, y));
 }
+void MainWindow::applyEqualizer() {
+    if (!m_mpv) return;
+
+    const char* removeArgs[] = {"change-list", "af", "remove", "@rex-equalizer", nullptr};
+    mpv_command_async(m_mpv, 0, removeArgs);
+
+    if (!m_equalizerEnabled) {
+        if (m_runtimeLogger) m_runtimeLogger->append(QStringLiteral("EQUALIZER: disabled"));
+        return;
+    }
+
+    const std::array<int, 5> frequencies{{60, 250, 1000, 4000, 12000}};
+    QStringList bands;
+    for (int i = 0; i < 5; ++i) {
+        bands << QStringLiteral("equalizer=f=%1:t=o:w=1:g=%2")
+            .arg(frequencies[static_cast<size_t>(i)])
+            .arg(m_equalizerGains[static_cast<size_t>(i)]);
+    }
+
+    const QString filter = QStringLiteral("@rex-equalizer:lavfi=[%1]")
+        .arg(bands.join(QLatin1Char(',')));
+    const QByteArray encoded = filter.toUtf8();
+    const char* addArgs[] = {"change-list", "af", "append", encoded.constData(), nullptr};
+    mpv_command_async(m_mpv, 0, addArgs);
+
+    if (m_runtimeLogger)
+        m_runtimeLogger->append(QStringLiteral("EQUALIZER: enabled gains=%1")
+            .arg(QStringList{
+                QString::number(m_equalizerGains[0]),
+                QString::number(m_equalizerGains[1]),
+                QString::number(m_equalizerGains[2]),
+                QString::number(m_equalizerGains[3]),
+                QString::number(m_equalizerGains[4])
+            }.join(QStringLiteral(","))));
+}
+
+void MainWindow::showEqualizerDialog() {
+    if (!m_mpv) return;
+
+    QDialog dialog(this);
+    dialog.setWindowTitle(QStringLiteral("5-Band Sound Equalizer"));
+    dialog.setModal(true);
+    dialog.resize(420, 330);
+
+    auto* layout = new QVBoxLayout(&dialog);
+    auto* enable = new QCheckBox(QStringLiteral("Enable Equalizer"), &dialog);
+    enable->setChecked(m_equalizerEnabled);
+    layout->addWidget(enable);
+
+    const std::array<QString, 5> labels{{
+        QStringLiteral("60 Hz"),
+        QStringLiteral("250 Hz"),
+        QStringLiteral("1 kHz"),
+        QStringLiteral("4 kHz"),
+        QStringLiteral("12 kHz")
+    }};
+
+    auto* slidersLayout = new QHBoxLayout();
+    std::array<QSlider*, 5> sliders{{nullptr, nullptr, nullptr, nullptr, nullptr}};
+
+    for (int i = 0; i < 5; ++i) {
+        auto* column = new QVBoxLayout();
+        auto* value = new QLabel(QStringLiteral("%1 dB")
+            .arg(m_equalizerGains[static_cast<size_t>(i)]), &dialog);
+        value->setAlignment(Qt::AlignCenter);
+
+        auto* slider = new QSlider(Qt::Vertical, &dialog);
+        slider->setRange(-12, 12);
+        slider->setSingleStep(1);
+        slider->setPageStep(3);
+        slider->setValue(m_equalizerGains[static_cast<size_t>(i)]);
+        slider->setToolTip(labels[static_cast<size_t>(i)]);
+
+        column->addWidget(value);
+        column->addWidget(slider, 1);
+        auto* name = new QLabel(labels[static_cast<size_t>(i)], &dialog);
+        name->setAlignment(Qt::AlignCenter);
+        column->addWidget(name);
+        slidersLayout->addLayout(column, 1);
+        sliders[static_cast<size_t>(i)] = slider;
+
+        connect(slider, &QSlider::valueChanged, &dialog, [value](int gain) {
+            value->setText(QStringLiteral("%1 dB").arg(gain));
+        });
+        connect(slider, &QSlider::sliderReleased, &dialog, [this, &sliders] {
+            for (int band = 0; band < 5; ++band)
+                m_equalizerGains[static_cast<size_t>(band)] =
+                    sliders[static_cast<size_t>(band)]->value();
+            if (m_equalizerEnabled) applyEqualizer();
+        });
+    }
+
+    layout->addLayout(slidersLayout);
+
+    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Close, &dialog);
+    layout->addWidget(buttons);
+
+    connect(enable, &QCheckBox::toggled, &dialog, [this](bool enabled) {
+        m_equalizerEnabled = enabled;
+        applyEqualizer();
+    });
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+
+    dialog.exec();
+}
+
 void MainWindow::saveSelectedAudioTrack() {
     if (!m_mpv || !m_audioExporter) return;
 
