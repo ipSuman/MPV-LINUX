@@ -2186,34 +2186,47 @@ void MainWindow::applyEqualizer() {
     const char* removeArgs[] = {"change-list", "af", "remove", "@rex-equalizer", nullptr};
     mpv_command_async(m_mpv, 0, removeArgs);
 
-    if (!m_equalizerEnabled) {
-        if (m_runtimeLogger) m_runtimeLogger->append(QStringLiteral("EQUALIZER: disabled"));
+    if (!m_equalizerEnabled && !m_powerBarEnabled) {
+        if (m_runtimeLogger) m_runtimeLogger->append(QStringLiteral("EQUALIZER: disabled; power bar disabled"));
         return;
     }
 
-    const std::array<int, 5> frequencies{{60, 250, 1000, 4000, 12000}};
-    QStringList bands;
-    for (int i = 0; i < 5; ++i) {
-        bands << QStringLiteral("equalizer=f=%1:t=o:w=1:g=%2")
-            .arg(frequencies[static_cast<size_t>(i)])
-            .arg(m_equalizerGains[static_cast<size_t>(i)]);
+    QStringList filters;
+
+    if (m_equalizerEnabled) {
+        const std::array<int, 5> frequencies{{60, 250, 1000, 4000, 12000}};
+        for (int i = 0; i < 5; ++i) {
+            filters << QStringLiteral("equalizer=f=%1:t=o:w=1:g=%2")
+                .arg(frequencies[static_cast<size_t>(i)])
+                .arg(m_equalizerGains[static_cast<size_t>(i)]);
+        }
+    }
+
+    if (m_powerBarEnabled) {
+        const double multiplier = m_powerBarPercent / 100.0;
+        filters << QStringLiteral("volume=%1").arg(multiplier, 0, 'f', 2);
     }
 
     const QString filter = QStringLiteral("@rex-equalizer:lavfi=[%1]")
-        .arg(bands.join(QLatin1Char(',')));
+        .arg(filters.join(QLatin1Char(',')));
     const QByteArray encoded = filter.toUtf8();
     const char* addArgs[] = {"change-list", "af", "append", encoded.constData(), nullptr};
     mpv_command_async(m_mpv, 0, addArgs);
 
-    if (m_runtimeLogger)
-        m_runtimeLogger->append(QStringLiteral("EQUALIZER: enabled gains=%1")
-            .arg(QStringList{
-                QString::number(m_equalizerGains[0]),
-                QString::number(m_equalizerGains[1]),
-                QString::number(m_equalizerGains[2]),
-                QString::number(m_equalizerGains[3]),
-                QString::number(m_equalizerGains[4])
-            }.join(QStringLiteral(","))));
+    if (m_runtimeLogger) {
+        m_runtimeLogger->append(
+            QStringLiteral("EQUALIZER: %1 gains=%2; POWER BAR: %3 at %4%")
+                .arg(m_equalizerEnabled ? QStringLiteral("enabled") : QStringLiteral("disabled"))
+                .arg(QStringList{
+                    QString::number(m_equalizerGains[0]),
+                    QString::number(m_equalizerGains[1]),
+                    QString::number(m_equalizerGains[2]),
+                    QString::number(m_equalizerGains[3]),
+                    QString::number(m_equalizerGains[4])
+                }.join(QStringLiteral(",")))
+                .arg(m_powerBarEnabled ? QStringLiteral("enabled") : QStringLiteral("disabled"))
+                .arg(m_powerBarPercent, 0, 'f', 0));
+    }
 }
 
 void MainWindow::showEqualizerDialog() {
@@ -2222,7 +2235,7 @@ void MainWindow::showEqualizerDialog() {
     QDialog dialog(this);
     dialog.setWindowTitle(QStringLiteral("5-Band Sound Equalizer"));
     dialog.setModal(true);
-    dialog.resize(420, 330);
+    dialog.resize(440, 390);
 
     auto* layout = new QVBoxLayout(&dialog);
     auto* enable = new QCheckBox(QStringLiteral("Enable Equalizer"), &dialog);
@@ -2273,6 +2286,52 @@ void MainWindow::showEqualizerDialog() {
     }
 
     layout->addLayout(slidersLayout);
+
+    auto* powerLabel = new QLabel(QStringLiteral("Power Bar — Volume Boost"), &dialog);
+    powerLabel->setStyleSheet(QStringLiteral("font-weight:600; margin-top:8px;"));
+    layout->addWidget(powerLabel);
+
+    auto* powerEnable = new QCheckBox(QStringLiteral("Enable Power Bar"), &dialog);
+    powerEnable->setChecked(m_powerBarEnabled);
+    layout->addWidget(powerEnable);
+
+    auto* powerValue = new QLabel(QStringLiteral("%1%").arg(m_powerBarPercent, 0, 'f', 0), &dialog);
+    powerValue->setAlignment(Qt::AlignCenter);
+
+    auto* powerSlider = new QSlider(Qt::Horizontal, &dialog);
+    powerSlider->setRange(100, 300);
+    powerSlider->setSingleStep(5);
+    powerSlider->setPageStep(25);
+    powerSlider->setValue(static_cast<int>(std::lround(m_powerBarPercent)));
+    powerSlider->setEnabled(m_powerBarEnabled);
+    powerSlider->setToolTip(QStringLiteral("Volume boost: 100% to 300%"));
+    layout->addWidget(powerValue);
+    layout->addWidget(powerSlider);
+
+    connect(powerSlider, &QSlider::valueChanged, &dialog, [this, powerValue](int value) {
+        m_powerBarPercent = std::clamp(static_cast<double>(value), 100.0, 300.0);
+        powerValue->setText(QStringLiteral("%1%").arg(value));
+        if (m_powerBarEnabled) applyEqualizer();
+    });
+
+    connect(powerEnable, &QCheckBox::toggled, &dialog, [this, &dialog, powerSlider](bool enabled) {
+        if (enabled) {
+            const auto answer = QMessageBox::warning(
+                &dialog,
+                QStringLiteral("Enable Power Bar?"),
+                QStringLiteral("Boosting the volume above 100% can cause clipping and sound distortion, especially with loud audio. Continue?"),
+                QMessageBox::Yes | QMessageBox::No,
+                QMessageBox::No);
+            if (answer != QMessageBox::Yes) {
+                powerEnable->setChecked(false);
+                return;
+            }
+        }
+
+        m_powerBarEnabled = enabled;
+        powerSlider->setEnabled(enabled);
+        applyEqualizer();
+    });
 
     auto* buttons = new QDialogButtonBox(QDialogButtonBox::Close, &dialog);
     layout->addWidget(buttons);
