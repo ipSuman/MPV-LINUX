@@ -2175,8 +2175,8 @@ void MainWindow::cutAbSelection() {
             const QString zoomText = QString::number(zoomFactor, 'f', 8);
             const QString panXText = QString::number(panX, 'f', 8);
             const QString panYText = QString::number(panY, 'f', 8);
-            const QString cropWidth = QStringLiteral("max(2\,trunc(iw/%1/2)*2)").arg(zoomText);
-            const QString cropHeight = QStringLiteral("max(2\,trunc(ih/%1/2)*2)").arg(zoomText);
+            const QString cropWidth = QStringLiteral("trunc(iw/%1/2)*2").arg(zoomText);
+            const QString cropHeight = QStringLiteral("trunc(ih/%1/2)*2").arg(zoomText);
             const QString cropX = QStringLiteral("(iw-ow)/2-%1*iw").arg(panXText);
             const QString cropY = QStringLiteral("(ih-oh)/2-%1*ih").arg(panYText);
             filters << QStringLiteral("crop=%1:%2:%3:%4")
