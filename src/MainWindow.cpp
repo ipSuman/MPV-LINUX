@@ -2059,6 +2059,7 @@ void MainWindow::cutAbSelection() {
     m_cutProgressBuffer.clear();
     m_cutLastProgressAtMs = QDateTime::currentMSecsSinceEpoch();
     m_cutLastLoggedProgressFrame = -1;
+    m_cutLastProgressLogAtMs = 0;
     m_cutProcess = new QProcess(this);
     m_cutProcess->setProcessChannelMode(QProcess::SeparateChannels);
     m_cutAbButton->setEnabled(false);
@@ -2077,12 +2078,15 @@ void MainWindow::cutAbSelection() {
                 if (ok && frames >= 0) {
                     m_cutFrameCount = frames;
                     m_cutLastProgressAtMs = QDateTime::currentMSecsSinceEpoch();
-                    if (m_runtimeLogger && frames != m_cutLastLoggedProgressFrame) {
+                    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+                    if (m_runtimeLogger && frames != m_cutLastLoggedProgressFrame &&
+                        (m_cutLastProgressLogAtMs == 0 || now - m_cutLastProgressLogAtMs >= 5000)) {
                         m_cutLastLoggedProgressFrame = frames;
+                        m_cutLastProgressLogAtMs = now;
                         m_runtimeLogger->append(QStringLiteral("A-B CUT PROGRESS: encoder=%1 frames=%2 elapsed_ms=%3")
                             .arg(m_cutEncoderName)
                             .arg(frames)
-                            .arg(m_cutStartedAtMs > 0 ? QDateTime::currentMSecsSinceEpoch() - m_cutStartedAtMs : 0));
+                            .arg(m_cutStartedAtMs > 0 ? now - m_cutStartedAtMs : 0));
                     }
                 }
             } else if (line.startsWith(QStringLiteral("out_time=")) ||
@@ -2098,24 +2102,27 @@ void MainWindow::cutAbSelection() {
     m_cutWatchdogTimer.stop();
     m_cutWatchdogTimer.setInterval(1000);
     m_cutWatchdogTimer.setSingleShot(false);
-    connect(&m_cutWatchdogTimer, &QTimer::timeout, this, [this] {
-        if (!m_cutProcess || m_cutProcess->state() == QProcess::NotRunning) {
-            m_cutWatchdogTimer.stop();
-            return;
-        }
-        if (!m_cutUsingHardwareEncoder) return;
-        const qint64 now = QDateTime::currentMSecsSinceEpoch();
-        const qint64 silentMs = now - m_cutLastProgressAtMs;
-        if (silentMs >= 20000) {
-            if (m_runtimeLogger) {
-                m_runtimeLogger->append(QStringLiteral(
-                    "A-B CUT WATCHDOG: hardware encoder=%1 made no progress for %2 ms; terminating hardware attempt to trigger software fallback")
-                    .arg(m_cutEncoderName).arg(silentMs));
+    if (!m_cutWatchdogConnected) {
+        connect(&m_cutWatchdogTimer, &QTimer::timeout, this, [this] {
+            if (!m_cutProcess || m_cutProcess->state() == QProcess::NotRunning) {
+                m_cutWatchdogTimer.stop();
+                return;
             }
-            m_cutWatchdogTimer.stop();
-            m_cutProcess->kill();
-        }
-    });
+            if (!m_cutUsingHardwareEncoder) return;
+            const qint64 now = QDateTime::currentMSecsSinceEpoch();
+            const qint64 silentMs = now - m_cutLastProgressAtMs;
+            if (silentMs >= 20000) {
+                if (m_runtimeLogger) {
+                    m_runtimeLogger->append(QStringLiteral(
+                        "A-B CUT WATCHDOG: hardware encoder=%1 made no progress for %2 ms; terminating hardware attempt to trigger software fallback")
+                        .arg(m_cutEncoderName).arg(silentMs));
+                }
+                m_cutWatchdogTimer.stop();
+                m_cutProcess->kill();
+            }
+        });
+        m_cutWatchdogConnected = true;
+    }
     m_cutWatchdogTimer.start();
 
     connect(m_cutProcess, &QProcess::finished, this, [this](int exitCode, QProcess::ExitStatus exitStatus) {
@@ -2138,6 +2145,7 @@ void MainWindow::cutAbSelection() {
             m_cutProgressBuffer.clear();
             m_cutLastProgressAtMs = m_cutStartedAtMs;
             m_cutLastLoggedProgressFrame = -1;
+            m_cutLastProgressLogAtMs = 0;
             m_cutWatchdogTimer.start();
             m_cutLastProgressAtMs = m_cutStartedAtMs;
             m_cutLastLoggedProgressFrame = -1;
