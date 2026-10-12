@@ -2145,8 +2145,12 @@ void MainWindow::cutAbSelection() {
                 this, QStringLiteral("A-B cut complete"),
                 QStringLiteral("Saved:\n%1\n\n%2").arg(output, completionDetails));
             if (m_runtimeLogger) {
+                if (m_cutEncoderName.contains(QStringLiteral("fallback"))) {
+                    m_runtimeLogger->append(QStringLiteral("A-B CUT ENCODING FALLBACK: software retry completed successfully output=%1")
+                        .arg(output));
+                }
                 m_runtimeLogger->append(
-                    QStringLiteral("A-B CUT ENCODING RESULT: mode=%1 encoder=%2 average_fps=%3 frames=%4 elapsed_ms=%5 output=%6")
+                    QStringLiteral("A-B CUT ENCODING RESULT: status=success mode=%1 encoder=%2 average_fps=%3 frames=%4 elapsed_ms=%5 output=%6")
                         .arg(m_cutEncoderName.contains(QStringLiteral("fallback"))
                                  ? QStringLiteral("software-fallback")
                                  : (m_cutUsingHardwareEncoder ? QStringLiteral("hardware") :
@@ -2204,15 +2208,40 @@ void MainWindow::cutAbSelection() {
         if (error != QProcess::FailedToStart) return;
         const QString message = QStringLiteral("FFmpeg could not be started: %1")
             .arg(m_cutProcess ? m_cutProcess->errorString() : QStringLiteral("unknown process error"));
-        if (m_runtimeLogger) m_runtimeLogger->append(QStringLiteral("A-B CUT: process start failed: %1").arg(message));
+        if (m_cutUsingHardwareEncoder && !m_cutSoftwareFallbackArgs.isEmpty() && m_cutProcess) {
+            const QString failedEncoder = m_cutEncoderName;
+            const bool partialRemoved = m_cutOutputPath.isEmpty() ||
+                !QFileInfo::exists(m_cutOutputPath) || QFile::remove(m_cutOutputPath);
+            m_cutUsingHardwareEncoder = false;
+            m_cutEncoderName = QStringLiteral("libx264 (software fallback)");
+            m_cutStartedAtMs = QDateTime::currentMSecsSinceEpoch();
+            m_cutFrameCount = 0;
+            m_cutProgressBuffer.clear();
+            if (m_runtimeLogger) {
+                m_runtimeLogger->append(
+                    QStringLiteral("A-B CUT ENCODING FALLBACK: hardware process failed to start encoder=%1 software=%2 partial_output_removed=%3 details=%4")
+                        .arg(failedEncoder, m_cutEncoderName,
+                             partialRemoved ? QStringLiteral("yes") : QStringLiteral("no"), message));
+                m_runtimeLogger->append(QStringLiteral("A-B CUT ENCODING FALLBACK: starting software retry"));
+            }
+            m_cutProcess->start(m_cutFfmpegPath, m_cutSoftwareFallbackArgs);
+            return;
+        }
+        if (m_runtimeLogger) {
+            m_runtimeLogger->append(QStringLiteral("A-B CUT ENCODING RESULT: status=process_start_failed encoder=%1 details=%2")
+                .arg(m_cutEncoderName, message));
+        }
         restoreCutPlaybackState();
         if (m_cutProcess) {
             m_cutProcess->deleteLater();
             m_cutProcess = nullptr;
         }
         if (m_cutAbButton) m_cutAbButton->setEnabled(true);
-        if (!m_cutOutputPath.isEmpty() && QFileInfo::exists(m_cutOutputPath))
-            QFile::remove(m_cutOutputPath);
+        const bool partialRemoved = m_cutOutputPath.isEmpty() ||
+            !QFileInfo::exists(m_cutOutputPath) || QFile::remove(m_cutOutputPath);
+        if (m_runtimeLogger)
+            m_runtimeLogger->append(QStringLiteral("A-B CUT CLEANUP: partial_output_removed=%1")
+                .arg(partialRemoved ? QStringLiteral("yes") : QStringLiteral("no")));
         m_cutOutputPath.clear();
         m_cutFfmpegPath.clear();
         m_cutSoftwareFallbackArgs.clear();
