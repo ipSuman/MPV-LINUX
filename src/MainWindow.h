@@ -199,6 +199,8 @@ private:
     QTimer m_cutWatchdogTimer;
     qint64 m_cutLastProgressAtMs = 0;
     qint64 m_cutLastLoggedProgressFrame = -1;
+    qint64 m_cutLastProgressLogAtMs = 0;
+    bool m_cutWatchdogConnected = false;
     void restoreCutPlaybackState();
     bool m_seeking = false;
     bool m_panningVideo = false;
