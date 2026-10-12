@@ -2053,6 +2053,20 @@ void MainWindow::cutAbSelection() {
             return;
         }
 
+        // Keep playback paused through hardware/software fallback attempts, then
+        // restore the exact pre-cut pause state once the final attempt ends.
+        if (m_cutPlaybackPaused && m_mpv) {
+            const char* restorePauseArgs[] = {
+                "set", "pause", m_cutWasPaused ? "yes" : "no", nullptr
+            };
+            mpv_command(m_mpv, restorePauseArgs);
+            if (m_runtimeLogger) {
+                m_runtimeLogger->append(QStringLiteral("A-B CUT: playback pause restored to %1")
+                    .arg(m_cutWasPaused ? QStringLiteral("paused") : QStringLiteral("playing")));
+            }
+            m_cutPlaybackPaused = false;
+        }
+
         if (success) {
             showToast(QStringLiteral("A-B Cut Saved"));
             QString completionDetails =
@@ -2267,91 +2281,16 @@ void MainWindow::cutAbSelection() {
         args = softwareArgs;
         m_cutEncoderName = isWebm ? QStringLiteral("libvpx-vp9") : QStringLiteral("libx264");
 
-        // Probe FFmpeg's encoder list only for transformed, non-WebM cuts.
-        // The VA-API path explicitly uploads filtered system-memory frames;
-        // other hardware encoders accept this software-filtered pipeline.
-        QString hardwareEncoder;
-        bool useVaapi = false;
-        if (!isWebm) {
-            QProcess encoderProbe;
-            encoderProbe.setProcessChannelMode(QProcess::SeparateChannels);
-            const QStringList probeArgs = {
-                QStringLiteral("-hide_banner"),
-                QStringLiteral("-encoders")
-            };
-            encoderProbe.start(ffmpeg, probeArgs);
-            if (encoderProbe.waitForFinished(1500)) {
-                const QString encoderList =
-                    QString::fromLocal8Bit(encoderProbe.readAllStandardOutput()) +
-                    QString::fromLocal8Bit(encoderProbe.readAllStandardError());
-                if (QFileInfo::exists(QStringLiteral("/dev/dri/renderD128")) &&
-                    encoderList.contains(QStringLiteral("h264_vaapi"))) {
-                    hardwareEncoder = QStringLiteral("h264_vaapi");
-                    useVaapi = true;
-                } else if (encoderList.contains(QStringLiteral("h264_nvenc"))) {
-                    hardwareEncoder = QStringLiteral("h264_nvenc");
-                } else if (encoderList.contains(QStringLiteral("h264_amf"))) {
-                    hardwareEncoder = QStringLiteral("h264_amf");
-                } else if (encoderList.contains(QStringLiteral("h264_qsv"))) {
-                    hardwareEncoder = QStringLiteral("h264_qsv");
-                }
-            } else {
-                encoderProbe.kill();
-                encoderProbe.waitForFinished(250);
-            }
-        }
-
-        if (!hardwareEncoder.isEmpty()) {
-            QStringList hardwareArgs = baseArgs;
-            if (useVaapi) {
-                // VA-API requires the filtered frames to be uploaded to the
-                // selected render node before h264_vaapi can encode them.
-                hardwareArgs.insert(3, QStringLiteral("-vaapi_device"));
-                hardwareArgs.insert(4, QStringLiteral("/dev/dri/renderD128"));
-                filters << QStringLiteral("format=nv12") << QStringLiteral("hwupload");
-            }
-            hardwareArgs << QStringLiteral("-vf") << filters.join(QLatin1Char(','))
-                         << QStringLiteral("-c:v") << hardwareEncoder;
-            if (hardwareEncoder == QStringLiteral("h264_nvenc")) {
-                hardwareArgs << QStringLiteral("-preset") << QStringLiteral("p4")
-                             << QStringLiteral("-cq") << QStringLiteral("18")
-                             << QStringLiteral("-b:v") << QStringLiteral("0");
-            } else if (hardwareEncoder == QStringLiteral("h264_amf")) {
-                hardwareArgs << QStringLiteral("-quality") << QStringLiteral("quality")
-                             << QStringLiteral("-qp_i") << QStringLiteral("18")
-                             << QStringLiteral("-qp_p") << QStringLiteral("18");
-            } else if (hardwareEncoder == QStringLiteral("h264_qsv")) {
-                hardwareArgs << QStringLiteral("-global_quality") << QStringLiteral("18")
-                             << QStringLiteral("-preset") << QStringLiteral("medium");
-            } else if (hardwareEncoder == QStringLiteral("h264_vaapi")) {
-                hardwareArgs << QStringLiteral("-qp") << QStringLiteral("18");
-            }
-            hardwareArgs << QStringLiteral("-c:a") << QStringLiteral("copy")
-                         << QStringLiteral("-c:s") << QStringLiteral("copy")
-                         << QStringLiteral("-c:d") << QStringLiteral("copy")
-                         << QStringLiteral("-avoid_negative_ts") << QStringLiteral("make_zero")
-                         << QStringLiteral("-progress") << QStringLiteral("pipe:1")
-                         << QStringLiteral("-nostats")
-                         << QStringLiteral("-y") << outputPath;
-
-            args = hardwareArgs;
-            m_cutSoftwareFallbackArgs = softwareArgs;
-            m_cutUsingHardwareEncoder = true;
-            m_cutEncoderName = hardwareEncoder;
-            if (m_runtimeLogger) {
-                m_runtimeLogger->append(
-                    QStringLiteral("A-B CUT ENCODING: mode=hardware encoder=%1 fallback=available fallback_encoder=%2")
-                        .arg(hardwareEncoder,
-                             isWebm ? QStringLiteral("libvpx-vp9") : QStringLiteral("libx264")));
-            }
-        } else {
-            if (m_runtimeLogger) {
-                m_runtimeLogger->append(
-                    QStringLiteral("A-B CUT ENCODING: mode=software encoder=%1 reason=no_compatible_hardware_encoder_detected")
-                        .arg(m_cutEncoderName));
-            }
-        }
+        // Keep transformed cuts on software encoding. On systems where mpv is
+        // using a hardware decoder, running a second hardware video pipeline
+        // can overload or destabilize the GPU/driver. Playback is paused for
+        // the duration of the cut as an additional safety measure.
+        m_cutUsingHardwareEncoder = false;
+        m_cutEncoderName = isWebm ? QStringLiteral("libvpx-vp9") : QStringLiteral("libx264");
         if (m_runtimeLogger) {
+            m_runtimeLogger->append(
+                QStringLiteral("A-B CUT ENCODING: mode=software encoder=%1 reason=stability_no_parallel_hardware_encode")
+                    .arg(m_cutEncoderName));
             m_runtimeLogger->append(QStringLiteral("A-B CUT: transform re-encode selected encoder=%1")
                 .arg(m_cutEncoderName));
         }
@@ -2366,6 +2305,20 @@ void MainWindow::cutAbSelection() {
         m_cutEncoderName.clear();
     }
 
+    // Pause the player before launching FFmpeg so playback decoding/rendering
+    // does not compete with the cut. Preserve whether the user had already
+    // paused and restore that state when the final attempt finishes.
+    m_cutWasPaused = getPropertyDouble("pause") >= 0.5;
+    const char* pauseArgs[] = {"set", "pause", "yes", nullptr};
+    const int pauseResult = mpv_command(m_mpv, pauseArgs);
+    m_cutPlaybackPaused = pauseResult >= 0;
+    if (m_runtimeLogger) {
+        m_runtimeLogger->append(
+            QStringLiteral("A-B CUT: playback pause requested result=%1 was_paused=%2 encoder=%3")
+                .arg(pauseResult)
+                .arg(m_cutWasPaused ? QStringLiteral("yes") : QStringLiteral("no"))
+                .arg(m_cutEncoderName.isEmpty() ? QStringLiteral("stream-copy") : m_cutEncoderName));
+    }
     m_cutProcess->start(ffmpeg, args);
 }
 
