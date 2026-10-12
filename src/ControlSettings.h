@@ -45,6 +45,7 @@ public:
     double speedJump = 0.10;
     QKeySequence holdSpeedKey = QKeySequence(Qt::Key_2);
     bool cutWithZoom = false;
+    bool pauseDuringAbCut = true;
 
     void load();
     void save() const;
