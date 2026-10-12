@@ -189,6 +189,8 @@ private:
     QStringList m_cutSoftwareFallbackArgs;
     QString m_cutEncoderName;
     bool m_cutUsingHardwareEncoder = false;
+    bool m_cutWasPaused = false;
+    bool m_cutPlaybackPaused = false;
     qint64 m_cutStartedAtMs = 0;
     qint64 m_cutFrameCount = 0;
     QString m_cutProgressBuffer;
