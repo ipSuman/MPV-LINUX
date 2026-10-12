@@ -115,6 +115,13 @@ void PlaybackInhibitor::setActive(bool active) {
     m_active = true;
     log(QStringLiteral("POWER INHIBIT: Windows display/screensaver request acquired"));
 #elif defined(Q_OS_LINUX)
+    // The playback UI can request the same inactive state repeatedly. Avoid
+    // repeating D-Bus/process cleanup and emitting a log entry when nothing
+    // is active.
+    if (!active && !m_active && m_screenSaverCookie == 0 && !m_screenSaverInterface &&
+        (!m_process || m_process->state() == QProcess::NotRunning)) {
+        return;
+    }
     if (!active) {
         if (m_screenSaverInterface && m_screenSaverCookie != 0) {
             const QDBusMessage reply = m_screenSaverInterface->call(
