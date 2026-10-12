@@ -66,6 +66,7 @@ void ControlSettings::load() {
 
     cutWithZoom = settings.value(QStringLiteral("controls/cutWithZoom"), cutWithZoom).toBool();
     pauseDuringAbCut = settings.value(QStringLiteral("controls/pauseDuringAbCut"), pauseDuringAbCut).toBool();
+    pauseDuringAbCut = settings.value(QStringLiteral("controls/pauseDuringAbCut"), pauseDuringAbCut).toBool();
 }
 
 bool ControlSettings::saveToFile(const QString& filePath) const {
@@ -114,6 +115,7 @@ bool ControlSettings::saveToFile(const QString& filePath) const {
 #undef SAVE_PROFILE_KEY
     settings.setValue(QStringLiteral("controls/speedJump"), speedJump);
     settings.setValue(QStringLiteral("controls/cutWithZoom"), cutWithZoom);
+    settings.setValue(QStringLiteral("controls/pauseDuringAbCut"), pauseDuringAbCut);
     settings.setValue(QStringLiteral("controls/pauseDuringAbCut"), pauseDuringAbCut);
     settings.sync();
     return settings.status() == QSettings::NoError;
@@ -165,6 +167,7 @@ bool ControlSettings::loadFromFile(const QString& filePath) {
     speedJump = std::clamp(settings.value(QStringLiteral("controls/speedJump"), speedJump).toDouble(), 0.10, 1.00);
     speedJump = std::round(speedJump * 20.0) / 20.0;
     cutWithZoom = settings.value(QStringLiteral("controls/cutWithZoom"), cutWithZoom).toBool();
+    pauseDuringAbCut = settings.value(QStringLiteral("controls/pauseDuringAbCut"), pauseDuringAbCut).toBool();
     return true;
 }
 
@@ -211,5 +214,6 @@ void ControlSettings::save() const {
 #undef SAVE_KEY
 
     settings.setValue(QStringLiteral("controls/cutWithZoom"), cutWithZoom);
+    settings.setValue(QStringLiteral("controls/pauseDuringAbCut"), pauseDuringAbCut);
     settings.sync();
 }
