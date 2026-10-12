@@ -96,6 +96,25 @@ const QStringList kMediaExtensions = {
     QStringLiteral("opus"), QStringLiteral("wav")
 };
 
+// Prefer FFmpeg shipped beside REX Player, then fall back to the system PATH.
+QString findFfmpegExecutable() {
+    const QDir appDir(QCoreApplication::applicationDirPath());
+    const QStringList bundledNames = {
+        QStringLiteral("ffmpeg.exe"),
+        QStringLiteral("ffmpeg")
+    };
+    for (const QString& name : bundledNames) {
+        const QFileInfo candidate(appDir.filePath(name));
+        if (candidate.isFile())
+            return candidate.absoluteFilePath();
+    }
+
+    QString executable = QStandardPaths::findExecutable(QStringLiteral("ffmpeg.exe"));
+    if (executable.isEmpty())
+        executable = QStandardPaths::findExecutable(QStringLiteral("ffmpeg"));
+    return executable;
+}
+
 bool isMediaFile(const QFileInfo& info) {
     return info.isFile() && kMediaExtensions.contains(info.suffix().toLower());
 }
@@ -2018,12 +2037,15 @@ void MainWindow::cutAbSelection() {
         return;
     }
 
-    const QString ffmpeg = QStandardPaths::findExecutable(QStringLiteral("ffmpeg"));
+    const QString ffmpeg = findFfmpegExecutable();
     if (ffmpeg.isEmpty()) {
+        m_runtimeLogger->append(QStringLiteral("A-B CUT: FFmpeg not found beside the application or on PATH"));
         QMessageBox::warning(this, QStringLiteral("FFmpeg not found"),
-                             QStringLiteral("FFmpeg is required for A-B cutting. Install the ffmpeg package and try again."));
+                             QStringLiteral("FFmpeg could not be found beside REX Player or on the system PATH. "
+                                            "Please reinstall REX Player or install FFmpeg."));
         return;
     }
+    m_runtimeLogger->append(QStringLiteral("A-B CUT: using FFmpeg executable: %1").arg(ffmpeg));
 
     QString inputPath = getPropertyString("path").trimmed();
     const QUrl inputUrl(inputPath);
@@ -3171,15 +3193,16 @@ void MainWindow::saveSelectedAudioTrack() {
         if (answer != QMessageBox::Yes) return;
     }
 
-    const QString ffmpeg = QStandardPaths::findExecutable(QStringLiteral("ffmpeg"));
+    const QString ffmpeg = findFfmpegExecutable();
     if (ffmpeg.isEmpty()) {
-        m_runtimeLogger->append(QStringLiteral("AUDIO SAVE: ffmpeg not found"));
+        m_runtimeLogger->append(QStringLiteral("AUDIO SAVE: FFmpeg not found beside the application or on PATH"));
         QMessageBox::warning(
             this, QStringLiteral("Save Audio"),
-            QStringLiteral("FFmpeg is required to save the selected audio track. "
-                           "Install ffmpeg and try again."));
+            QStringLiteral("FFmpeg could not be found beside REX Player or on the system PATH. "
+                           "Please reinstall REX Player or install FFmpeg."));
         return;
     }
+    m_runtimeLogger->append(QStringLiteral("AUDIO SAVE: using FFmpeg executable: %1").arg(ffmpeg));
 
     const QString mapSpecifier = ffIndex >= 0
         ? QStringLiteral("0:%1").arg(ffIndex)
