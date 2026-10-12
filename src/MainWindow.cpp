@@ -1986,6 +1986,10 @@ void MainWindow::cutAbSelection() {
     }
 
     m_cutOutputPath = outputPath;
+    m_cutFfmpegPath = ffmpeg;
+    m_cutSoftwareFallbackArgs.clear();
+    m_cutEncoderName.clear();
+    m_cutUsingHardwareEncoder = false;
     m_cutProcess = new QProcess(this);
     m_cutProcess->setProcessChannelMode(QProcess::SeparateChannels);
     m_cutAbButton->setEnabled(false);
@@ -1993,24 +1997,69 @@ void MainWindow::cutAbSelection() {
     connect(m_cutProcess, &QProcess::finished, this, [this](int exitCode, QProcess::ExitStatus exitStatus) {
         const QString error = QString::fromLocal8Bit(m_cutProcess->readAllStandardError()).trimmed();
         const QString output = m_cutOutputPath;
-        const bool success = exitStatus == QProcess::NormalExit && exitCode == 0 && QFileInfo::exists(output);
+        const bool success = exitStatus == QProcess::NormalExit && exitCode == 0 &&
+                             QFileInfo::exists(output) && QFileInfo(output).size() > 0;
+
+        // Hardware encoders can be listed by FFmpeg even when the installed
+        // driver/GPU cannot initialize them. Retry the same transformed cut
+        // once with the known-good software encoder instead of failing.
+        if (!success && m_cutUsingHardwareEncoder && !m_cutSoftwareFallbackArgs.isEmpty()) {
+            if (QFileInfo::exists(output)) QFile::remove(output);
+            m_cutUsingHardwareEncoder = false;
+            m_cutEncoderName = QStringLiteral("libx264 (software fallback)");
+            if (m_runtimeLogger) {
+                m_runtimeLogger->append(
+                    QStringLiteral("A-B CUT: hardware encoding failed; retrying with software encoding. Details: %1")
+                        .arg(error.isEmpty() ? QStringLiteral("FFmpeg exit code %1").arg(exitCode) : error));
+            }
+            m_cutProcess->start(m_cutFfmpegPath, m_cutSoftwareFallbackArgs);
+            return;
+        }
+
         if (success) {
             showToast(QStringLiteral("A-B Cut Saved"));
+            QString completionDetails =
+                m_cutWithZoom &&
+                (getPropertyDouble("video-zoom") > 0.0001 ||
+                 std::abs(getPropertyDouble("video-pan-x")) > 0.0001 ||
+                 std::abs(getPropertyDouble("video-pan-y")) > 0.0001 ||
+                 std::abs(getPropertyDouble("video-rotate")) > 0.0001 ||
+                 (m_videoTransformer && m_videoTransformer->hasTransforms()))
+                ? QStringLiteral("The current zoom/pan/rotation/flip was baked into the video, so the video was re-encoded; audio/subtitles were copied when supported.")
+                : QStringLiteral("Streams were copied without re-encoding. Because this is stream-copy cutting, the start may align to a nearby keyframe.");
+            if (!m_cutEncoderName.isEmpty()) {
+                completionDetails += QStringLiteral("\n\nVideo encoder: %1").arg(m_cutEncoderName);
+            }
             QMessageBox::information(
                 this, QStringLiteral("A-B cut complete"),
-                QStringLiteral("Saved:\n%1\n\n%2").arg(output, m_cutWithZoom && (getPropertyDouble("video-zoom") > 0.0001 || std::abs(getPropertyDouble("video-pan-x")) > 0.0001 || std::abs(getPropertyDouble("video-pan-y")) > 0.0001 || std::abs(getPropertyDouble("video-rotate")) > 0.0001 || (m_videoTransformer && m_videoTransformer->hasTransforms())) ? QStringLiteral("The current zoom/pan/rotation/flip was baked into the video, so the video was re-encoded; audio/subtitles were copied when supported.") : QStringLiteral("Streams were copied without re-encoding. Because this is stream-copy cutting, the start may align to a nearby keyframe.")));
+                QStringLiteral("Saved:\n%1\n\n%2").arg(output, completionDetails));
+            if (m_runtimeLogger) {
+                m_runtimeLogger->append(QStringLiteral("A-B CUT: completed encoder=%1 output=%2")
+                    .arg(m_cutEncoderName.isEmpty() ? QStringLiteral("stream copy") : m_cutEncoderName,
+                         output));
+            }
         } else {
             if (QFileInfo::exists(output)) QFile::remove(output);
-            const QString detail = error.isEmpty() ? QStringLiteral("FFmpeg exited with code %1.").arg(exitCode) : error;
+            const QString detail = error.isEmpty()
+                ? QStringLiteral("FFmpeg exited with code %1.").arg(exitCode)
+                : error;
+            if (m_runtimeLogger) {
+                m_runtimeLogger->append(QStringLiteral("A-B CUT: failed exit=%1 details=%2")
+                    .arg(exitCode).arg(detail));
+            }
             QMessageBox::warning(this, QStringLiteral("A-B cut failed"), detail);
         }
         m_cutAbButton->setEnabled(true);
         m_cutProcess->deleteLater();
         m_cutProcess = nullptr;
         m_cutOutputPath.clear();
+        m_cutFfmpegPath.clear();
+        m_cutSoftwareFallbackArgs.clear();
+        m_cutEncoderName.clear();
+        m_cutUsingHardwareEncoder = false;
     });
 
-    QStringList args = {
+    QStringList baseArgs = {
         QStringLiteral("-hide_banner"),
         QStringLiteral("-loglevel"), QStringLiteral("error"),
         QStringLiteral("-ss"), start,
@@ -2045,10 +2094,10 @@ void MainWindow::cutAbSelection() {
                                    m_videoTransformer && m_videoTransformer->flipVertical();
     const bool bakeTransform = bakeZoom || bakeRotation || bakeFlipHorizontal || bakeFlipVertical;
 
+    QStringList args = baseArgs;
     if (bakeTransform) {
-        // mpv rotates first, then applies zoom/pan to the displayed video.
-        // Mirror that order in FFmpeg: rotate into the current display
-        // orientation, then crop the visible zoom/pan region.
+        // Preserve REX Player's display transform order: manual rotation,
+        // flips, then crop for the current zoom/pan region.
         const int rotatedWidth = (normalizedRotation == 90 || normalizedRotation == 270)
             ? sourceHeight : sourceWidth;
         const int rotatedHeight = (normalizedRotation == 90 || normalizedRotation == 270)
@@ -2062,12 +2111,8 @@ void MainWindow::cutAbSelection() {
         } else if (m_videoTransformer && m_videoTransformer->rotation() == 270) {
             filters << QStringLiteral("transpose=cclock");
         }
-        if (bakeFlipHorizontal) {
-            filters << QStringLiteral("hflip");
-        }
-        if (bakeFlipVertical) {
-            filters << QStringLiteral("vflip");
-        }
+        if (bakeFlipHorizontal) filters << QStringLiteral("hflip");
+        if (bakeFlipVertical) filters << QStringLiteral("vflip");
 
         if (bakeZoom) {
             const int cropWidth = std::max(2, std::min(rotatedWidth,
@@ -2076,9 +2121,6 @@ void MainWindow::cutAbSelection() {
                 static_cast<int>(std::floor(rotatedHeight / zoomFactor / 2.0) * 2.0)));
             const int maxX = rotatedWidth - cropWidth;
             const int maxY = rotatedHeight - cropHeight;
-            // mpv's positive pan moves the displayed video rectangle right/down,
-            // so the visible source window moves left/up. After rotation, pan
-            // is still expressed in the rotated/displayed video dimensions.
             const int centerX = static_cast<int>(std::lround(
                 (rotatedWidth - cropWidth) / 2.0 - panX * rotatedWidth));
             const int centerY = static_cast<int>(std::lround(
@@ -2089,28 +2131,105 @@ void MainWindow::cutAbSelection() {
                 .arg(cropWidth).arg(cropHeight).arg(cropX).arg(cropY);
         }
 
-        args << QStringLiteral("-vf") << filters.join(QLatin1Char(','))
-             << QStringLiteral("-c:v") << (suffix.compare(QStringLiteral("webm"), Qt::CaseInsensitive) == 0
-                                               ? QStringLiteral("libvpx-vp9")
-                                               : QStringLiteral("libx264"));
-        if (suffix.compare(QStringLiteral("webm"), Qt::CaseInsensitive) == 0) {
-            args << QStringLiteral("-crf") << QStringLiteral("30")
-                 << QStringLiteral("-b:v") << QStringLiteral("0");
+        const bool isWebm = suffix.compare(QStringLiteral("webm"), Qt::CaseInsensitive) == 0;
+        QStringList softwareArgs = baseArgs;
+        softwareArgs << QStringLiteral("-vf") << filters.join(QLatin1Char(','))
+                     << QStringLiteral("-c:v")
+                     << (isWebm ? QStringLiteral("libvpx-vp9") : QStringLiteral("libx264"));
+        if (isWebm) {
+            softwareArgs << QStringLiteral("-crf") << QStringLiteral("30")
+                         << QStringLiteral("-b:v") << QStringLiteral("0");
         } else {
-            args << QStringLiteral("-preset") << QStringLiteral("medium")
-                 << QStringLiteral("-crf") << QStringLiteral("18");
+            softwareArgs << QStringLiteral("-preset") << QStringLiteral("medium")
+                         << QStringLiteral("-crf") << QStringLiteral("18");
         }
-        args << QStringLiteral("-c:a") << QStringLiteral("copy")
-             << QStringLiteral("-c:s") << QStringLiteral("copy")
-             << QStringLiteral("-c:d") << QStringLiteral("copy");
+        softwareArgs << QStringLiteral("-c:a") << QStringLiteral("copy")
+                     << QStringLiteral("-c:s") << QStringLiteral("copy")
+                     << QStringLiteral("-c:d") << QStringLiteral("copy")
+                     << QStringLiteral("-avoid_negative_ts") << QStringLiteral("make_zero")
+                     << QStringLiteral("-y") << outputPath;
+
+        args = softwareArgs;
+        m_cutEncoderName = isWebm ? QStringLiteral("libvpx-vp9") : QStringLiteral("libx264");
+
+        // Probe FFmpeg's encoder list only for transformed, non-WebM cuts.
+        // The VA-API path explicitly uploads filtered system-memory frames;
+        // other hardware encoders accept this software-filtered pipeline.
+        QString hardwareEncoder;
+        bool useVaapi = false;
+        if (!isWebm) {
+            QProcess encoderProbe;
+            encoderProbe.setProcessChannelMode(QProcess::SeparateChannels);
+            encoderProbe.start(ffmpeg, {QStringLiteral("-hide_banner"), QStringLiteral("-encoders")});
+            if (encoderProbe.waitForFinished(1500)) {
+                const QString encoderList =
+                    QString::fromLocal8Bit(encoderProbe.readAllStandardOutput()) +
+                    QString::fromLocal8Bit(encoderProbe.readAllStandardError());
+                if (QFileInfo::exists(QStringLiteral("/dev/dri/renderD128")) &&
+                    encoderList.contains(QStringLiteral("h264_vaapi"))) {
+                    hardwareEncoder = QStringLiteral("h264_vaapi");
+                    useVaapi = true;
+                } else if (encoderList.contains(QStringLiteral("h264_nvenc"))) {
+                    hardwareEncoder = QStringLiteral("h264_nvenc");
+                } else if (encoderList.contains(QStringLiteral("h264_amf"))) {
+                    hardwareEncoder = QStringLiteral("h264_amf");
+                } else if (encoderList.contains(QStringLiteral("h264_qsv"))) {
+                    hardwareEncoder = QStringLiteral("h264_qsv");
+                }
+            } else {
+                encoderProbe.kill();
+                encoderProbe.waitForFinished(250);
+            }
+        }
+
+        if (!hardwareEncoder.isEmpty()) {
+            QStringList hardwareArgs = baseArgs;
+            if (useVaapi) {
+                // VA-API requires the filtered frames to be uploaded to the
+                // selected render node before h264_vaapi can encode them.
+                hardwareArgs.insert(3, QStringLiteral("-vaapi_device"));
+                hardwareArgs.insert(4, QStringLiteral("/dev/dri/renderD128"));
+                filters << QStringLiteral("format=nv12") << QStringLiteral("hwupload");
+            }
+            hardwareArgs << QStringLiteral("-vf") << filters.join(QLatin1Char(','))
+                         << QStringLiteral("-c:v") << hardwareEncoder;
+            if (hardwareEncoder == QStringLiteral("h264_nvenc")) {
+                hardwareArgs << QStringLiteral("-preset") << QStringLiteral("p4")
+                             << QStringLiteral("-cq") << QStringLiteral("18")
+                             << QStringLiteral("-b:v") << QStringLiteral("0");
+            } else if (hardwareEncoder == QStringLiteral("h264_amf")) {
+                hardwareArgs << QStringLiteral("-quality") << QStringLiteral("quality")
+                             << QStringLiteral("-qp_i") << QStringLiteral("18")
+                             << QStringLiteral("-qp_p") << QStringLiteral("18");
+            } else if (hardwareEncoder == QStringLiteral("h264_qsv")) {
+                hardwareArgs << QStringLiteral("-global_quality") << QStringLiteral("18")
+                             << QStringLiteral("-preset") << QStringLiteral("medium");
+            } else if (hardwareEncoder == QStringLiteral("h264_vaapi")) {
+                hardwareArgs << QStringLiteral("-qp") << QStringLiteral("18");
+            }
+            hardwareArgs << QStringLiteral("-c:a") << QStringLiteral("copy")
+                         << QStringLiteral("-c:s") << QStringLiteral("copy")
+                         << QStringLiteral("-c:d") << QStringLiteral("copy")
+                         << QStringLiteral("-avoid_negative_ts") << QStringLiteral("make_zero")
+                         << QStringLiteral("-y") << outputPath;
+
+            args = hardwareArgs;
+            m_cutSoftwareFallbackArgs = softwareArgs;
+            m_cutUsingHardwareEncoder = true;
+            m_cutEncoderName = hardwareEncoder;
+        }
+        if (m_runtimeLogger) {
+            m_runtimeLogger->append(QStringLiteral("A-B CUT: transform re-encode selected encoder=%1")
+                .arg(m_cutEncoderName));
+        }
     } else {
         // No visual transform needs to be baked. Keep the original fast
         // stream-copy path.
-        args << QStringLiteral("-c") << QStringLiteral("copy");
+        args << QStringLiteral("-c") << QStringLiteral("copy")
+             << QStringLiteral("-avoid_negative_ts") << QStringLiteral("make_zero")
+             << QStringLiteral("-y") << outputPath;
+        m_cutEncoderName.clear();
     }
-
-    args << QStringLiteral("-avoid_negative_ts") << QStringLiteral("make_zero")
-         << QStringLiteral("-y") << outputPath;
 
     m_cutProcess->start(ffmpeg, args);
 }
