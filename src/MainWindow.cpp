@@ -33,6 +33,7 @@
 #include <QMimeData>
 #include <QMouseEvent>
 #include <QPushButton>
+#include <QProgressBar>
 #include <QPainter>
 #include <QPixmap>
 #include <QRegularExpression>
@@ -626,6 +627,16 @@ void MainWindow::buildUi() {
     m_rotateButton->setToolTip(QStringLiteral("Rotate the video 90° clockwise"));
     connect(m_rotateButton, &QPushButton::clicked, this, &MainWindow::rotateVideo90);
     row2->addWidget(m_rotateButton);
+
+    m_cutProgressBar = new QProgressBar(m_controls);
+    m_cutProgressBar->setObjectName(QStringLiteral("abCutProgressBar"));
+    m_cutProgressBar->setRange(0, 100);
+    m_cutProgressBar->setValue(0);
+    m_cutProgressBar->setTextVisible(false);
+    m_cutProgressBar->setFixedSize(30, 8);
+    m_cutProgressBar->setVisible(false);
+    m_cutProgressBar->setToolTip(QStringLiteral("A-B cut progress and estimated time remaining"));
+    row2->addWidget(m_cutProgressBar);
 
     auto* flipHorizontalButton = new QPushButton(m_controls);
     setMainPanelButtonIcon(flipHorizontalButton, MainPanelIcon::FlipH, QStringLiteral("Flip horizontally"));
@@ -2051,6 +2062,13 @@ void MainWindow::cutAbSelection() {
 
     m_cutOutputPath = outputPath;
     m_cutFfmpegPath = ffmpeg;
+    m_cutExpectedDurationUs = static_cast<qint64>(duration * 1000000.0);
+    m_cutProgressUs = 0;
+    if (m_cutProgressBar) {
+        m_cutProgressBar->setValue(0);
+        m_cutProgressBar->setToolTip(QStringLiteral("A-B cut started; estimating remaining time…"));
+        m_cutProgressBar->setVisible(true);
+    }
     m_cutSoftwareFallbackArgs.clear();
     m_cutEncoderName.clear();
     m_cutUsingHardwareEncoder = false;
@@ -2089,8 +2107,36 @@ void MainWindow::cutAbSelection() {
                             .arg(m_cutStartedAtMs > 0 ? now - m_cutStartedAtMs : 0));
                     }
                 }
+            } else if (line.startsWith(QStringLiteral("out_time_ms="))) {
+                bool ok = false;
+                const qint64 progressUs = line.mid(QStringLiteral("out_time_ms=").size()).trimmed().toLongLong(&ok);
+                if (ok && progressUs >= 0) {
+                    m_cutProgressUs = progressUs;
+                    m_cutLastProgressAtMs = QDateTime::currentMSecsSinceEpoch();
+                    if (m_cutProgressBar && m_cutExpectedDurationUs > 0) {
+                        const int percent = static_cast<int>(std::clamp<qint64>(
+                            progressUs * 100 / m_cutExpectedDurationUs, 0, 100));
+                        m_cutProgressBar->setValue(percent);
+                        const qint64 elapsedMs = m_cutStartedAtMs > 0
+                            ? QDateTime::currentMSecsSinceEpoch() - m_cutStartedAtMs : 0;
+                        QString etaText = QStringLiteral("Estimating time remaining…");
+                        if (progressUs > 0 && elapsedMs > 0) {
+                            const double fraction = std::min(1.0, static_cast<double>(progressUs) /
+                                                                  static_cast<double>(m_cutExpectedDurationUs));
+                            if (fraction > 0.001) {
+                                const qint64 remainingSeconds = static_cast<qint64>(
+                                    (static_cast<double>(elapsedMs) / fraction - elapsedMs) / 1000.0);
+                                etaText = QStringLiteral("Estimated time remaining: %1")
+                                    .arg(remainingSeconds < 60
+                                             ? QStringLiteral("%1 sec").arg(std::max<qint64>(0, remainingSeconds))
+                                             : QStringLiteral("%1 min %2 sec").arg(remainingSeconds / 60).arg(remainingSeconds % 60));
+                            }
+                        }
+                        m_cutProgressBar->setToolTip(QStringLiteral("A-B cut: %1%\n%2")
+                            .arg(percent).arg(etaText));
+                    }
+                }
             } else if (line.startsWith(QStringLiteral("out_time=")) ||
-                       line.startsWith(QStringLiteral("out_time_ms=")) ||
                        line.startsWith(QStringLiteral("progress="))) {
                 m_cutLastProgressAtMs = QDateTime::currentMSecsSinceEpoch();
             }
@@ -2169,6 +2215,11 @@ void MainWindow::cutAbSelection() {
         // Keep the playback decoder and pause state unchanged across a hardware
         // failure/software retry. Restore both only after the final attempt.
         m_cutWatchdogTimer.stop();
+        if (m_cutProgressBar) {
+            m_cutProgressBar->setValue(success ? 100 : m_cutProgressBar->value());
+            m_cutProgressBar->setToolTip(success ? QStringLiteral("A-B cut completed") : QStringLiteral("A-B cut finished with an error"));
+            m_cutProgressBar->setVisible(false);
+        }
         restoreCutPlaybackState();
 
         if (success) {
@@ -2290,6 +2341,10 @@ void MainWindow::cutAbSelection() {
             m_cutProcess = nullptr;
         }
         if (m_cutAbButton) m_cutAbButton->setEnabled(true);
+        if (m_cutProgressBar) {
+            m_cutProgressBar->setVisible(false);
+            m_cutProgressBar->setToolTip(QStringLiteral("A-B cut failed to start"));
+        }
         const bool partialRemoved = m_cutOutputPath.isEmpty() ||
             !QFileInfo::exists(m_cutOutputPath) || QFile::remove(m_cutOutputPath);
         if (m_runtimeLogger)
