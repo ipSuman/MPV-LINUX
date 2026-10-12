@@ -1245,7 +1245,7 @@ void MainWindow::showControlsDialog() {
     connect(saveSettingsButton, &QPushButton::clicked, &dialog, [this, &dialog] {
         if (!m_controlSettings) return;
         const QString version = QCoreApplication::applicationVersion().isEmpty()
-            ? QStringLiteral("4.0.0") : QCoreApplication::applicationVersion();
+            ? QStringLiteral("5.0.1") : QCoreApplication::applicationVersion();
         const QString defaultName = QStringLiteral("RexPlayer_%1_%2.ini")
             .arg(version, QDateTime::currentDateTime().toString(QStringLiteral("yyyy-MM-dd_HH-mm-ss")));
         const QString path = QFileDialog::getSaveFileName(
