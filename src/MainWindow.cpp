@@ -2442,8 +2442,10 @@ void MainWindow::cutAbSelection() {
                     }
                     probeArgs << QStringLiteral("-vaapi_device") << QStringLiteral("/dev/dri/renderD128");
                 }
+                // Use dimensions supported by common VAAPI encoders. Some AMD
+                // drivers reject 64x64 even though normal video sizes work.
                 probeArgs << QStringLiteral("-f") << QStringLiteral("lavfi")
-                          << QStringLiteral("-i") << QStringLiteral("color=c=black:s=64x64:d=0.1");
+                          << QStringLiteral("-i") << QStringLiteral("color=c=black:s=128x128:d=0.1");
                 if (candidate == QStringLiteral("h264_vaapi"))
                     probeArgs << QStringLiteral("-vf") << QStringLiteral("format=nv12,hwupload");
                 probeArgs << QStringLiteral("-frames:v") << QStringLiteral("1")
