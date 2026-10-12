@@ -633,7 +633,7 @@ void MainWindow::buildUi() {
     m_cutProgressBar->setRange(0, 100);
     m_cutProgressBar->setValue(0);
     m_cutProgressBar->setTextVisible(false);
-    m_cutProgressBar->setFixedSize(30, 8);
+    m_cutProgressBar->setFixedSize(90, 8);
     m_cutProgressBar->setVisible(false);
     m_cutProgressBar->setToolTip(QStringLiteral("A-B cut progress and estimated time remaining"));
     row2->addWidget(m_cutProgressBar);
