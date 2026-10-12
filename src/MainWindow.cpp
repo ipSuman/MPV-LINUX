@@ -2005,12 +2005,19 @@ void MainWindow::cutAbSelection() {
         // once with the known-good software encoder instead of failing.
         if (!success && m_cutUsingHardwareEncoder && !m_cutSoftwareFallbackArgs.isEmpty()) {
             if (QFileInfo::exists(output)) QFile::remove(output);
+            const QString failedHardwareEncoder = m_cutEncoderName;
             m_cutUsingHardwareEncoder = false;
             m_cutEncoderName = QStringLiteral("libx264 (software fallback)");
             if (m_runtimeLogger) {
                 m_runtimeLogger->append(
-                    QStringLiteral("A-B CUT: hardware encoding failed; retrying with software encoding. Details: %1")
-                        .arg(error.isEmpty() ? QStringLiteral("FFmpeg exit code %1").arg(exitCode) : error));
+                    QStringLiteral("A-B CUT ENCODING FALLBACK: from=hardware encoder=%1 to=software encoder=%2 reason=hardware_attempt_failed exit_code=%3 details=%4")
+                        .arg(failedHardwareEncoder,
+                             m_cutEncoderName,
+                             QString::number(exitCode),
+                             error.isEmpty() ? QStringLiteral("FFmpeg exited abnormally or returned no output")
+                                             : error));
+                m_runtimeLogger->append(
+                    QStringLiteral("A-B CUT ENCODING: retrying with software encoder=%1").arg(m_cutEncoderName));
             }
             m_cutProcess->start(m_cutFfmpegPath, m_cutSoftwareFallbackArgs);
             return;
@@ -2034,6 +2041,14 @@ void MainWindow::cutAbSelection() {
                 this, QStringLiteral("A-B cut complete"),
                 QStringLiteral("Saved:\n%1\n\n%2").arg(output, completionDetails));
             if (m_runtimeLogger) {
+                m_runtimeLogger->append(
+                    QStringLiteral("A-B CUT ENCODING RESULT: mode=%1 encoder=%2 output=%3")
+                        .arg(m_cutEncoderName.contains(QStringLiteral("fallback"))
+                                 ? QStringLiteral("software-fallback")
+                                 : (m_cutUsingHardwareEncoder ? QStringLiteral("hardware") :
+                                    (m_cutEncoderName.isEmpty() ? QStringLiteral("stream-copy") : QStringLiteral("software"))),
+                             m_cutEncoderName.isEmpty() ? QStringLiteral("stream-copy") : m_cutEncoderName,
+                             output));
                 m_runtimeLogger->append(QStringLiteral("A-B CUT: completed encoder=%1 output=%2")
                     .arg(m_cutEncoderName.isEmpty() ? QStringLiteral("stream copy") : m_cutEncoderName,
                          output));
@@ -2221,6 +2236,18 @@ void MainWindow::cutAbSelection() {
             m_cutSoftwareFallbackArgs = softwareArgs;
             m_cutUsingHardwareEncoder = true;
             m_cutEncoderName = hardwareEncoder;
+            if (m_runtimeLogger) {
+                m_runtimeLogger->append(
+                    QStringLiteral("A-B CUT ENCODING: mode=hardware encoder=%1 fallback=available fallback_encoder=%2")
+                        .arg(hardwareEncoder,
+                             isWebm ? QStringLiteral("libvpx-vp9") : QStringLiteral("libx264")));
+            }
+        } else {
+            if (m_runtimeLogger) {
+                m_runtimeLogger->append(
+                    QStringLiteral("A-B CUT ENCODING: mode=software encoder=%1 reason=no_compatible_hardware_encoder_detected")
+                        .arg(m_cutEncoderName));
+            }
         }
         if (m_runtimeLogger) {
             m_runtimeLogger->append(QStringLiteral("A-B CUT: transform re-encode selected encoder=%1")
