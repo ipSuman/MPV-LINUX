@@ -2138,6 +2138,11 @@ void MainWindow::cutAbSelection() {
         }
     }
     mpv_free_node_contents(&trackList);
+    if (!selectedAudioExternalPath.isEmpty() &&
+        QFileInfo(selectedAudioExternalPath).isRelative()) {
+        selectedAudioExternalPath =
+            QDir(QFileInfo(inputPath).absolutePath()).filePath(selectedAudioExternalPath);
+    }
 
     QStringList baseArgs = {
         QStringLiteral("-hide_banner"),
