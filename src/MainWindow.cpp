@@ -2091,8 +2091,6 @@ void MainWindow::cutAbSelection() {
             const QString failedHardwareEncoder = m_cutEncoderName;
             m_cutUsingHardwareEncoder = false;
             m_cutEncoderName = QStringLiteral("libx264 (software fallback)");
-            // Bound software encoder memory use: small thread count and a fast
-            // preset are intentional safety defaults on integrated-GPU laptops.
             m_cutStartedAtMs = QDateTime::currentMSecsSinceEpoch();
             m_cutFrameCount = 0;
             m_cutProgressBuffer.clear();
@@ -2389,12 +2387,10 @@ void MainWindow::cutAbSelection() {
             softwareArgs << QStringLiteral("-crf") << QStringLiteral("30")
                          << QStringLiteral("-b:v") << QStringLiteral("0");
         } else {
-            softwareArgs << QStringLiteral("-preset") << QStringLiteral("ultrafast")
-                         << QStringLiteral("-crf") << QStringLiteral("20")
-                         << QStringLiteral("-threads") << QStringLiteral("2");
+            softwareArgs << QStringLiteral("-preset") << QStringLiteral("medium")
+                         << QStringLiteral("-crf") << QStringLiteral("18");
         }
-        softwareArgs << QStringLiteral("-filter_threads") << QStringLiteral("1")
-                     << QStringLiteral("-c:a") << QStringLiteral("copy")
+        softwareArgs << QStringLiteral("-c:a") << QStringLiteral("copy")
                      << QStringLiteral("-c:s") << QStringLiteral("copy")
                      << QStringLiteral("-c:d") << QStringLiteral("copy")
                      << QStringLiteral("-avoid_negative_ts") << QStringLiteral("make_zero")
