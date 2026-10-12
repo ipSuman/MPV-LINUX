@@ -189,11 +189,14 @@ private:
     QStringList m_cutSoftwareFallbackArgs;
     QString m_cutEncoderName;
     bool m_cutUsingHardwareEncoder = false;
+    QString m_cutOriginalHwdec;
+    bool m_cutHwdecChanged = false;
     bool m_cutWasPaused = false;
     bool m_cutPlaybackPaused = false;
     qint64 m_cutStartedAtMs = 0;
     qint64 m_cutFrameCount = 0;
     QString m_cutProgressBuffer;
+    void restoreCutPlaybackState();
     bool m_seeking = false;
     bool m_panningVideo = false;
     QPointF m_panStart;
