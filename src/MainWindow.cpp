@@ -2115,14 +2115,70 @@ void MainWindow::cutAbSelection() {
         m_cutUsingHardwareEncoder = false;
     });
 
+    // Resolve the audio track currently selected by mpv. Internal tracks use
+    // mpv's ff-index (the FFmpeg input stream index); external tracks must be
+    // supplied as a second FFmpeg input because they are not part of input 0.
+    QString selectedAudioExternalPath;
+    int selectedAudioFfIndex = -1;
+    mpv_node trackList{};
+    if (mpv_get_property(m_mpv, "track-list", MPV_FORMAT_NODE, &trackList) >= 0 &&
+        trackList.format == MPV_FORMAT_NODE_ARRAY && trackList.u.list) {
+        for (int i = 0; i < trackList.u.list->num; ++i) {
+            const mpv_node& track = trackList.u.list->values[i];
+            if (track.format != MPV_FORMAT_NODE_MAP || !track.u.list) continue;
+            if (MpvNodeUtils::nodeString(MpvNodeUtils::mapValue(track.u.list, "type")) !=
+                QStringLiteral("audio")) continue;
+            if (!MpvNodeUtils::nodeFlag(MpvNodeUtils::mapValue(track.u.list, "selected"))) continue;
+
+            selectedAudioFfIndex =
+                MpvNodeUtils::nodeInt(MpvNodeUtils::mapValue(track.u.list, "ff-index"));
+            selectedAudioExternalPath =
+                MpvNodeUtils::nodeString(MpvNodeUtils::mapValue(track.u.list, "external-filename"));
+            break;
+        }
+    }
+    mpv_free_node_contents(&trackList);
+
     QStringList baseArgs = {
         QStringLiteral("-hide_banner"),
         QStringLiteral("-loglevel"), QStringLiteral("error"),
         QStringLiteral("-ss"), start,
         QStringLiteral("-i"), inputPath,
-        QStringLiteral("-t"), length,
-        QStringLiteral("-map"), QStringLiteral("0"),
     };
+    if (!selectedAudioExternalPath.isEmpty() &&
+        QFileInfo::exists(selectedAudioExternalPath)) {
+        // Seek the external track to the same A-point so its timeline remains
+        // aligned with the source clip.
+        baseArgs << QStringLiteral("-ss") << start
+                 << QStringLiteral("-i") << selectedAudioExternalPath;
+    }
+    baseArgs << QStringLiteral("-t") << length
+             << QStringLiteral("-map") << QStringLiteral("0")
+             << QStringLiteral("-map") << QStringLiteral("-0:a");
+
+    if (!selectedAudioExternalPath.isEmpty() &&
+        QFileInfo::exists(selectedAudioExternalPath)) {
+        baseArgs << QStringLiteral("-map") << QStringLiteral("1:a:0");
+    } else if (selectedAudioFfIndex >= 0) {
+        baseArgs << QStringLiteral("-map")
+                 << QStringLiteral("0:%1").arg(selectedAudioFfIndex);
+    } else if (m_runtimeLogger) {
+        m_runtimeLogger->append(QStringLiteral(
+            "A-B CUT AUDIO: no selected audio stream could be resolved; cut will contain no audio"));
+    }
+    if (selectedAudioFfIndex >= 0 || !selectedAudioExternalPath.isEmpty()) {
+        // Only the selected track is mapped, so make it the default in players
+        // that choose a default audio stream when opening the cut.
+        baseArgs << QStringLiteral("-disposition:a:0") << QStringLiteral("default");
+    }
+    if (m_runtimeLogger) {
+        m_runtimeLogger->append(
+            QStringLiteral("A-B CUT AUDIO: selected_ff_index=%1 external=%2")
+                .arg(selectedAudioFfIndex)
+                .arg(selectedAudioExternalPath.isEmpty()
+                         ? QStringLiteral("no")
+                         : selectedAudioExternalPath));
+    }
 
     const double zoom = getPropertyDouble("video-zoom");
     const double panX = getPropertyDouble("video-pan-x");
