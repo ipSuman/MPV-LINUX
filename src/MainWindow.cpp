@@ -2147,9 +2147,6 @@ void MainWindow::cutAbSelection() {
             m_cutLastLoggedProgressFrame = -1;
             m_cutLastProgressLogAtMs = 0;
             m_cutWatchdogTimer.start();
-            m_cutLastProgressAtMs = m_cutStartedAtMs;
-            m_cutLastLoggedProgressFrame = -1;
-            m_cutWatchdogTimer.start();
             if (m_runtimeLogger) {
                 m_runtimeLogger->append(
                     QStringLiteral("A-B CUT ENCODING FALLBACK: from=hardware encoder=%1 to=software encoder=%2 reason=hardware_attempt_failed exit_code=%3 partial_output_removed=%4 details=%5")
