@@ -1294,7 +1294,21 @@ void MainWindow::showControlsDialog() {
     connect(cutWithZoomButton, &QPushButton::toggled, &dialog, [cutWithZoomButton](bool checked) {
         cutWithZoomButton->setText(checked ? QStringLiteral("Cut with zoom: On") : QStringLiteral("Cut with zoom: Off"));
     });
-    form->addRow(QStringLiteral("A-B cutting"), cutWithZoomButton);
+        form->addRow(QStringLiteral("A-B cutting"), cutWithZoomButton);
+
+    auto* pauseDuringCutButton = new QPushButton(
+        (m_controlSettings ? m_controlSettings->pauseDuringAbCut : true)
+            ? QStringLiteral("Pause playback during cut: On")
+            : QStringLiteral("Pause playback during cut: Off"),
+        &dialog);
+    pauseDuringCutButton->setCheckable(true);
+    pauseDuringCutButton->setChecked(m_controlSettings ? m_controlSettings->pauseDuringAbCut : true);
+    pauseDuringCutButton->setToolTip(QStringLiteral("Temporarily pause playback while an A-B cut is being created. The previous play/pause state is restored when the cut finishes."));
+    connect(pauseDuringCutButton, &QPushButton::toggled, &dialog, [pauseDuringCutButton](bool checked) {
+        pauseDuringCutButton->setText(checked ? QStringLiteral("Pause playback during cut: On")
+                                              : QStringLiteral("Pause playback during cut: Off"));
+    });
+    form->addRow(QStringLiteral("A-B cut playback"), pauseDuringCutButton);
 
     auto* resetResumeChoiceButton = new QPushButton(&dialog);
     QSettings resumeSettings(
@@ -1471,6 +1485,7 @@ void MainWindow::showControlsDialog() {
         speedJump->setCurrentIndex(speedJump->findData(0.10));
         holdSpeed->setKeySequence(QKeySequence(Qt::Key_2));
         cutWithZoomButton->setChecked(false);
+        pauseDuringCutButton->setChecked(true);
     });
 
     connect(buttons, &QDialogButtonBox::accepted, &dialog, [&] {
@@ -1572,6 +1587,7 @@ void MainWindow::showControlsDialog() {
             m_controlSettings->speedJump = m_speedJump;
             m_controlSettings->holdSpeedKey = m_holdSpeedKey;
             m_controlSettings->cutWithZoom = m_cutWithZoom;
+            m_controlSettings->pauseDuringAbCut = pauseDuringCutButton->isChecked();
             m_controlSettings->save();
             applyInterfaceFont(m_controlSettings->fontPath, m_controlSettings->fontFamily, m_controlSettings->fontSize);
         }
@@ -2305,16 +2321,21 @@ void MainWindow::cutAbSelection() {
         m_cutEncoderName.clear();
     }
 
-    // Pause the player before launching FFmpeg so playback decoding/rendering
-    // does not compete with the cut. Preserve whether the user had already
-    // paused and restore that state when the final attempt finishes.
+    // Pausing during A-B cuts is configurable in the Controls window.
+    // Preserve and restore the original playback state only when enabled.
     m_cutWasPaused = getPropertyDouble("pause") >= 0.5;
-    const char* pauseArgs[] = {"set", "pause", "yes", nullptr};
-    const int pauseResult = mpv_command(m_mpv, pauseArgs);
-    m_cutPlaybackPaused = pauseResult >= 0;
+    m_cutPlaybackPaused = false;
+    int pauseResult = -1;
+    const bool pauseDuringCut = m_controlSettings ? m_controlSettings->pauseDuringAbCut : true;
+    if (pauseDuringCut) {
+        const char* pauseArgs[] = {"set", "pause", "yes", nullptr};
+        pauseResult = mpv_command(m_mpv, pauseArgs);
+        m_cutPlaybackPaused = pauseResult >= 0;
+    }
     if (m_runtimeLogger) {
         m_runtimeLogger->append(
-            QStringLiteral("A-B CUT: playback pause requested result=%1 was_paused=%2 encoder=%3")
+            QStringLiteral("A-B CUT: pause_during_cut=%1 pause_command_result=%2 was_paused=%3 encoder=%4")
+                .arg(pauseDuringCut ? QStringLiteral("yes") : QStringLiteral("no"))
                 .arg(pauseResult)
                 .arg(m_cutWasPaused ? QStringLiteral("yes") : QStringLiteral("no"))
                 .arg(m_cutEncoderName.isEmpty() ? QStringLiteral("stream-copy") : m_cutEncoderName));
