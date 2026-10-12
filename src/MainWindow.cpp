@@ -2160,7 +2160,11 @@ void MainWindow::cutAbSelection() {
         if (!isWebm) {
             QProcess encoderProbe;
             encoderProbe.setProcessChannelMode(QProcess::SeparateChannels);
-            encoderProbe.start(ffmpeg, {QStringLiteral("-hide_banner"), QStringLiteral("-encoders")});
+            const QStringList probeArgs = {
+                QStringLiteral("-hide_banner"),
+                QStringLiteral("-encoders")
+            };
+            encoderProbe.start(ffmpeg, probeArgs);
             if (encoderProbe.waitForFinished(1500)) {
                 const QString encoderList =
                     QString::fromLocal8Bit(encoderProbe.readAllStandardOutput()) +
