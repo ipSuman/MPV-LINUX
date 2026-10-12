@@ -2350,13 +2350,16 @@ void MainWindow::cutAbSelection() {
         QString encoder;
         QString hardwareMode;
         if (!isWebm) {
-#ifdef Q_OS_LINUX
-            if (QFileInfo::exists(QStringLiteral("/dev/dri/renderD128")) &&
-                availableEncoders.contains(QStringLiteral("h264_vaapi"))) {
-                encoder = QStringLiteral("h264_vaapi");
-                hardwareMode = QStringLiteral("vaapi");
+            // VA-API was selected on the user's AMD/Ubuntu system immediately
+            // before a system-level restart during a transformed cut. Merely
+            // listing h264_vaapi is not proof that the driver path is stable.
+            // Keep it disabled by default until a safe real-device validation
+            // is available; other hardware encoders remain eligible.
+            const bool vaapiEncoderListed = availableEncoders.contains(QStringLiteral("h264_vaapi"));
+            if (m_runtimeLogger && vaapiEncoderListed) {
+                m_runtimeLogger->append(QStringLiteral(
+                    "A-B CUT ENCODING: backend=vaapi skipped=1 reason=previous_system_restart_during_vaapi_cut"));
             }
-#endif
             if (encoder.isEmpty() && availableEncoders.contains(QStringLiteral("h264_nvenc"))) {
                 encoder = QStringLiteral("h264_nvenc");
                 hardwareMode = QStringLiteral("nvenc");
