@@ -196,6 +196,9 @@ private:
     qint64 m_cutStartedAtMs = 0;
     qint64 m_cutFrameCount = 0;
     QString m_cutProgressBuffer;
+    QTimer m_cutWatchdogTimer;
+    qint64 m_cutLastProgressAtMs = 0;
+    qint64 m_cutLastLoggedProgressFrame = -1;
     void restoreCutPlaybackState();
     bool m_seeking = false;
     bool m_panningVideo = false;
