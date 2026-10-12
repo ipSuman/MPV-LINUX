@@ -2154,9 +2154,13 @@ void MainWindow::cutAbSelection() {
     if (bakeTransform) {
         // Preserve REX Player's display transform order: manual rotation,
         // flips, then crop for the current zoom/pan region.
-        const int rotatedWidth = (normalizedRotation == 90 || normalizedRotation == 270)
+        // Crop dimensions must match the frame dimensions after REX Player's
+        // manual rotation filter. normalizedRotation above is the file's
+        // metadata rotation, not the user-applied VideoTransformer rotation.
+        const int manualRotation = m_videoTransformer ? m_videoTransformer->rotation() : 0;
+        const int rotatedWidth = (manualRotation == 90 || manualRotation == 270)
             ? sourceHeight : sourceWidth;
-        const int rotatedHeight = (normalizedRotation == 90 || normalizedRotation == 270)
+        const int rotatedHeight = (manualRotation == 90 || manualRotation == 270)
             ? sourceWidth : sourceHeight;
 
         QStringList filters;
