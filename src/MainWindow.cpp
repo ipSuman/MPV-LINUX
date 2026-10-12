@@ -2057,6 +2057,8 @@ void MainWindow::cutAbSelection() {
     m_cutStartedAtMs = QDateTime::currentMSecsSinceEpoch();
     m_cutFrameCount = 0;
     m_cutProgressBuffer.clear();
+    m_cutLastProgressAtMs = QDateTime::currentMSecsSinceEpoch();
+    m_cutLastLoggedProgressFrame = -1;
     m_cutProcess = new QProcess(this);
     m_cutProcess->setProcessChannelMode(QProcess::SeparateChannels);
     m_cutAbButton->setEnabled(false);
@@ -2072,12 +2074,52 @@ void MainWindow::cutAbSelection() {
             if (line.startsWith(QStringLiteral("frame="))) {
                 bool ok = false;
                 const qint64 frames = line.mid(6).trimmed().toLongLong(&ok);
-                if (ok && frames >= 0) m_cutFrameCount = frames;
+                if (ok && frames >= 0) {
+                    m_cutFrameCount = frames;
+                    m_cutLastProgressAtMs = QDateTime::currentMSecsSinceEpoch();
+                    if (m_runtimeLogger && frames != m_cutLastLoggedProgressFrame) {
+                        m_cutLastLoggedProgressFrame = frames;
+                        m_runtimeLogger->append(QStringLiteral("A-B CUT PROGRESS: encoder=%1 frames=%2 elapsed_ms=%3")
+                            .arg(m_cutEncoderName)
+                            .arg(frames)
+                            .arg(m_cutStartedAtMs > 0 ? QDateTime::currentMSecsSinceEpoch() - m_cutStartedAtMs : 0));
+                    }
+                }
+            } else if (line.startsWith(QStringLiteral("out_time=")) ||
+                       line.startsWith(QStringLiteral("out_time_ms=")) ||
+                       line.startsWith(QStringLiteral("progress="))) {
+                m_cutLastProgressAtMs = QDateTime::currentMSecsSinceEpoch();
             }
         }
     });
 
+    m_cutLastProgressAtMs = QDateTime::currentMSecsSinceEpoch();
+    m_cutLastLoggedProgressFrame = -1;
+    m_cutWatchdogTimer.stop();
+    m_cutWatchdogTimer.setInterval(1000);
+    m_cutWatchdogTimer.setSingleShot(false);
+    connect(&m_cutWatchdogTimer, &QTimer::timeout, this, [this] {
+        if (!m_cutProcess || m_cutProcess->state() == QProcess::NotRunning) {
+            m_cutWatchdogTimer.stop();
+            return;
+        }
+        if (!m_cutUsingHardwareEncoder) return;
+        const qint64 now = QDateTime::currentMSecsSinceEpoch();
+        const qint64 silentMs = now - m_cutLastProgressAtMs;
+        if (silentMs >= 20000) {
+            if (m_runtimeLogger) {
+                m_runtimeLogger->append(QStringLiteral(
+                    "A-B CUT WATCHDOG: hardware encoder=%1 made no progress for %2 ms; terminating hardware attempt to trigger software fallback")
+                    .arg(m_cutEncoderName).arg(silentMs));
+            }
+            m_cutWatchdogTimer.stop();
+            m_cutProcess->kill();
+        }
+    });
+    m_cutWatchdogTimer.start();
+
     connect(m_cutProcess, &QProcess::finished, this, [this](int exitCode, QProcess::ExitStatus exitStatus) {
+        m_cutWatchdogTimer.stop();
         const QString error = QString::fromLocal8Bit(m_cutProcess->readAllStandardError()).trimmed();
         const QString output = m_cutOutputPath;
         const bool success = exitStatus == QProcess::NormalExit && exitCode == 0 &&
@@ -2094,6 +2136,12 @@ void MainWindow::cutAbSelection() {
             m_cutStartedAtMs = QDateTime::currentMSecsSinceEpoch();
             m_cutFrameCount = 0;
             m_cutProgressBuffer.clear();
+            m_cutLastProgressAtMs = m_cutStartedAtMs;
+            m_cutLastLoggedProgressFrame = -1;
+            m_cutWatchdogTimer.start();
+            m_cutLastProgressAtMs = m_cutStartedAtMs;
+            m_cutLastLoggedProgressFrame = -1;
+            m_cutWatchdogTimer.start();
             if (m_runtimeLogger) {
                 m_runtimeLogger->append(
                     QStringLiteral("A-B CUT ENCODING FALLBACK: from=hardware encoder=%1 to=software encoder=%2 reason=hardware_attempt_failed exit_code=%3 partial_output_removed=%4 details=%5")
@@ -2115,6 +2163,7 @@ void MainWindow::cutAbSelection() {
 
         // Keep the playback decoder and pause state unchanged across a hardware
         // failure/software retry. Restore both only after the final attempt.
+        m_cutWatchdogTimer.stop();
         restoreCutPlaybackState();
 
         if (success) {
@@ -2204,6 +2253,7 @@ void MainWindow::cutAbSelection() {
 
     connect(m_cutProcess, &QProcess::errorOccurred, this, [this](QProcess::ProcessError error) {
         if (error != QProcess::FailedToStart) return;
+        m_cutWatchdogTimer.stop();
         const QString message = QStringLiteral("FFmpeg could not be started: %1")
             .arg(m_cutProcess ? m_cutProcess->errorString() : QStringLiteral("unknown process error"));
         if (m_cutUsingHardwareEncoder && !m_cutSoftwareFallbackArgs.isEmpty() && m_cutProcess) {
@@ -2594,6 +2644,8 @@ void MainWindow::cutAbSelection() {
                 .arg(m_cutWasPaused ? QStringLiteral("yes") : QStringLiteral("no"))
                 .arg(m_cutEncoderName.isEmpty() ? QStringLiteral("stream-copy") : m_cutEncoderName));
     }
+    m_cutLastProgressAtMs = QDateTime::currentMSecsSinceEpoch();
+    m_cutWatchdogTimer.start();
     m_cutProcess->start(ffmpeg, args);
 }
 
