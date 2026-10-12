@@ -1818,7 +1818,14 @@ double MainWindow::getPropertyDouble(const char* name) const { if (!m_mpv) retur
 QString MainWindow::getPropertyString(const char* name) const { if (!m_mpv) return {}; char* value = nullptr; if (mpv_get_property(m_mpv, name, MPV_FORMAT_STRING, &value) < 0 || !value) return {}; const QString result = QString::fromUtf8(value); mpv_free(value); return result; }
 void MainWindow::setPropertyDouble(const char* name, double value) {
     if (!m_mpv) return;
-    m_runtimeLogger->append(QStringLiteral("SET_PROPERTY async: %1=%2").arg(QString::fromUtf8(name)).arg(QString::number(value, 'g', 12)));
+    const QString propertyName = QString::fromUtf8(name);
+    // Pan values change on nearly every mouse-move event. Keep routine pan
+    // updates out of normal logs; verbose mode still records them for diagnosis.
+    if (m_verboseLogging || (propertyName != QStringLiteral("video-pan-x") &&
+                             propertyName != QStringLiteral("video-pan-y"))) {
+        m_runtimeLogger->append(QStringLiteral("SET_PROPERTY async: %1=%2")
+            .arg(propertyName).arg(QString::number(value, 'g', 12)));
+    }
     const int result = mpv_set_property_async(m_mpv, 0, name, MPV_FORMAT_DOUBLE, &value);
     if (result < 0) m_runtimeLogger->append(QStringLiteral("SET_PROPERTY submit FAILED: %1 result=%2").arg(QString::fromUtf8(name)).arg(result));
 }
@@ -1990,9 +1997,28 @@ void MainWindow::cutAbSelection() {
     m_cutSoftwareFallbackArgs.clear();
     m_cutEncoderName.clear();
     m_cutUsingHardwareEncoder = false;
+    m_cutStartedAtMs = QDateTime::currentMSecsSinceEpoch();
+    m_cutFrameCount = 0;
+    m_cutProgressBuffer.clear();
     m_cutProcess = new QProcess(this);
     m_cutProcess->setProcessChannelMode(QProcess::SeparateChannels);
     m_cutAbButton->setEnabled(false);
+
+    // Parse FFmpeg's machine-readable progress stream for an accurate frame
+    // count, without writing per-frame progress into the runtime log.
+    connect(m_cutProcess, &QProcess::readyReadStandardOutput, this, [this] {
+        m_cutProgressBuffer += QString::fromLocal8Bit(m_cutProcess->readAllStandardOutput());
+        int newline = -1;
+        while ((newline = m_cutProgressBuffer.indexOf(QLatin1Char('\n'))) >= 0) {
+            const QString line = m_cutProgressBuffer.left(newline).trimmed();
+            m_cutProgressBuffer.remove(0, newline + 1);
+            if (line.startsWith(QStringLiteral("frame="))) {
+                bool ok = false;
+                const qint64 frames = line.mid(6).trimmed().toLongLong(&ok);
+                if (ok && frames >= 0) m_cutFrameCount = frames;
+            }
+        }
+    });
 
     connect(m_cutProcess, &QProcess::finished, this, [this](int exitCode, QProcess::ExitStatus exitStatus) {
         const QString error = QString::fromLocal8Bit(m_cutProcess->readAllStandardError()).trimmed();
@@ -2008,6 +2034,10 @@ void MainWindow::cutAbSelection() {
             const QString failedHardwareEncoder = m_cutEncoderName;
             m_cutUsingHardwareEncoder = false;
             m_cutEncoderName = QStringLiteral("libx264 (software fallback)");
+            // Measure the retry independently, excluding the failed hardware attempt.
+            m_cutStartedAtMs = QDateTime::currentMSecsSinceEpoch();
+            m_cutFrameCount = 0;
+            m_cutProgressBuffer.clear();
             if (m_runtimeLogger) {
                 m_runtimeLogger->append(
                     QStringLiteral("A-B CUT ENCODING FALLBACK: from=hardware encoder=%1 to=software encoder=%2 reason=hardware_attempt_failed exit_code=%3 details=%4")
@@ -2034,6 +2064,14 @@ void MainWindow::cutAbSelection() {
                  (m_videoTransformer && m_videoTransformer->hasTransforms()))
                 ? QStringLiteral("The current zoom/pan/rotation/flip was baked into the video, so the video was re-encoded; audio/subtitles were copied when supported.")
                 : QStringLiteral("Streams were copied without re-encoding. Because this is stream-copy cutting, the start may align to a nearby keyframe.");
+            const qint64 elapsedMs = QDateTime::currentMSecsSinceEpoch() - m_cutStartedAtMs;
+            double averageFps = 0.0;
+            if (m_cutFrameCount > 0 && elapsedMs > 0 && !m_cutEncoderName.isEmpty()) {
+                averageFps = static_cast<double>(m_cutFrameCount) * 1000.0 /
+                             static_cast<double>(elapsedMs);
+                completionDetails += QStringLiteral("\nAverage encoding FPS: %1")
+                    .arg(averageFps, 0, 'f', 2);
+            }
             if (!m_cutEncoderName.isEmpty()) {
                 completionDetails += QStringLiteral("\n\nVideo encoder: %1").arg(m_cutEncoderName);
             }
@@ -2042,12 +2080,15 @@ void MainWindow::cutAbSelection() {
                 QStringLiteral("Saved:\n%1\n\n%2").arg(output, completionDetails));
             if (m_runtimeLogger) {
                 m_runtimeLogger->append(
-                    QStringLiteral("A-B CUT ENCODING RESULT: mode=%1 encoder=%2 output=%3")
+                    QStringLiteral("A-B CUT ENCODING RESULT: mode=%1 encoder=%2 average_fps=%3 frames=%4 elapsed_ms=%5 output=%6")
                         .arg(m_cutEncoderName.contains(QStringLiteral("fallback"))
                                  ? QStringLiteral("software-fallback")
                                  : (m_cutUsingHardwareEncoder ? QStringLiteral("hardware") :
                                     (m_cutEncoderName.isEmpty() ? QStringLiteral("stream-copy") : QStringLiteral("software"))),
                              m_cutEncoderName.isEmpty() ? QStringLiteral("stream-copy") : m_cutEncoderName,
+                             averageFps > 0.0 ? QString::number(averageFps, 'f', 2) : QStringLiteral("n/a"),
+                             QString::number(m_cutFrameCount),
+                             QString::number(elapsedMs),
                              output));
                 m_runtimeLogger->append(QStringLiteral("A-B CUT: completed encoder=%1 output=%2")
                     .arg(m_cutEncoderName.isEmpty() ? QStringLiteral("stream copy") : m_cutEncoderName,
@@ -2162,6 +2203,8 @@ void MainWindow::cutAbSelection() {
                      << QStringLiteral("-c:s") << QStringLiteral("copy")
                      << QStringLiteral("-c:d") << QStringLiteral("copy")
                      << QStringLiteral("-avoid_negative_ts") << QStringLiteral("make_zero")
+                     << QStringLiteral("-progress") << QStringLiteral("pipe:1")
+                     << QStringLiteral("-nostats")
                      << QStringLiteral("-y") << outputPath;
 
         args = softwareArgs;
@@ -2230,6 +2273,8 @@ void MainWindow::cutAbSelection() {
                          << QStringLiteral("-c:s") << QStringLiteral("copy")
                          << QStringLiteral("-c:d") << QStringLiteral("copy")
                          << QStringLiteral("-avoid_negative_ts") << QStringLiteral("make_zero")
+                         << QStringLiteral("-progress") << QStringLiteral("pipe:1")
+                         << QStringLiteral("-nostats")
                          << QStringLiteral("-y") << outputPath;
 
             args = hardwareArgs;
@@ -2258,6 +2303,8 @@ void MainWindow::cutAbSelection() {
         // stream-copy path.
         args << QStringLiteral("-c") << QStringLiteral("copy")
              << QStringLiteral("-avoid_negative_ts") << QStringLiteral("make_zero")
+             << QStringLiteral("-progress") << QStringLiteral("pipe:1")
+             << QStringLiteral("-nostats")
              << QStringLiteral("-y") << outputPath;
         m_cutEncoderName.clear();
     }
