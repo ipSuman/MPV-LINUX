@@ -2412,23 +2412,17 @@ void MainWindow::cutAbSelection() {
         QString encoder;
         QString hardwareMode;
         if (!isWebm) {
-            // VAAPI stays disabled pending a deliberate validation on this
-            // machine. Never trust -encoders alone: initialize each candidate
-            // against a tiny synthetic frame and only select it if FFmpeg can
-            // actually create an encoder/device context.
-            if (availableEncoders.contains(QStringLiteral("h264_vaapi")) && m_runtimeLogger) {
-                m_runtimeLogger->append(QStringLiteral(
-                    "A-B CUT ENCODING: backend=vaapi skipped=1 reason=disabled_pending_safe_validation"));
-            }
+            // A listed encoder is not proof that the device works. On Linux,
+            // validate VAAPI by opening the render node and actually uploading
+            // and encoding a frame before selecting it. Keep other platform
+            // encoders behind the same initialization probe.
             QStringList candidates;
 #ifdef Q_OS_WIN
             candidates << QStringLiteral("h264_amf") << QStringLiteral("h264_nvenc")
                        << QStringLiteral("h264_qsv");
 #else
-            // Linux builds may list encoders for GPUs that are not installed.
-            // Probe only NVIDIA and Intel encoders here; VAAPI remains opt-in
-            // after the prior system restart, and AMF is not a Linux backend.
-            candidates << QStringLiteral("h264_nvenc") << QStringLiteral("h264_qsv");
+            candidates << QStringLiteral("h264_vaapi") << QStringLiteral("h264_nvenc")
+                       << QStringLiteral("h264_qsv");
 #endif
             for (const QString& candidate : candidates) {
                 if (!availableEncoders.contains(candidate)) {
@@ -2437,19 +2431,36 @@ void MainWindow::cutAbSelection() {
                     continue;
                 }
                 QStringList probeArgs = {
-                    QStringLiteral("-hide_banner"), QStringLiteral("-loglevel"), QStringLiteral("error"),
-                    QStringLiteral("-f"), QStringLiteral("lavfi"), QStringLiteral("-i"),
-                    QStringLiteral("color=c=black:s=64x64:d=0.1"),
-                    QStringLiteral("-frames:v"), QStringLiteral("1"),
-                    QStringLiteral("-threads"), QStringLiteral("1"),
-                    QStringLiteral("-c:v"), candidate,
-                    QStringLiteral("-f"), QStringLiteral("null"), QStringLiteral("-")
+                    QStringLiteral("-hide_banner"), QStringLiteral("-loglevel"), QStringLiteral("error")
                 };
+                if (candidate == QStringLiteral("h264_vaapi")) {
+                    if (!QFileInfo::exists(QStringLiteral("/dev/dri/renderD128"))) {
+                        if (m_runtimeLogger)
+                            m_runtimeLogger->append(QStringLiteral(
+                                "A-B CUT ENCODING PROBE: encoder=h264_vaapi usable=no reason=render_node_missing path=/dev/dri/renderD128"));
+                        continue;
+                    }
+                    probeArgs << QStringLiteral("-vaapi_device") << QStringLiteral("/dev/dri/renderD128");
+                }
+                probeArgs << QStringLiteral("-f") << QStringLiteral("lavfi")
+                          << QStringLiteral("-i") << QStringLiteral("color=c=black:s=64x64:d=0.1");
+                if (candidate == QStringLiteral("h264_vaapi"))
+                    probeArgs << QStringLiteral("-vf") << QStringLiteral("format=nv12,hwupload");
+                probeArgs << QStringLiteral("-frames:v") << QStringLiteral("1")
+                          << QStringLiteral("-threads") << QStringLiteral("1")
+                          << QStringLiteral("-c:v") << candidate;
+                if (candidate == QStringLiteral("h264_vaapi"))
+                    probeArgs << QStringLiteral("-qp") << QStringLiteral("18");
+                probeArgs << QStringLiteral("-f") << QStringLiteral("null") << QStringLiteral("-");
+
                 QProcess probe;
                 probe.start(ffmpeg, probeArgs);
                 const bool probeStarted = probe.waitForStarted(1000);
-                const bool probeFinished = probeStarted && probe.waitForFinished(2500);
-                if (!probeFinished) probe.kill();
+                const bool probeFinished = probeStarted && probe.waitForFinished(3500);
+                if (!probeFinished) {
+                    probe.kill();
+                    probe.waitForFinished(500);
+                }
                 const QString probeError = QString::fromLocal8Bit(probe.readAllStandardError()).trimmed();
                 const bool usable = probeFinished && probe.exitStatus() == QProcess::NormalExit &&
                                     probe.exitCode() == 0;
@@ -2462,7 +2473,8 @@ void MainWindow::cutAbSelection() {
                 }
                 if (usable) {
                     encoder = candidate;
-                    hardwareMode = candidate == QStringLiteral("h264_nvenc") ? QStringLiteral("nvenc")
+                    hardwareMode = candidate == QStringLiteral("h264_vaapi") ? QStringLiteral("vaapi")
+                                 : candidate == QStringLiteral("h264_nvenc") ? QStringLiteral("nvenc")
                                  : candidate == QStringLiteral("h264_amf") ? QStringLiteral("amf")
                                  : QStringLiteral("qsv");
                     break;
