@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QMainWindow>
+#include <QStringList>
 #include <atomic>
 #include <QPointF>
 #include <QKeySequence>
@@ -184,6 +185,10 @@ private:
     QFont m_defaultApplicationFont;
     std::atomic_bool m_mpvWakeQueued{false};
     QString m_cutOutputPath;
+    QString m_cutFfmpegPath;
+    QStringList m_cutSoftwareFallbackArgs;
+    QString m_cutEncoderName;
+    bool m_cutUsingHardwareEncoder = false;
     bool m_seeking = false;
     bool m_panningVideo = false;
     QPointF m_panStart;
