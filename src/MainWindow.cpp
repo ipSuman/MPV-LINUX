@@ -2374,9 +2374,10 @@ void MainWindow::cutAbSelection() {
             QStringList hardwareArgs = baseArgs;
             if (hardwareMode == QStringLiteral("vaapi")) {
                 const int inputIndex = hardwareArgs.indexOf(QStringLiteral("-i"));
-                if (inputIndex >= 0)
-                    hardwareArgs.insert(inputIndex, {QStringLiteral("-vaapi_device"),
-                                                     QStringLiteral("/dev/dri/renderD128")});
+                if (inputIndex >= 0) {
+                    hardwareArgs.insert(inputIndex, QStringLiteral("/dev/dri/renderD128"));
+                    hardwareArgs.insert(inputIndex, QStringLiteral("-vaapi_device"));
+                }
                 hardwareFilters << QStringLiteral("format=nv12") << QStringLiteral("hwupload");
             }
             hardwareArgs << QStringLiteral("-vf") << hardwareFilters.join(QLatin1Char(','))
