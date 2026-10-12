@@ -2153,16 +2153,10 @@ void MainWindow::cutAbSelection() {
     QStringList args = baseArgs;
     if (bakeTransform) {
         // Preserve REX Player's display transform order: manual rotation,
-        // flips, then crop for the current zoom/pan region.
-        // Crop dimensions must match the frame dimensions after REX Player's
-        // manual rotation filter. normalizedRotation above is the file's
-        // metadata rotation, not the user-applied VideoTransformer rotation.
-        const int manualRotation = m_videoTransformer ? m_videoTransformer->rotation() : 0;
-        const int rotatedWidth = (manualRotation == 90 || manualRotation == 270)
-            ? sourceHeight : sourceWidth;
-        const int rotatedHeight = (manualRotation == 90 || manualRotation == 270)
-            ? sourceWidth : sourceHeight;
-
+        // flips, then crop for the current zoom/pan region. Use FFmpeg's own
+        // input-frame dimensions in the crop expressions: mpv's reported
+        // dimensions can differ from FFmpeg's decoded frame dimensions
+        // (notably with display-rotation metadata), causing crop to fail.
         QStringList filters;
         if (m_videoTransformer && m_videoTransformer->rotation() == 90) {
             filters << QStringLiteral("transpose=clock");
@@ -2175,20 +2169,18 @@ void MainWindow::cutAbSelection() {
         if (bakeFlipVertical) filters << QStringLiteral("vflip");
 
         if (bakeZoom) {
-            const int cropWidth = std::max(2, std::min(rotatedWidth,
-                static_cast<int>(std::floor(rotatedWidth / zoomFactor / 2.0) * 2.0)));
-            const int cropHeight = std::max(2, std::min(rotatedHeight,
-                static_cast<int>(std::floor(rotatedHeight / zoomFactor / 2.0) * 2.0)));
-            const int maxX = rotatedWidth - cropWidth;
-            const int maxY = rotatedHeight - cropHeight;
-            const int centerX = static_cast<int>(std::lround(
-                (rotatedWidth - cropWidth) / 2.0 - panX * rotatedWidth));
-            const int centerY = static_cast<int>(std::lround(
-                (rotatedHeight - cropHeight) / 2.0 - panY * rotatedHeight));
-            const int cropX = std::clamp(centerX, 0, maxX);
-            const int cropY = std::clamp(centerY, 0, maxY);
+            // Compute crop size/position from the actual frame entering the
+            // filter, after any preceding transpose/flip filters. Keep crop
+            // dimensions even for common chroma-subsampled pixel formats.
+            const QString zoomText = QString::number(zoomFactor, 'f', 8);
+            const QString panXText = QString::number(panX, 'f', 8);
+            const QString panYText = QString::number(panY, 'f', 8);
+            const QString cropWidth = QStringLiteral("max(2\,trunc(iw/%1/2)*2)").arg(zoomText);
+            const QString cropHeight = QStringLiteral("max(2\,trunc(ih/%1/2)*2)").arg(zoomText);
+            const QString cropX = QStringLiteral("(iw-ow)/2-%1*iw").arg(panXText);
+            const QString cropY = QStringLiteral("(ih-oh)/2-%1*ih").arg(panYText);
             filters << QStringLiteral("crop=%1:%2:%3:%4")
-                .arg(cropWidth).arg(cropHeight).arg(cropX).arg(cropY);
+                .arg(cropWidth, cropHeight, cropX, cropY);
         }
 
         const bool isWebm = suffix.compare(QStringLiteral("webm"), Qt::CaseInsensitive) == 0;
