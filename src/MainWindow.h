@@ -26,6 +26,7 @@ class QDockWidget;
 class QKeyEvent;
 class QShortcut;
 class QProcess;
+class QProgressBar;
 class AudioExporter;
 class RuntimeLogger;
 class PlaybackPositionManager;
@@ -165,6 +166,7 @@ private:
     QPushButton* m_seekBackButton = nullptr;
     QPushButton* m_seekForwardButton = nullptr;
     QPushButton* m_cutAbButton = nullptr;
+    QProgressBar* m_cutProgressBar = nullptr;
     QPushButton* m_saveAudioButton = nullptr;
     QPushButton* m_speedButton = nullptr;
     QPushButton* m_rotateButton = nullptr;
@@ -195,6 +197,8 @@ private:
     bool m_cutPlaybackPaused = false;
     qint64 m_cutStartedAtMs = 0;
     qint64 m_cutFrameCount = 0;
+    qint64 m_cutExpectedDurationUs = 0;
+    qint64 m_cutProgressUs = 0;
     QString m_cutProgressBuffer;
     QTimer m_cutWatchdogTimer;
     qint64 m_cutLastProgressAtMs = 0;
