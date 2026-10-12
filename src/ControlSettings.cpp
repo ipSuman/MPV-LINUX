@@ -65,6 +65,7 @@ void ControlSettings::load() {
 #undef LOAD_KEY
 
     cutWithZoom = settings.value(QStringLiteral("controls/cutWithZoom"), cutWithZoom).toBool();
+    pauseDuringAbCut = settings.value(QStringLiteral("controls/pauseDuringAbCut"), pauseDuringAbCut).toBool();
 }
 
 bool ControlSettings::saveToFile(const QString& filePath) const {
@@ -113,6 +114,7 @@ bool ControlSettings::saveToFile(const QString& filePath) const {
 #undef SAVE_PROFILE_KEY
     settings.setValue(QStringLiteral("controls/speedJump"), speedJump);
     settings.setValue(QStringLiteral("controls/cutWithZoom"), cutWithZoom);
+    settings.setValue(QStringLiteral("controls/pauseDuringAbCut"), pauseDuringAbCut);
     settings.sync();
     return settings.status() == QSettings::NoError;
 }
