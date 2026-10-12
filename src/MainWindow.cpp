@@ -1955,6 +1955,36 @@ void MainWindow::updateAbLoopLabel() { if (!m_abLoopLabel) return; if (m_abLoopS
 void MainWindow::stepFrame(bool forward) { const char* args[] = {forward ? "frame-step" : "frame-back-step", nullptr}; command(args); }
 void MainWindow::toggleHardwareDecoding() { if (!m_mpv) return; const char* args[] = {"cycle-values", "hwdec", "auto", "no", nullptr}; command(args); }
 
+void MainWindow::restoreCutPlaybackState() {
+    if (!m_mpv) return;
+
+    if (m_cutHwdecChanged) {
+        const QByteArray original = m_cutOriginalHwdec.toUtf8();
+        const int result = mpv_set_property_string(m_mpv, "hwdec", original.constData());
+        if (m_runtimeLogger) {
+            m_runtimeLogger->append(
+                QStringLiteral("A-B CUT RESTORE: hwdec=%1 result=%2")
+                    .arg(m_cutOriginalHwdec, QString::number(result)));
+        }
+        m_cutHwdecChanged = false;
+        m_cutOriginalHwdec.clear();
+    }
+
+    if (m_cutPlaybackPaused) {
+        const char* restorePauseArgs[] = {
+            "set", "pause", m_cutWasPaused ? "yes" : "no", nullptr
+        };
+        const int result = mpv_command(m_mpv, restorePauseArgs);
+        if (m_runtimeLogger) {
+            m_runtimeLogger->append(
+                QStringLiteral("A-B CUT RESTORE: playback=%1 pause_command_result=%2")
+                    .arg(m_cutWasPaused ? QStringLiteral("paused") : QStringLiteral("playing"))
+                    .arg(result));
+        }
+        m_cutPlaybackPaused = false;
+    }
+}
+
 void MainWindow::cutAbSelection() {
     if (!m_mpv) return;
     if (m_abLoopStart < 0.0 || m_abLoopEnd <= m_abLoopStart) {
@@ -2069,19 +2099,9 @@ void MainWindow::cutAbSelection() {
             return;
         }
 
-        // Keep playback paused through hardware/software fallback attempts, then
-        // restore the exact pre-cut pause state once the final attempt ends.
-        if (m_cutPlaybackPaused && m_mpv) {
-            const char* restorePauseArgs[] = {
-                "set", "pause", m_cutWasPaused ? "yes" : "no", nullptr
-            };
-            mpv_command(m_mpv, restorePauseArgs);
-            if (m_runtimeLogger) {
-                m_runtimeLogger->append(QStringLiteral("A-B CUT: playback pause restored to %1")
-                    .arg(m_cutWasPaused ? QStringLiteral("paused") : QStringLiteral("playing")));
-            }
-            m_cutPlaybackPaused = false;
-        }
+        // Keep the playback decoder and pause state unchanged across a hardware
+        // failure/software retry. Restore both only after the final attempt.
+        restoreCutPlaybackState();
 
         if (success) {
             showToast(QStringLiteral("A-B Cut Saved"));
@@ -2143,6 +2163,27 @@ void MainWindow::cutAbSelection() {
         m_cutSoftwareFallbackArgs.clear();
         m_cutEncoderName.clear();
         m_cutUsingHardwareEncoder = false;
+    });
+
+    connect(m_cutProcess, &QProcess::errorOccurred, this, [this](QProcess::ProcessError error) {
+        if (error != QProcess::FailedToStart) return;
+        const QString message = QStringLiteral("FFmpeg could not be started: %1")
+            .arg(m_cutProcess ? m_cutProcess->errorString() : QStringLiteral("unknown process error"));
+        if (m_runtimeLogger) m_runtimeLogger->append(QStringLiteral("A-B CUT: process start failed: %1").arg(message));
+        restoreCutPlaybackState();
+        if (m_cutProcess) {
+            m_cutProcess->deleteLater();
+            m_cutProcess = nullptr;
+        }
+        if (m_cutAbButton) m_cutAbButton->setEnabled(true);
+        if (!m_cutOutputPath.isEmpty() && QFileInfo::exists(m_cutOutputPath))
+            QFile::remove(m_cutOutputPath);
+        m_cutOutputPath.clear();
+        m_cutFfmpegPath.clear();
+        m_cutSoftwareFallbackArgs.clear();
+        m_cutEncoderName.clear();
+        m_cutUsingHardwareEncoder = false;
+        QMessageBox::warning(this, QStringLiteral("A-B cut failed"), message);
     });
 
     // Resolve the audio track currently selected by mpv. Internal tracks use
@@ -2239,7 +2280,8 @@ void MainWindow::cutAbSelection() {
                                      m_videoTransformer && m_videoTransformer->flipHorizontal();
     const bool bakeFlipVertical = m_cutWithZoom && sourceWidth > 0 && sourceHeight > 0 &&
                                    m_videoTransformer && m_videoTransformer->flipVertical();
-    const bool bakeTransform = bakeZoom || bakeRotation || bakeFlipHorizontal || bakeFlipVertical;
+    const bool bakeTransform = bakeZoom || bakeRotation || bakeFlipHorizontal || bakeFlipVertical ||
+                               (m_videoTransformer && m_videoTransformer->hasTransforms());
 
     QStringList args = baseArgs;
     if (bakeTransform) {
@@ -2293,23 +2335,97 @@ void MainWindow::cutAbSelection() {
                      << QStringLiteral("-progress") << QStringLiteral("pipe:1")
                      << QStringLiteral("-nostats")
                      << QStringLiteral("-y") << outputPath;
+        m_cutSoftwareFallbackArgs = isWebm ? QStringList() : softwareArgs;
 
-        args = softwareArgs;
-        m_cutEncoderName = isWebm ? QStringLiteral("libvpx-vp9") : QStringLiteral("libx264");
+        // Probe the installed FFmpeg encoder list. A listed encoder can still
+        // fail at runtime (driver/device initialization), so keep software args
+        // ready and retry them if the hardware attempt fails.
+        QString availableEncoders;
+        QProcess encoderProbe;
+        encoderProbe.start(ffmpeg, {QStringLiteral("-hide_banner"), QStringLiteral("-encoders")});
+        if (encoderProbe.waitForFinished(5000) && encoderProbe.exitCode() == 0)
+            availableEncoders = QString::fromLocal8Bit(encoderProbe.readAllStandardOutput()) +
+                                QString::fromLocal8Bit(encoderProbe.readAllStandardError());
 
-        // Keep transformed cuts on software encoding. On systems where mpv is
-        // using a hardware decoder, running a second hardware video pipeline
-        // can overload or destabilize the GPU/driver. Playback is paused for
-        // the duration of the cut as an additional safety measure.
-        m_cutUsingHardwareEncoder = false;
-        m_cutEncoderName = isWebm ? QStringLiteral("libvpx-vp9") : QStringLiteral("libx264");
-        if (m_runtimeLogger) {
-            m_runtimeLogger->append(
-                QStringLiteral("A-B CUT ENCODING: mode=software encoder=%1 reason=stability_no_parallel_hardware_encode")
-                    .arg(m_cutEncoderName));
-            m_runtimeLogger->append(QStringLiteral("A-B CUT: transform re-encode selected encoder=%1")
-                .arg(m_cutEncoderName));
+        QString encoder;
+        QString hardwareMode;
+        if (!isWebm) {
+#ifdef Q_OS_LINUX
+            if (QFileInfo::exists(QStringLiteral("/dev/dri/renderD128")) &&
+                availableEncoders.contains(QStringLiteral("h264_vaapi"))) {
+                encoder = QStringLiteral("h264_vaapi");
+                hardwareMode = QStringLiteral("vaapi");
+            }
+#endif
+            if (encoder.isEmpty() && availableEncoders.contains(QStringLiteral("h264_nvenc"))) {
+                encoder = QStringLiteral("h264_nvenc");
+                hardwareMode = QStringLiteral("nvenc");
+            } else if (encoder.isEmpty() && availableEncoders.contains(QStringLiteral("h264_amf"))) {
+                encoder = QStringLiteral("h264_amf");
+                hardwareMode = QStringLiteral("amf");
+            } else if (encoder.isEmpty() && availableEncoders.contains(QStringLiteral("h264_qsv"))) {
+                encoder = QStringLiteral("h264_qsv");
+                hardwareMode = QStringLiteral("qsv");
+            }
         }
+
+        if (!encoder.isEmpty()) {
+            QStringList hardwareFilters = filters;
+            QStringList hardwareArgs = baseArgs;
+            if (hardwareMode == QStringLiteral("vaapi")) {
+                const int inputIndex = hardwareArgs.indexOf(QStringLiteral("-i"));
+                if (inputIndex >= 0)
+                    hardwareArgs.insert(inputIndex, {QStringLiteral("-vaapi_device"),
+                                                     QStringLiteral("/dev/dri/renderD128")});
+                hardwareFilters << QStringLiteral("format=nv12") << QStringLiteral("hwupload");
+            }
+            hardwareArgs << QStringLiteral("-vf") << hardwareFilters.join(QLatin1Char(','))
+                         << QStringLiteral("-c:v") << encoder;
+            if (hardwareMode == QStringLiteral("vaapi")) {
+                hardwareArgs << QStringLiteral("-qp") << QStringLiteral("18");
+            } else if (hardwareMode == QStringLiteral("nvenc")) {
+                hardwareArgs << QStringLiteral("-preset") << QStringLiteral("p4")
+                             << QStringLiteral("-cq") << QStringLiteral("18")
+                             << QStringLiteral("-b:v") << QStringLiteral("0");
+            } else if (hardwareMode == QStringLiteral("amf")) {
+                hardwareArgs << QStringLiteral("-quality") << QStringLiteral("quality")
+                             << QStringLiteral("-qp_i") << QStringLiteral("18")
+                             << QStringLiteral("-qp_p") << QStringLiteral("18");
+            } else if (hardwareMode == QStringLiteral("qsv")) {
+                hardwareArgs << QStringLiteral("-global_quality") << QStringLiteral("18")
+                             << QStringLiteral("-preset") << QStringLiteral("medium");
+            }
+            hardwareArgs << QStringLiteral("-c:a") << QStringLiteral("copy")
+                         << QStringLiteral("-c:s") << QStringLiteral("copy")
+                         << QStringLiteral("-c:d") << QStringLiteral("copy")
+                         << QStringLiteral("-avoid_negative_ts") << QStringLiteral("make_zero")
+                         << QStringLiteral("-progress") << QStringLiteral("pipe:1")
+                         << QStringLiteral("-nostats")
+                         << QStringLiteral("-y") << outputPath;
+            args = hardwareArgs;
+            m_cutUsingHardwareEncoder = true;
+            m_cutEncoderName = encoder;
+            if (m_runtimeLogger) {
+                m_runtimeLogger->append(QStringLiteral("A-B CUT ENCODING: selected=hardware encoder=%1 backend=%2")
+                    .arg(encoder, hardwareMode));
+            }
+        } else {
+            args = softwareArgs;
+            m_cutUsingHardwareEncoder = false;
+            m_cutEncoderName = isWebm ? QStringLiteral("libvpx-vp9") : QStringLiteral("libx264");
+            if (m_runtimeLogger) {
+                m_runtimeLogger->append(QStringLiteral("A-B CUT ENCODING: selected=software encoder=%1 reason=%2")
+                    .arg(m_cutEncoderName, isWebm ? QStringLiteral("webm uses VP9 software encoding")
+                                                   : QStringLiteral("no compatible hardware encoder found")));
+            }
+        }
+        if (m_runtimeLogger)
+            m_runtimeLogger->append(QStringLiteral("A-B CUT: transform re-encode zoom=%1 pan_x=%2 pan_y=%3 rotation=%4 flip_h=%5 flip_v=%6")
+                .arg(bakeZoom ? QStringLiteral("yes") : QStringLiteral("no"))
+                .arg(panX, 0, 'f', 4).arg(panY, 0, 'f', 4)
+                .arg(m_videoTransformer ? m_videoTransformer->rotation() : 0)
+                .arg(bakeFlipHorizontal ? QStringLiteral("yes") : QStringLiteral("no"))
+                .arg(bakeFlipVertical ? QStringLiteral("yes") : QStringLiteral("no")));
     } else {
         // No visual transform needs to be baked. Keep the original fast
         // stream-copy path.
@@ -2319,6 +2435,28 @@ void MainWindow::cutAbSelection() {
              << QStringLiteral("-nostats")
              << QStringLiteral("-y") << outputPath;
         m_cutEncoderName.clear();
+    }
+
+    // Keep MPV playback on software decoding while FFmpeg performs a transformed
+    // cut, reducing the chance of competing hardware decode/encode pipelines.
+    m_cutHwdecChanged = false;
+    m_cutOriginalHwdec.clear();
+    if (bakeTransform) {
+        m_cutOriginalHwdec = getPropertyString("hwdec").trimmed();
+        if (m_cutOriginalHwdec.isEmpty()) m_cutOriginalHwdec = QStringLiteral("auto");
+        if (m_cutOriginalHwdec.compare(QStringLiteral("no"), Qt::CaseInsensitive) != 0) {
+            const QByteArray softwareHwdec = QByteArrayLiteral("no");
+            const int hwdecResult = mpv_set_property_string(m_mpv, "hwdec", softwareHwdec.constData());
+            m_cutHwdecChanged = hwdecResult >= 0;
+            if (m_runtimeLogger) {
+                m_runtimeLogger->append(
+                    QStringLiteral("A-B CUT DECODER: requested=software original=%1 result=%2 changed=%3")
+                        .arg(m_cutOriginalHwdec).arg(hwdecResult)
+                        .arg(m_cutHwdecChanged ? QStringLiteral("yes") : QStringLiteral("no")));
+            }
+        } else if (m_runtimeLogger) {
+            m_runtimeLogger->append(QStringLiteral("A-B CUT DECODER: already using software decoding (hwdec=no)"));
+        }
     }
 
     // Pausing during A-B cuts is configurable in the Controls window.
