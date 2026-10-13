@@ -273,10 +273,10 @@ private:
     int m_saturation = 0;
     int m_brightness = 0;
     int m_contrast = 0;
-    int m_cropWidth = 720;
+    int m_cropWidth = 1280;
     int m_cropHeight = 720;
-    int m_cropXPercent = 50;
-    int m_cropYPercent = 50;
+    int m_cropXPercent = 500;
+    int m_cropYPercent = 500;
     bool m_cropEnabled = false;
     QTimer m_fullscreenHideTimer;
     QTimer m_cursorHideTimer;
