@@ -143,7 +143,7 @@ void selectData(QComboBox* combo, const QVariant& value) {
 enum class MainPanelIcon {
     Fullscreen, Open, Hardware, Cut, SaveAudio, Speed, Equalizer, Previous, SeekBack,
     Play, Pause, SeekForward, Next, Tracks, Playlist, Menu, Controls, Display,
-    Capture, Rotate, FlipH, FlipV, About
+    Capture, Rotate, Crop, FlipH, FlipV, About
 };
 
 QIcon makeMainPanelIcon(MainPanelIcon icon) {
@@ -220,6 +220,8 @@ QIcon makeMainPanelIcon(MainPanelIcon icon) {
         p.setBrush(Qt::NoBrush); p.drawRect(4,7,16,12); p.drawRect(9,5,6,2); p.drawEllipse(QPointF(12,13),3.5,3.5); break;
     case MainPanelIcon::Rotate:
         p.setBrush(Qt::NoBrush); p.drawArc(4,5,16,16,45*16,260*16); p.setBrush(QColor("#ffffff")); p.setPen(Qt::NoPen); p.drawPolygon(QPolygonF{QPointF(5,4),QPointF(5,10),QPointF(10,7)}); break;
+    case MainPanelIcon::Crop:
+        p.setPen(pen); p.setBrush(Qt::NoBrush); p.drawRect(4,4,16,16); p.drawLine(4,9,20,9); p.drawLine(9,4,9,20); p.drawLine(14,4,14,20); p.drawLine(4,14,20,14); break;
     case MainPanelIcon::FlipH:
         p.setPen(pen); p.setBrush(Qt::NoBrush); p.drawRect(4,5,16,14); p.drawLine(12,3,12,21); p.setPen(Qt::NoPen); p.drawPolygon(QPolygonF{QPointF(9,9),QPointF(4,12),QPointF(9,15)}); p.drawPolygon(QPolygonF{QPointF(15,9),QPointF(20,12),QPointF(15,15)}); break;
     case MainPanelIcon::FlipV:
@@ -252,6 +254,7 @@ QString mainPanelTextForIcon(MainPanelIcon icon) {
     case MainPanelIcon::Display: return QStringLiteral("Display");
     case MainPanelIcon::Capture: return QStringLiteral("Capture");
     case MainPanelIcon::Rotate: return QStringLiteral("Rotate");
+    case MainPanelIcon::Crop: return QStringLiteral("Crop");
     case MainPanelIcon::FlipH: return QStringLiteral("Flip H");
     case MainPanelIcon::FlipV: return QStringLiteral("Flip V");
     case MainPanelIcon::About: return QStringLiteral("About");
@@ -611,6 +614,18 @@ void MainWindow::buildUi() {
     playlistButton->setToolTip(QStringLiteral("Show or hide playlist"));
     connect(playlistButton, &QPushButton::clicked, this, &MainWindow::togglePlaylist);
     row1->addWidget(playlistButton);
+
+    m_cropButton = new QPushButton(m_controls);
+    setMainPanelButtonIcon(m_cropButton, MainPanelIcon::Crop, QStringLiteral("Crop"));
+    m_cropButton->setCheckable(true);
+    m_cropButton->setToolTip(QStringLiteral("Crop video: click to enable/disable; right-click to adjust"));
+    connect(m_cropButton, &QPushButton::clicked, this, [this](bool enabled) {
+        m_cropEnabled = enabled;
+        if (enabled) showCropDialog(); else clearVideoCrop();
+    });
+    m_cropButton->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(m_cropButton, &QPushButton::customContextMenuRequested, this, [this](const QPoint&) { showCropDialog(); });
+    row1->addWidget(m_cropButton);
 
     auto* menu = new QPushButton(m_controls);
     setMainPanelButtonIcon(menu, MainPanelIcon::Menu, QStringLiteral("Menu"));
@@ -1975,6 +1990,77 @@ void MainWindow::toggleFlipVertical() {
         .arg(m_videoTransformer->flipVertical() ? QStringLiteral("on") : QStringLiteral("off")));
     m_videoTransformer->apply();
     QTimer::singleShot(100, this, &MainWindow::resizeWindowForVideoAspect);
+}
+
+void MainWindow::showCropDialog() {
+    if (!m_mpv) return;
+    int64_t sourceWidth = 0, sourceHeight = 0;
+    mpv_get_property(m_mpv, "video-params/w", MPV_FORMAT_INT64, &sourceWidth);
+    mpv_get_property(m_mpv, "video-params/h", MPV_FORMAT_INT64, &sourceHeight);
+    const int maxWidth = std::max(2, static_cast<int>(sourceWidth > 0 ? sourceWidth : 7680));
+    const int maxHeight = std::max(2, static_cast<int>(sourceHeight > 0 ? sourceHeight : 4320));
+    QDialog dialog(this);
+    dialog.setWindowTitle(QStringLiteral("Crop"));
+    auto* layout = new QVBoxLayout(&dialog);
+    auto* dimensions = new QHBoxLayout();
+    auto* heightLabel = new QLabel(QStringLiteral("Height"), &dialog);
+    auto* height = new QSpinBox(&dialog);
+    height->setRange(2, maxHeight); height->setSingleStep(2); height->setSuffix(QStringLiteral(" px"));
+    height->setValue(std::clamp(m_cropHeight, 2, maxHeight));
+    auto* separator = new QLabel(QStringLiteral("×"), &dialog);
+    auto* widthLabel = new QLabel(QStringLiteral("Width"), &dialog);
+    auto* width = new QSpinBox(&dialog);
+    width->setRange(2, maxWidth); width->setSingleStep(2); width->setSuffix(QStringLiteral(" px"));
+    width->setValue(std::clamp(m_cropWidth, 2, maxWidth));
+    dimensions->addWidget(heightLabel); dimensions->addWidget(height, 1); dimensions->addWidget(separator);
+    dimensions->addWidget(widthLabel); dimensions->addWidget(width, 1); layout->addLayout(dimensions);
+    auto* verticalLabel = new QLabel(QStringLiteral("Vertical position"), &dialog);
+    auto* vertical = new QSlider(Qt::Horizontal, &dialog);
+    vertical->setRange(0, 1000); vertical->setFixedWidth(200); vertical->setValue(m_cropYPercent);
+    layout->addWidget(verticalLabel); layout->addWidget(vertical, 0, Qt::AlignLeft);
+    auto* horizontalLabel = new QLabel(QStringLiteral("Horizontal position"), &dialog);
+    auto* horizontal = new QSlider(Qt::Horizontal, &dialog);
+    horizontal->setRange(0, 1000); horizontal->setFixedWidth(200); horizontal->setValue(m_cropXPercent);
+    layout->addWidget(horizontalLabel); layout->addWidget(horizontal, 0, Qt::AlignLeft);
+    auto updateCropValues = [this, height, width, vertical, horizontal] {
+        m_cropHeight = height->value(); m_cropWidth = width->value();
+        m_cropYPercent = vertical->value(); m_cropXPercent = horizontal->value();
+        if (m_cropEnabled) applyVideoCrop();
+    };
+    connect(height, qOverload<int>(&QSpinBox::valueChanged), &dialog, [updateCropValues](int) { updateCropValues(); });
+    connect(width, qOverload<int>(&QSpinBox::valueChanged), &dialog, [updateCropValues](int) { updateCropValues(); });
+    connect(vertical, &QSlider::valueChanged, &dialog, [updateCropValues](int) { updateCropValues(); });
+    connect(horizontal, &QSlider::valueChanged, &dialog, [updateCropValues](int) { updateCropValues(); });
+    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Close, &dialog);
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    layout->addWidget(buttons);
+    if (m_cropEnabled) applyVideoCrop();
+    dialog.exec();
+}
+
+void MainWindow::applyVideoCrop() {
+    if (!m_mpv || !m_cropEnabled) return;
+    int64_t sourceWidth = 0, sourceHeight = 0;
+    mpv_get_property(m_mpv, "video-params/w", MPV_FORMAT_INT64, &sourceWidth);
+    mpv_get_property(m_mpv, "video-params/h", MPV_FORMAT_INT64, &sourceHeight);
+    if (sourceWidth < 2 || sourceHeight < 2) return;
+    const int width = std::clamp(m_cropWidth, 2, static_cast<int>(sourceWidth));
+    const int height = std::clamp(m_cropHeight, 2, static_cast<int>(sourceHeight));
+    const double x = static_cast<double>(m_cropXPercent) / 1000.0;
+    const double y = static_cast<double>(m_cropYPercent) / 1000.0;
+    const QString filter = QStringLiteral("@rex-crop:crop=%1:%2:(iw-%1)*%3:(ih-%2)*%4")
+        .arg(width).arg(height).arg(QString::number(x, 'f', 4), QString::number(y, 'f', 4));
+    const char* removeArgs[] = {"vf", "remove", "@rex-crop", nullptr}; command(removeArgs);
+    const QByteArray encoded = filter.toUtf8();
+    const char* addArgs[] = {"vf", "add", encoded.constData(), nullptr}; command(addArgs);
+    if (m_runtimeLogger) m_runtimeLogger->append(QStringLiteral("CROP: enabled width=%1 height=%2 x-position=%3 y-position=%4")
+        .arg(width).arg(height).arg(m_cropXPercent).arg(m_cropYPercent));
+}
+
+void MainWindow::clearVideoCrop() {
+    if (!m_mpv) return;
+    const char* args[] = {"vf", "remove", "@rex-crop", nullptr}; command(args);
+    if (m_runtimeLogger) m_runtimeLogger->append(QStringLiteral("CROP: disabled"));
 }
 
 void MainWindow::resetVideoTransform() { setPropertyDouble("video-zoom", 0.0); setPropertyDouble("video-pan-x", 0.0); setPropertyDouble("video-pan-y", 0.0); m_videoPanX = 0.0; m_videoPanY = 0.0; }
