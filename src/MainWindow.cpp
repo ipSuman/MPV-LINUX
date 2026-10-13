@@ -221,7 +221,16 @@ QIcon makeMainPanelIcon(MainPanelIcon icon) {
     case MainPanelIcon::Rotate:
         p.setBrush(Qt::NoBrush); p.drawArc(4,5,16,16,45*16,260*16); p.setBrush(QColor("#ffffff")); p.setPen(Qt::NoPen); p.drawPolygon(QPolygonF{QPointF(5,4),QPointF(5,10),QPointF(10,7)}); break;
     case MainPanelIcon::Crop:
-        p.setPen(pen); p.setBrush(Qt::NoBrush); p.drawRect(4,4,16,16); p.drawLine(4,9,20,9); p.drawLine(9,4,9,20); p.drawLine(14,4,14,20); p.drawLine(4,14,20,14); break;
+        // Classic crop corners: overlapping right-angle guides, matching the reference icon.
+        p.setPen(pen);
+        p.setBrush(Qt::NoBrush);
+        p.drawLine(4, 3, 4, 15);
+        p.drawLine(4, 15, 16, 15);
+        p.drawLine(9, 7, 20, 7);
+        p.drawLine(20, 7, 20, 18);
+        p.drawLine(9, 7, 9, 12);
+        p.drawLine(16, 15, 16, 21);
+        break;
     case MainPanelIcon::FlipH:
         p.setPen(pen); p.setBrush(Qt::NoBrush); p.drawRect(4,5,16,14); p.drawLine(12,3,12,21); p.setPen(Qt::NoPen); p.drawPolygon(QPolygonF{QPointF(9,9),QPointF(4,12),QPointF(9,15)}); p.drawPolygon(QPolygonF{QPointF(15,9),QPointF(20,12),QPointF(15,15)}); break;
     case MainPanelIcon::FlipV:
