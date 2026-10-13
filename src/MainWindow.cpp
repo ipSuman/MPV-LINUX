@@ -2474,7 +2474,16 @@ void MainWindow::cutAbSelection() {
                                      m_videoTransformer && m_videoTransformer->flipHorizontal();
     const bool bakeFlipVertical = m_cutWithZoom && sourceWidth > 0 && sourceHeight > 0 &&
                                    m_videoTransformer && m_videoTransformer->flipVertical();
+    // mpv display controls are preview-only unless their equivalent FFmpeg
+    // filter is included in the re-encoded output. Snapshot their current
+    // values so the cut reflects what the user is seeing.
+    const int cutSaturation = std::clamp(m_saturation, -100, 100);
+    const int cutBrightness = std::clamp(m_brightness, -100, 100);
+    const int cutContrast = std::clamp(m_contrast, -100, 100);
+    const bool bakeDisplayAdjustments = m_cutWithZoom && sourceWidth > 0 && sourceHeight > 0 &&
+        (cutSaturation != 0 || cutBrightness != 0 || cutContrast != 0);
     const bool bakeTransform = bakeZoom || bakeRotation || bakeFlipHorizontal || bakeFlipVertical ||
+                               bakeDisplayAdjustments ||
                                (m_videoTransformer && m_videoTransformer->hasTransforms());
 
     QStringList args = baseArgs;
@@ -2508,6 +2517,25 @@ void MainWindow::cutAbSelection() {
             const QString cropY = QStringLiteral("(ih-oh)/2-%1*ih").arg(panYText);
             filters << QStringLiteral("crop=%1:%2:%3:%4")
                 .arg(cropWidth, cropHeight, cropX, cropY);
+        }
+
+        if (bakeDisplayAdjustments) {
+            // mpv display controls use neutral=0; FFmpeg's eq filter uses
+            // neutral brightness=0 and neutral contrast/saturation=1.
+            const double ffBrightness = static_cast<double>(cutBrightness) / 100.0;
+            const double ffContrast = 1.0 + static_cast<double>(cutContrast) / 100.0;
+            const double ffSaturation = 1.0 + static_cast<double>(cutSaturation) / 100.0;
+            filters << QStringLiteral("eq=brightness=%1:contrast=%2:saturation=%3")
+                .arg(QString::number(ffBrightness, 'f', 4),
+                     QString::number(ffContrast, 'f', 4),
+                     QString::number(ffSaturation, 'f', 4));
+        }
+
+        if (m_runtimeLogger) {
+            m_runtimeLogger->append(
+                QStringLiteral("A-B CUT DISPLAY: baked=%1 brightness=%2 contrast=%3 saturation=%4")
+                    .arg(bakeDisplayAdjustments ? QStringLiteral("yes") : QStringLiteral("no"))
+                    .arg(cutBrightness).arg(cutContrast).arg(cutSaturation));
         }
 
         const bool isWebm = suffix.compare(QStringLiteral("webm"), Qt::CaseInsensitive) == 0;
