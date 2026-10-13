@@ -132,6 +132,9 @@ private:
     void toggleFullscreen();
     void resizeWindowForVideoAspect();
     void showDisplayDialog();
+    void showCropDialog();
+    void applyVideoCrop();
+    void clearVideoCrop();
     void captureScreenshot();
     void saveLogReport();
     void loadControlSettings();
@@ -170,6 +173,7 @@ private:
     QPushButton* m_saveAudioButton = nullptr;
     QPushButton* m_speedButton = nullptr;
     QPushButton* m_rotateButton = nullptr;
+    QPushButton* m_cropButton = nullptr;
     QCheckBox* m_autoplayCheck = nullptr;
     QPushButton* m_loopPlaylistButton = nullptr;
     QProcess* m_cutProcess = nullptr;
@@ -269,6 +273,11 @@ private:
     int m_saturation = 0;
     int m_brightness = 0;
     int m_contrast = 0;
+    int m_cropWidth = 720;
+    int m_cropHeight = 720;
+    int m_cropXPercent = 50;
+    int m_cropYPercent = 50;
+    bool m_cropEnabled = false;
     QTimer m_fullscreenHideTimer;
     QTimer m_cursorHideTimer;
     QTimer m_toastTimer;
