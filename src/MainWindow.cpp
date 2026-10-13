@@ -2551,6 +2551,11 @@ void MainWindow::cutAbSelection() {
     const int normalizedRotation = ((rotation % 360) + 360) % 360;
     const double zoomFactor = std::pow(2.0, std::max(0.0, zoom));
     const bool bakeZoom = m_cutWithZoom && sourceWidth > 0 && sourceHeight > 0 && zoom > 0.0001;
+    // The interactive crop is a playback filter. When transform-aware A-B
+    // cutting is enabled, reproduce it in FFmpeg so the saved cut matches
+    // the preview and can use the same hardware-encoder selection/fallback.
+    const bool bakeManualCrop = m_cutWithZoom && m_cropEnabled &&
+                                sourceWidth > 0 && sourceHeight > 0;
     // FFmpeg already applies the file's native rotation metadata during
     // transcoding. Only the user's additional manual rotation must be
     // explicitly filtered here.
@@ -2568,7 +2573,7 @@ void MainWindow::cutAbSelection() {
     const int cutContrast = std::clamp(m_contrast, -100, 100);
     const bool bakeDisplayAdjustments = m_cutWithZoom && sourceWidth > 0 && sourceHeight > 0 &&
         (cutSaturation != 0 || cutBrightness != 0 || cutContrast != 0);
-    const bool bakeTransform = bakeZoom || bakeRotation || bakeFlipHorizontal || bakeFlipVertical ||
+    const bool bakeTransform = bakeZoom || bakeManualCrop || bakeRotation || bakeFlipHorizontal || bakeFlipVertical ||
                                bakeDisplayAdjustments ||
                                (m_videoTransformer && m_videoTransformer->hasTransforms());
 
@@ -2605,6 +2610,19 @@ void MainWindow::cutAbSelection() {
                 .arg(cropWidth, cropHeight, cropX, cropY);
         }
 
+        if (bakeManualCrop) {
+            // Apply the user-defined crop after zoom/pan and rotation/flip.
+            // Clamp to the actual frame entering this filter chain so rotated
+            // or already-zoomed content cannot produce an invalid crop.
+            const QString cropWidth = QStringLiteral("trunc(min(iw\\,%1)/2)*2").arg(m_cropWidth);
+            const QString cropHeight = QStringLiteral("trunc(min(ih\\,%1)/2)*2").arg(m_cropHeight);
+            const QString cropX = QStringLiteral("(iw-ow)*%1").arg(
+                QString::number(static_cast<double>(m_cropXPercent) / 1000.0, 'f', 4));
+            const QString cropY = QStringLiteral("(ih-oh)*%1").arg(
+                QString::number(static_cast<double>(m_cropYPercent) / 1000.0, 'f', 4));
+            filters << QStringLiteral("crop=%1:%2:%3:%4").arg(cropWidth, cropHeight, cropX, cropY);
+        }
+
         if (bakeDisplayAdjustments) {
             // mpv display controls use neutral=0; FFmpeg's eq filter uses
             // neutral brightness=0 and neutral contrast/saturation=1.
@@ -2618,6 +2636,10 @@ void MainWindow::cutAbSelection() {
         }
 
         if (m_runtimeLogger) {
+            m_runtimeLogger->append(
+                QStringLiteral("A-B CUT CROP: baked=%1 width=%2 height=%3 x-position=%4 y-position=%5")
+                    .arg(bakeManualCrop ? QStringLiteral("yes") : QStringLiteral("no"))
+                    .arg(m_cropWidth).arg(m_cropHeight).arg(m_cropXPercent).arg(m_cropYPercent));
             m_runtimeLogger->append(
                 QStringLiteral("A-B CUT DISPLAY: baked=%1 brightness=%2 contrast=%3 saturation=%4")
                     .arg(bakeDisplayAdjustments ? QStringLiteral("yes") : QStringLiteral("no"))
