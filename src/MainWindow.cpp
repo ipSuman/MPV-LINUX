@@ -2554,8 +2554,7 @@ void MainWindow::cutAbSelection() {
     // The interactive crop is a playback filter. When transform-aware A-B
     // cutting is enabled, reproduce it in FFmpeg so the saved cut matches
     // the preview and can use the same hardware-encoder selection/fallback.
-    const bool bakeManualCrop = m_cutWithZoom && m_cropEnabled &&
-                                sourceWidth > 0 && sourceHeight > 0;
+    const bool bakeManualCrop = m_cropEnabled && sourceWidth > 0 && sourceHeight > 0;
     // FFmpeg already applies the file's native rotation metadata during
     // transcoding. Only the user's additional manual rotation must be
     // explicitly filtered here.
