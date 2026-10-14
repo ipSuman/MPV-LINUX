@@ -208,27 +208,27 @@ QIcon makeMainPanelIcon(MainPanelIcon icon) {
         p.setPen(Qt::NoPen); p.drawRect(18,5,2,14); p.drawPolygon(QPolygonF{QPointF(5,6),QPointF(15,12),QPointF(5,18)}); break;
     case MainPanelIcon::Tracks:
         // 1. Setup drawing style matching the context
-p.setPen(pen);
-p.setBrush(Qt::NoBrush);
+        p.setPen(pen);
+        p.setBrush(Qt::NoBrush);
 
 // 2. Draw the '1' / upward arrow figure on the left
-p.drawLine(1, 8, 5, 2);   // Diagonal line pointing up-right
-p.drawLine(5, 2, 5, 12);  // Vertical baseline
+        p.drawLine(1, 13, 5, 5);   // Diagonal line pointing up-right
+        p.drawLine(5, 5, 5, 21);   // Vertical baseline
 
 // 3. Draw the card / document outline on the right
-p.drawLine(8, 5, 22, 3);   // Top edge (slight downward perspective)
-p.drawLine(22, 3, 24, 11); // Right vertical edge
-p.drawLine(24, 11, 9, 13); // Bottom edge
-p.drawLine(9, 13, 8, 5);   // Left vertical edge
+        p.drawLine(8, 8, 22, 5);   // Top edge (slight downward perspective)
+        p.drawLine(22, 5, 24, 18); // Right vertical edge
+        p.drawLine(24, 18, 9, 21); // Bottom edge
+        p.drawLine(9, 21, 8, 8);   // Left vertical edge
 
 // 4. Draw the horizontal text/detail lines inside the document
-p.drawLine(11, 7, 19, 6);  // Upper line
-p.drawLine(12, 10, 20, 9); // Lower line
+        p.drawLine(11, 11, 19, 9);  // Upper line
+        p.drawLine(12, 15, 20, 13); // Lower line
 
 // 5. Draw the solid circle badge at the bottom-left corner
-p.setBrush(pen.color());          // Fill brush matching line color
-p.drawEllipse(6, 9, 5, 5);        // Solid circular node (X, Y, Width, Height)
-break;
+        p.setBrush(pen.color());           // Fill brush matching line color
+        p.drawEllipse(6, 17, 6, 6);        // Solid circular node (X, Y, Width, Height)
+        break;
     case MainPanelIcon::Playlist:
         p.setPen(pen); p.drawLine(4,6,14,6); p.drawLine(4,12,14,12); p.drawLine(4,18,10,18); p.setPen(Qt::NoPen); p.drawPolygon(QPolygonF{QPointF(16,15),QPointF(22,18),QPointF(16,21)}); break;
     case MainPanelIcon::Menu:
