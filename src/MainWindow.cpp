@@ -224,12 +224,11 @@ QIcon makeMainPanelIcon(MainPanelIcon icon) {
         // Classic crop corners: overlapping right-angle guides, matching the reference icon.
         p.setPen(pen);
         p.setBrush(Qt::NoBrush);
-        p.drawLine(4, 3, 4, 15);
-        p.drawLine(4, 15, 16, 15);
-        p.drawLine(9, 7, 20, 7);
-        p.drawLine(20, 7, 20, 18);
-        p.drawLine(9, 7, 9, 12);
-        p.drawLine(16, 15, 16, 21);
+        p.drawLine(4, 3, 4, 18);
+        p.drawLine(4, 18, 19, 18);
+        p.drawLine(0, 7, 15, 7);
+        p.drawLine(15, 7, 15, 22);
+        p.drawLine(4, 7, 15, 18);
         break;
     case MainPanelIcon::FlipH:
         p.setPen(pen); p.setBrush(Qt::NoBrush); p.drawRect(4,5,16,14); p.drawLine(12,3,12,21); p.setPen(Qt::NoPen); p.drawPolygon(QPolygonF{QPointF(9,9),QPointF(4,12),QPointF(9,15)}); p.drawPolygon(QPolygonF{QPointF(15,9),QPointF(20,12),QPointF(15,15)}); break;
