@@ -76,8 +76,8 @@ Section "REX Player" SecMain
   WriteRegStr HKLM "Software\\RegisteredApplications" "REX Player" "Software\\REX Player\\Capabilities"
 
   !macro RegisterMediaExtension EXT
-    WriteRegStr HKLM "Software\\Classes\\\${EXT}\\OpenWithProgids" "REXPlayer.MediaFile" ""
-    WriteRegStr HKLM "Software\\Classes\\Applications\\rex-player.exe\\SupportedTypes" "\${EXT}" ""
+    WriteRegStr HKLM "Software\\Classes\\${EXT}\\OpenWithProgids" "REXPlayer.MediaFile" ""
+    WriteRegStr HKLM "Software\\Classes\\Applications\\rex-player.exe\\SupportedTypes" "${EXT}" ""
   !macroend
   !insertmacro RegisterMediaExtension ".mp4"
   !insertmacro RegisterMediaExtension ".mkv"
@@ -111,6 +111,29 @@ Section "Uninstall"
   RMDir "$SMPROGRAMS\\REX Player"
 
   DeleteRegKey HKLM "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\REX Player"
+  DeleteRegKey HKLM "Software\\Classes\\Applications\\rex-player.exe"
+  DeleteRegKey HKLM "Software\\Classes\\REXPlayer.MediaFile"
+  DeleteRegValue HKLM "Software\\RegisteredApplications" "REX Player"
+  !macro UnregisterMediaExtension EXT
+    DeleteRegValue HKLM "Software\\Classes\\${EXT}\\OpenWithProgids" "REXPlayer.MediaFile"
+    DeleteRegValue HKLM "Software\\Classes\\Applications\\rex-player.exe\\SupportedTypes" "${EXT}"
+  !macroend
+  !insertmacro UnregisterMediaExtension ".mp4"
+  !insertmacro UnregisterMediaExtension ".mkv"
+  !insertmacro UnregisterMediaExtension ".webm"
+  !insertmacro UnregisterMediaExtension ".avi"
+  !insertmacro UnregisterMediaExtension ".mov"
+  !insertmacro UnregisterMediaExtension ".wmv"
+  !insertmacro UnregisterMediaExtension ".m4v"
+  !insertmacro UnregisterMediaExtension ".mpeg"
+  !insertmacro UnregisterMediaExtension ".mpg"
+  !insertmacro UnregisterMediaExtension ".ts"
+  !insertmacro UnregisterMediaExtension ".mp3"
+  !insertmacro UnregisterMediaExtension ".flac"
+  !insertmacro UnregisterMediaExtension ".wav"
+  !insertmacro UnregisterMediaExtension ".m4a"
+  !insertmacro UnregisterMediaExtension ".ogg"
+  !insertmacro UnregisterMediaExtension ".opus"
   DeleteRegKey HKLM "Software\\REX Player"
 
   RMDir /r "$INSTDIR"
