@@ -860,47 +860,16 @@ void MainWindow::buildUi() {
             checkButton->setText(QStringLiteral("Checking..."));
 
             auto* manager = new QNetworkAccessManager(&dialog);
-            QNetworkRequest request(QUrl(QStringLiteral("https://api.github.com/repos/ipSuman/MPV-LINUX/releases/latest")));
-            request.setHeader(QNetworkRequest::UserAgentHeader, QStringLiteral("REX-Player"));
-            request.setRawHeader("Accept", "application/vnd.github+json");
-            auto* reply = manager->get(request);
-
-            connect(reply, &QNetworkReply::finished, &dialog, [this, reply, checkButton] {
-                checkButton->setEnabled(true);
-                checkButton->setText(QStringLiteral("Check for Updates"));
-
-                if (reply->error() != QNetworkReply::NoError) {
-                    QMessageBox::warning(this, QStringLiteral("Check for Updates"),
-                                         QStringLiteral("Could not check for updates.\\n\\n%1").arg(reply->errorString()));
-                    reply->deleteLater();
-                    return;
-                }
-
-                const QJsonDocument document = QJsonDocument::fromJson(reply->readAll());
-                reply->deleteLater();
-                if (!document.isObject()) {
-                    QMessageBox::warning(this, QStringLiteral("Check for Updates"),
-                                         QStringLiteral("Could not read the latest release information."));
-                    return;
-                }
-
-                const QJsonObject release = document.object();
-                const QString latestTag = release.value(QStringLiteral("tag_name")).toString().trimmed();
-                const QString releaseUrl = release.value(QStringLiteral("html_url")).toString().trimmed();
-                QString latestVersion = latestTag;
-                if (latestVersion.startsWith(QLatin1Char('v'), Qt::CaseInsensitive))
-                    latestVersion.remove(0, 1);
-
+            auto showVersionResult = [this](const QString& latestVersion, const QString& releaseUrl) {
                 const QString currentVersion = QCoreApplication::applicationVersion().trimmed();
                 const QVersionNumber current = QVersionNumber::fromString(currentVersion);
                 const QVersionNumber latest = QVersionNumber::fromString(latestVersion);
-
                 if (latest.isNull() || current.isNull()) {
                     QMessageBox::warning(this, QStringLiteral("Check for Updates"),
-                                         QStringLiteral("Could not compare the installed and latest versions."));
+                                         QStringLiteral("Could not compare versions. Installed: %1; latest: %2.")
+                                             .arg(currentVersion, latestVersion));
                     return;
                 }
-
                 if (latest > current) {
                     const QString link = releaseUrl.isEmpty()
                         ? QStringLiteral("https://github.com/ipSuman/MPV-LINUX/releases/latest")
@@ -921,8 +890,89 @@ void MainWindow::buildUi() {
                         QDesktopServices::openUrl(QUrl(link));
                 } else {
                     QMessageBox::information(this, QStringLiteral("Check for Updates"),
-                                             QStringLiteral("Up to Date :- )"));
+                                             QStringLiteral("REX Player is up to date.\nInstalled version: %1")
+                                                 .arg(currentVersion));
                 }
+            };
+
+            auto checkLatestReleasePage = [this, manager, checkButton, showVersionResult] {
+                QNetworkRequest pageRequest(QUrl(QStringLiteral(
+                    "https://github.com/ipSuman/MPV-LINUX/releases/latest")));
+                pageRequest.setHeader(QNetworkRequest::UserAgentHeader, QStringLiteral("REX-Player"));
+                pageRequest.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
+                                         QNetworkRequest::NoLessSafeRedirectPolicy);
+                auto* pageReply = manager->get(pageRequest);
+                connect(pageReply, &QNetworkReply::finished, this,
+                        [this, pageReply, checkButton, showVersionResult] {
+                    checkButton->setEnabled(true);
+                    checkButton->setText(QStringLiteral("Check for Updates"));
+                    const QByteArray html = pageReply->readAll();
+                    const QString finalUrl = pageReply->url().toString();
+                    const QString networkError = pageReply->errorString();
+                    pageReply->deleteLater();
+
+                    QString tag = QRegularExpression(
+                        QStringLiteral(R"(/releases/tag/(v?\d+(?:\.\d+)+))"),
+                        QRegularExpression::CaseInsensitiveOption)
+                        .match(finalUrl).captured(1);
+                    if (tag.isEmpty()) {
+                        const QString page = QString::fromUtf8(html);
+                        auto match = QRegularExpression(
+                            QStringLiteral(R"((?:Release|REX Player)[^<]{0,80}?(v?\d+(?:\.\d+)+))"),
+                            QRegularExpression::CaseInsensitiveOption).match(page);
+                        if (match.hasMatch())
+                            tag = match.captured(1);
+                    }
+                    if (tag.isEmpty()) {
+                        QMessageBox::warning(this, QStringLiteral("Check for Updates"),
+                            QStringLiteral("Could not find the latest release information.\n"
+                                           "Check your internet connection or visit the releases page:\n"
+                                           "https://github.com/ipSuman/MPV-LINUX/releases\n\n%1")
+                                .arg(networkError));
+                        return;
+                    }
+                    if (tag.startsWith(QLatin1Char('v'), Qt::CaseInsensitive))
+                        tag.remove(0, 1);
+                    showVersionResult(tag, QStringLiteral("https://github.com/ipSuman/MPV-LINUX/releases/latest"));
+                });
+            };
+
+            QNetworkRequest request(QUrl(QStringLiteral(
+                "https://api.github.com/repos/ipSuman/MPV-LINUX/releases/latest")));
+            request.setHeader(QNetworkRequest::UserAgentHeader, QStringLiteral("REX-Player"));
+            request.setRawHeader("Accept", "application/vnd.github+json");
+            request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
+                                 QNetworkRequest::NoLessSafeRedirectPolicy);
+            auto* reply = manager->get(request);
+
+            connect(reply, &QNetworkReply::finished, &dialog,
+                    [this, reply, checkButton, checkLatestReleasePage, showVersionResult] {
+                if (reply->error() != QNetworkReply::NoError) {
+                    reply->deleteLater();
+                    // Some networks cannot resolve api.github.com even when github.com works.
+                    checkLatestReleasePage();
+                    return;
+                }
+
+                const QJsonDocument document = QJsonDocument::fromJson(reply->readAll());
+                reply->deleteLater();
+                if (!document.isObject()) {
+                    checkLatestReleasePage();
+                    return;
+                }
+
+                const QJsonObject release = document.object();
+                QString latestVersion = release.value(QStringLiteral("tag_name")).toString().trimmed();
+                if (latestVersion.startsWith(QLatin1Char('v'), Qt::CaseInsensitive))
+                    latestVersion.remove(0, 1);
+                const QString releaseUrl = release.value(QStringLiteral("html_url")).toString().trimmed();
+                if (latestVersion.isEmpty()) {
+                    checkLatestReleasePage();
+                    return;
+                }
+                checkButton->setEnabled(true);
+                checkButton->setText(QStringLiteral("Check for Updates"));
+                showVersionResult(latestVersion, releaseUrl);
             });
         });
 
