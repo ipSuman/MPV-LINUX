@@ -12,11 +12,11 @@ BrandingText "REX Player"
 ; Embed publisher/product metadata in the installer file properties.
 ; A trusted publisher in the Windows UAC prompt still requires Authenticode signing.
 VIProductVersion "5.0.1.0"
-VIAddVersionKey /LANG=${LANG_ENGLISH} "CompanyName" "ipSuman"
-VIAddVersionKey /LANG=${LANG_ENGLISH} "FileDescription" "REX Player Setup"
-VIAddVersionKey /LANG=${LANG_ENGLISH} "ProductName" "REX Player"
-VIAddVersionKey /LANG=${LANG_ENGLISH} "ProductVersion" "5.0.1"
-VIAddVersionKey /LANG=${LANG_ENGLISH} "OriginalFilename" "REX-Player-Windows-x64-setup.exe"
+VIAddVersionKey /LANG=1033 "CompanyName" "ipSuman"
+VIAddVersionKey /LANG=1033 "FileDescription" "REX Player Setup"
+VIAddVersionKey /LANG=1033 "ProductName" "REX Player"
+VIAddVersionKey /LANG=1033 "ProductVersion" "5.0.1"
+VIAddVersionKey /LANG=1033 "OriginalFilename" "REX-Player-Windows-x64-setup.exe"
 
 !include "MUI2.nsh"
 
