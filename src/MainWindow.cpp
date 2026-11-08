@@ -3186,13 +3186,19 @@ void MainWindow::showEqualizerDialog() {
     }};
 
     auto* slidersLayout = new QHBoxLayout();
+    slidersLayout->setContentsMargins(8, 4, 8, 4);
+    slidersLayout->setSpacing(10);
     std::array<QSlider*, 5> sliders{{nullptr, nullptr, nullptr, nullptr, nullptr}};
 
     for (int i = 0; i < 5; ++i) {
         auto* column = new QVBoxLayout();
+        column->setContentsMargins(2, 0, 2, 0);
+        column->setSpacing(8);
+
         auto* value = new QLabel(QStringLiteral("%1 dB")
             .arg(m_equalizerGains[static_cast<size_t>(i)]), &dialog);
-        value->setAlignment(Qt::AlignCenter);
+        value->setAlignment(Qt::AlignHCenter | Qt::AlignVCenter);
+        value->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
 
         auto* slider = new QSlider(Qt::Vertical, &dialog);
         slider->setRange(-12, 12);
@@ -3200,11 +3206,17 @@ void MainWindow::showEqualizerDialog() {
         slider->setPageStep(3);
         slider->setValue(m_equalizerGains[static_cast<size_t>(i)]);
         slider->setToolTip(labels[static_cast<size_t>(i)]);
+        // Keep the narrow vertical control centered in its band column.
+        // Without an explicit horizontal alignment, some platform styles
+        // position the groove toward the left edge of the expanded column.
+        slider->setFixedWidth(32);
+        slider->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
 
         column->addWidget(value);
-        column->addWidget(slider, 1);
+        column->addWidget(slider, 1, Qt::AlignHCenter);
         auto* name = new QLabel(labels[static_cast<size_t>(i)], &dialog);
-        name->setAlignment(Qt::AlignCenter);
+        name->setAlignment(Qt::AlignHCenter | Qt::AlignVCenter);
+        name->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
         column->addWidget(name);
         slidersLayout->addLayout(column, 1);
         sliders[static_cast<size_t>(i)] = slider;
