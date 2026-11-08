@@ -131,6 +131,7 @@ private:
     void setControlsVisible(bool visible);
     void toggleFullscreen();
     void resizeWindowForVideoAspect();
+    void fitVideoToWindow();
     void showDisplayDialog();
     void showCropDialog();
     void applyVideoCrop();
