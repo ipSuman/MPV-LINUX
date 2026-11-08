@@ -56,6 +56,16 @@ modules:
       - type: git
         url: https://github.com/libass/libass.git
         tag: 0.17.3
+  - name: libXpresent
+    buildsystem: meson
+    config-opts:
+      - --prefix=/app
+      - --libdir=lib
+      - --buildtype=release
+    sources:
+      - type: archive
+        url: https://xorg.freedesktop.org/releases/individual/lib/libXpresent-1.0.2.tar.xz
+        sha256: 4e5b21b4812206a4b223013606ae31170502c1043038777a1ef8f70c09d37602
   - name: mpv
     buildsystem: simple
     build-commands:
