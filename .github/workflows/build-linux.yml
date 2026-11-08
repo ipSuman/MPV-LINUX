@@ -2,7 +2,7 @@ name: Build MPV-Linux
 
 on:
   push:
-    branches: [main, v5]
+    branches: [main, v5, v6]
   workflow_dispatch:
 
 permissions:
