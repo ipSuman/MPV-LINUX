@@ -32,6 +32,8 @@ MPV-Linux is a lightweight native Linux desktop media player built around **libm
 ### 🖼️ Video
 - 🔍 Zoom
 - 🖐️ Pan zoomed video
+- 🎯 Fit button to reset zoom/pan and fit the video to the available window area
+- 📐 Automatically resize the window to match the loaded video's aspect ratio when possible
 - 🔄 Rotate video by 90° clockwise steps
 - ↔️ Flip video horizontally / vertically
 - ⌨️ Customizable video rotation shortcut
@@ -72,6 +74,19 @@ MPV-Linux is a lightweight native Linux desktop media player built around **libm
 ## ⏱️ Playback timer
 
 The timer normally shows **elapsed / total** time. Click the timer to switch to **elapsed / remaining** time, and click it again to return to elapsed / total.
+
+## 📦 Flatpak testing build
+
+A Flatpak test bundle is built automatically from the `v6` branch by GitHub Actions. Download the **REX-Player-Flatpak** artifact from the latest [Flatpak workflow run](https://github.com/ipSuman/MPV-LINUX/actions/workflows/build-flatpak.yml).
+
+Install a downloaded bundle with:
+
+```bash
+flatpak install --user ./REX-Player.flatpak
+flatpak run io.github.ipsuman.RexPlayer
+```
+
+The Flatpak uses the KDE runtime and includes its own FFmpeg and libmpv builds. It requests access to home files, X11, audio output, network streams and GPU devices. This is an early testing package; hardware decoding and access to removable media should be verified on different Linux systems.
 
 ## 📦 Installation on Ubuntu/Debian
 
