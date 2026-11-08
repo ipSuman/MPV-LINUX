@@ -1,0 +1,49 @@
+name: Build REX Player Flatpak
+
+on:
+  push:
+    branches: [v6]
+    paths:
+      - 'src/**'
+      - 'assets/**'
+      - 'flatpak/**'
+      - 'CMakeLists.txt'
+      - 'rex-player-launcher.sh'
+      - '.github/workflows/build-flatpak.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-flatpak:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Flatpak tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flatpak flatpak-builder
+
+      - name: Install KDE runtime and SDK
+        run: |
+          sudo flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+          sudo flatpak install -y flathub org.kde.Platform//6.9 org.kde.Sdk//6.9
+
+      - name: Build Flatpak
+        run: |
+          flatpak-builder --force-clean --disable-rofiles-fuse --repo=repo build-dir flatpak/io.github.ipsuman.RexPlayer.yml
+
+      - name: Create single-file Flatpak bundle
+        run: |
+          mkdir -p dist
+          flatpak build-bundle repo dist/REX-Player.flatpak io.github.ipsuman.RexPlayer --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo
+
+      - name: Upload Flatpak
+        uses: actions/upload-artifact@v4
+        with:
+          name: REX-Player-Flatpak
+          path: dist/REX-Player.flatpak
+          retention-days: 30
