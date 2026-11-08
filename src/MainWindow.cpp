@@ -685,6 +685,11 @@ void MainWindow::buildUi() {
     connect(captureButton, &QPushButton::clicked, this, &MainWindow::captureScreenshot);
     row2->addWidget(captureButton);
 
+    auto* fitVideoButton = new QPushButton(QStringLiteral("Fit"), m_controls);
+    fitVideoButton->setToolTip(QStringLiteral("Fit video to the available window area (reset zoom and pan)"));
+    connect(fitVideoButton, &QPushButton::clicked, this, &MainWindow::fitVideoToWindow);
+    row2->addWidget(fitVideoButton);
+
     m_rotateButton = new QPushButton(m_controls);
     setMainPanelButtonIcon(m_rotateButton, MainPanelIcon::Rotate, QStringLiteral("Rotate video 90 degrees"));
     m_rotateButton->setToolTip(QStringLiteral("Rotate the video 90° clockwise"));
@@ -2026,6 +2031,25 @@ void MainWindow::resizeWindowForVideoAspect() {
     if (targetHeight <= 0 || videoWidth <= 0) return;
 
     resize(videoWidth, targetHeight);
+}
+
+void MainWindow::fitVideoToWindow() {
+    if (!m_mpv || getPropertyString("filename").isEmpty()) return;
+
+    // Restore mpv's aspect-preserving fit inside the video viewport and clear
+    // user zoom/pan without changing crop, rotation, flips, or display filters.
+    setPropertyDouble("video-zoom", 0.0);
+    setPropertyDouble("video-pan-x", 0.0);
+    setPropertyDouble("video-pan-y", 0.0);
+    m_videoPanX = 0.0;
+    m_videoPanY = 0.0;
+
+    QTimer::singleShot(120, this, [this] {
+        resizeWindowForVideoAspect();
+        if (m_videoWidget) m_videoWidget->update();
+    });
+    if (m_runtimeLogger)
+        m_runtimeLogger->append(QStringLiteral("USER ACTION: Fit video to window; zoom and pan reset"));
 }
 
 void MainWindow::captureScreenshot() {
