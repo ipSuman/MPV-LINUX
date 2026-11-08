@@ -29,7 +29,7 @@ modules:
   - name: mpv
     buildsystem: simple
     build-commands:
-      - meson setup build --prefix=/app --libdir=lib -Dlibmpv=true -Dcplayer=false -Dtests=false -Dmanpage-build=disabled -Dhtml-build=disabled -Dpdf-build=disabled -Dlua=disabled -Djavascript=disabled -Dlibass=disabled -Dlibarchive=disabled -Dlibplacebo=disabled -Dvaapi=disabled -Dvdpau=disabled -Ddrm=disabled -Dgbm=disabled -Dwayland=disabled -Dx11=enabled -Dalsa=disabled -Djack=disabled -Dpipewire=disabled -Dpulse=disabled -Dsdl2=disabled -Duchardet=disabled -Dzimg=disabled -Dvapoursynth=disabled -Dshaderc=disabled -Dvulkan=disabled
+      - meson setup build --prefix=/app --libdir=lib -Dlibmpv=true -Dcplayer=false -Dtests=false -Dmanpage-build=disabled -Dhtml-build=disabled -Dpdf-build=disabled -Dlua=disabled -Djavascript=disabled -Dlibarchive=disabled -Dvaapi=disabled -Dvdpau=disabled -Ddrm=disabled -Dgbm=disabled -Dwayland=disabled -Dx11=enabled -Dalsa=disabled -Djack=disabled -Dpipewire=disabled -Dpulse=disabled -Dsdl2=disabled -Duchardet=disabled -Dzimg=disabled -Dvapoursynth=disabled -Dshaderc=disabled -Dvulkan=disabled
       - meson compile -C build
       - meson install -C build
     cleanup:
