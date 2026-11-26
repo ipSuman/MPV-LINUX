@@ -193,6 +193,7 @@ void GamepadController::handleInput(const QString& input) {
 
 void GamepadController::poll() {
     if (!m_sdlReady || !m_enabled) return;
+    SDL_PumpEvents();
     SDL_Event event;
     while (SDL_PeepEvents(&event, 1, SDL_GETEVENT, SDL_JOYAXISMOTION, SDL_CONTROLLERDEVICEREMAPPED) > 0) {
         if (event.type == SDL_JOYDEVICEADDED || event.type == SDL_CONTROLLERDEVICEADDED) {
