@@ -2,7 +2,7 @@ name: Build MPV-Linux
 
 on:
   push:
-    branches: [main, v5]
+    branches: [main, v5, v7]
   workflow_dispatch:
 
 permissions:
@@ -18,7 +18,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential cmake pkg-config qt6-base-dev libmpv-dev ffmpeg dpkg-dev
+          sudo apt-get install -y build-essential cmake pkg-config qt6-base-dev libmpv-dev libsdl2-dev ffmpeg dpkg-dev
 
       - name: Configure
         run: cmake -S . -B build-linux -DCMAKE_BUILD_TYPE=Release
@@ -47,16 +47,16 @@ jobs:
           chmod 755 "$PKGROOT/usr/bin/rex-player" "$PKGROOT/usr/bin/rex-player-bin"
           cat > "$PKGROOT/DEBIAN/control" <<'EOF'
           Package: mpv-linux
-          Version: 5.0.1
+          Version: 7.0.1
           Section: video
           Priority: optional
           Architecture: amd64
           Maintainer: MPV-Linux Project
           Description: Lightweight Qt6/libmpv media player for Linux
            A native desktop media player frontend around libmpv.
-          Depends: libqt6widgets6, libmpv2, ffmpeg
+          Depends: libqt6widgets6, libmpv2, libsdl2-2.0-0, ffmpeg
           EOF
-          dpkg-deb --build --root-owner-group "$PKGROOT" dist/mpv-linux_5.0.1_amd64.deb
+          dpkg-deb --build --root-owner-group "$PKGROOT" dist/mpv-linux_7.0.1_amd64.deb
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -64,5 +64,5 @@ jobs:
           name: mpv-linux-installers
           path: |
             mpv-linux.tar.gz
-            dist/mpv-linux_5.0.1_amd64.deb
+            dist/mpv-linux_7.0.1_amd64.deb
           retention-days: 30

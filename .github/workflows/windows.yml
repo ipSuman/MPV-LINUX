@@ -2,9 +2,9 @@ name: Windows Build
 
 on:
   push:
-    branches: [main, v5]
+    branches: [main, v5, v7]
   pull_request:
-    branches: [main, v5]
+    branches: [main, v5, v7]
   workflow_dispatch:
 
 jobs:
@@ -30,6 +30,7 @@ jobs:
             mingw-w64-ucrt-x86_64-ninja
             mingw-w64-ucrt-x86_64-qt6-base
             mingw-w64-ucrt-x86_64-mpv
+            mingw-w64-ucrt-x86_64-SDL2
             mingw-w64-ucrt-x86_64-ffmpeg
             mingw-w64-ucrt-x86_64-imagemagick
 
@@ -81,6 +82,8 @@ jobs:
             exit 1
           fi
           cp "$MPV_DLL" dist/bin/
+
+          if [ -f /ucrt64/bin/SDL2.dll ]; then cp /ucrt64/bin/SDL2.dll dist/bin/; fi
 
           copy_deps dist/bin/rex-player.exe
           copy_deps "$MPV_DLL"

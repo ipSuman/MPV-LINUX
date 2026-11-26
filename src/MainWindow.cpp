@@ -76,6 +76,7 @@
 #include "DisplayController.h"
 #include "ScreenshotController.h"
 #include "ControlSettings.h"
+#include "GamepadController.h"
 
 #include <algorithm>
 #include <cmath>
@@ -316,6 +317,48 @@ MainWindow::MainWindow(const QString& mediaPath, QWidget* parent)
     loadControlSettings();
     m_playlistController = new PlaylistController();
     buildUi();
+    m_gamepadController = new GamepadController(this);
+    connect(m_gamepadController, &GamepadController::actionTriggered, this, [this](const QString& action) {
+        if (action == "play_pause") togglePause();
+        else if (action == "stop") stopPlayback();
+        else if (action == "previous") playPrevious();
+        else if (action == "next") playNext();
+        else if (action == "seek_back") seekBackward();
+        else if (action == "seek_forward") seekForward();
+        else if (action == "volume_up") volumeUp();
+        else if (action == "volume_down") volumeDown();
+        else if (action == "mute") toggleMute();
+        else if (action == "fullscreen") toggleFullscreen();
+        else if (action == "playlist") togglePlaylist();
+        else if (action == "screenshot") captureScreenshot();
+        else if (action == "frame_back") stepFrame(false);
+        else if (action == "frame_forward") stepFrame(true);
+        else if (action == "speed_up") increasePlaybackSpeed();
+        else if (action == "speed_down") decreasePlaybackSpeed();
+        else if (action == "reset_speed") { setPropertyDouble("speed", 1.0); if (m_runtimeLogger) m_runtimeLogger->append(QStringLiteral("PLAYBACK SPEED: reset to 1.00x (gamepad)")); }
+        else if (action == "subtitles") cycleSubtitles();
+        else if (action == "loop_start") setAbLoopStart();
+        else if (action == "loop_end") setAbLoopEnd();
+        else if (action == "loop_clear") clearAbLoop();
+        else if (action == "zoom_in") adjustVideoZoom(0.1);
+        else if (action == "zoom_out") adjustVideoZoom(-0.1);
+        else if (action == "zoom_reset") resetVideoTransform();
+        else if (action == "rotate") rotateVideo90();
+        else if (action == "subtitle_up") increaseSubtitlePosition();
+        else if (action == "subtitle_down") decreaseSubtitlePosition();
+        else if (action == "subtitle_size_up") increaseSubtitleSize();
+        else if (action == "subtitle_size_down") decreaseSubtitleSize();
+        else if (action == "tracks") showTracksMenu();
+        else if (action == "equalizer") showEqualizerDialog();
+        else if (action == "controls") toggleControls();
+        else if (action == "flip_horizontal") toggleFlipHorizontal();
+        else if (action == "flip_vertical") toggleFlipVertical();
+        else if (action == "display") showDisplayDialog();
+        else if (action == "crop") showCropDialog();
+    });
+    connect(m_gamepadController, &GamepadController::deviceChanged, this, [this](const QString& name) {
+        if (m_runtimeLogger) m_runtimeLogger->append(QStringLiteral("GAMEPAD: %1").arg(name));
+    });
 
     m_speedUpShortcut = new QShortcut(m_speedUpKey, this);
     m_speedUpShortcut->setContext(Qt::WindowShortcut);
@@ -1223,12 +1266,119 @@ void MainWindow::applyInterfaceFont(const QString& fontPath, const QString& font
             .arg(font.pointSizeF()));
 }
 
+
+void MainWindow::showGamepadDialog() {
+    if (!m_gamepadController) return;
+    QDialog dialog(this);
+    dialog.setWindowTitle(QStringLiteral("Gamepad"));
+    dialog.resize(500, 620);
+    auto* layout = new QVBoxLayout(&dialog);
+    auto* status = new QLabel(&dialog);
+    auto updateStatus = [this, status] {
+        const QString device = m_gamepadController->deviceName().isEmpty()
+            ? QStringLiteral("No controller detected") : m_gamepadController->deviceName();
+        status->setText(QStringLiteral("%1 — %2").arg(device,
+            m_gamepadController->isAvailable() ? QStringLiteral("SDL2 ready")
+                                                : QStringLiteral("SDL2 unavailable")));
+    };
+    updateStatus();
+    layout->addWidget(status);
+    auto* help = new QLabel(QStringLiteral("Choose Map and then press a gamepad button, D-pad direction or move a stick. Generic USB and Bluetooth controllers are supported; raw button, hat and axis inputs are shown when no standard mapping is available."), &dialog);
+    help->setWordWrap(true);
+    layout->addWidget(help);
+
+    auto* scroll = new QScrollArea(&dialog);
+    scroll->setWidgetResizable(true);
+    auto* rows = new QWidget(scroll);
+    auto* rowsLayout = new QVBoxLayout(rows);
+    const QMap<QString, QString> names = {
+        {"play_pause", "Play / Pause"}, {"stop", "Stop"}, {"previous", "Previous item"},
+        {"next", "Next item"}, {"seek_back", "Seek backward"}, {"seek_forward", "Seek forward"},
+        {"volume_up", "Volume up"}, {"volume_down", "Volume down"}, {"mute", "Mute"},
+        {"fullscreen", "Fullscreen"}, {"playlist", "Show / hide playlist"},
+        {"screenshot", "Screenshot"}, {"frame_back", "Previous frame"},
+        {"frame_forward", "Next frame"}, {"speed_up", "Increase speed"},
+        {"speed_down", "Decrease speed"}, {"reset_speed", "Reset playback speed"}, {"subtitles", "Switch subtitles"},
+        {"loop_start", "Set loop A"}, {"loop_end", "Set loop B"}, {"loop_clear", "Clear loop"},
+        {"zoom_in", "Zoom in"}, {"zoom_out", "Zoom out"}, {"zoom_reset", "Reset zoom / pan"},
+        {"rotate", "Rotate video"}, {"subtitle_up", "Move subtitles up"},
+        {"subtitle_down", "Move subtitles down"}, {"subtitle_size_up", "Increase subtitle size"},
+        {"subtitle_size_down", "Decrease subtitle size"}, {"tracks", "Select audio / subtitle tracks"},
+        {"equalizer", "Open equalizer"}, {"controls", "Show / hide controls"},
+        {"flip_horizontal", "Flip video horizontally"}, {"flip_vertical", "Flip video vertically"},
+        {"display", "Display adjustments"}, {"crop", "Crop video"}
+    };
+    const QStringList actions = m_gamepadController->actions();
+    QMap<QString, QLabel*> mappedValueLabels;
+    for (const QString& action : actions) {
+        auto* row = new QWidget(rows);
+        auto* rowLayout = new QHBoxLayout(row);
+        rowLayout->setContentsMargins(0, 2, 0, 2);
+        auto* label = new QLabel(names.value(action, action), row);
+        auto* current = new QLabel(m_gamepadController->binding(action).isEmpty()
+            ? QStringLiteral("Not mapped") : m_gamepadController->inputLabel(m_gamepadController->binding(action)), row);
+        mappedValueLabels.insert(action, current);
+        current->setMinimumWidth(90);
+        auto* map = new QPushButton(QStringLiteral("Map"), row);
+        auto* clear = new QPushButton(QStringLiteral("Clear"), row);
+        rowLayout->addWidget(label, 1);
+        rowLayout->addWidget(current);
+        rowLayout->addWidget(map);
+        rowLayout->addWidget(clear);
+        rowsLayout->addWidget(row);
+        connect(map, &QPushButton::clicked, &dialog, [this, action, current, status] {
+            m_gamepadController->beginCapture(action);
+            current->setText(QStringLiteral("Press input…"));
+            status->setText(QStringLiteral("Waiting for controller input…"));
+        });
+        connect(clear, &QPushButton::clicked, &dialog, [this, action, current] {
+            m_gamepadController->clearBinding(action);
+            current->setText(QStringLiteral("Not mapped"));
+        });
+    }
+    rowsLayout->addStretch();
+    scroll->setWidget(rows);
+    layout->addWidget(scroll, 1);
+    connect(m_gamepadController, &GamepadController::captureFinished, &dialog,
+            [this, mappedValueLabels, status](const QString& action, const QString& input) {
+        if (QLabel* label = mappedValueLabels.value(action, nullptr)) label->setText(m_gamepadController->inputLabel(input));
+        status->setText(QStringLiteral("Mapped %1 to %2").arg(action, input));
+        if (m_runtimeLogger)
+            m_runtimeLogger->append(QStringLiteral("GAMEPAD: mapped %1 to %2").arg(action, input));
+    });
+    connect(m_gamepadController, &GamepadController::deviceChanged, &dialog,
+            [updateStatus](const QString&) { updateStatus(); });
+    connect(m_gamepadController, &GamepadController::statusMessage, status, &QLabel::setText);
+    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Close, &dialog);
+    auto* reset = buttons->addButton(QStringLiteral("Reset mappings"), QDialogButtonBox::ResetRole);
+    connect(reset, &QPushButton::clicked, &dialog, [this, mappedValueLabels, actions] {
+        m_gamepadController->resetBindings();
+        for (const QString& action : actions) {
+            QLabel* label = mappedValueLabels.value(action, nullptr);
+            if (!label) continue;
+            const QString value = m_gamepadController->binding(action);
+            label->setText(value.isEmpty() ? QStringLiteral("Not mapped") : m_gamepadController->inputLabel(value));
+        }
+    });
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::accept);
+    layout->addWidget(buttons);
+    dialog.exec();
+    m_gamepadController->cancelCapture();
+}
+
 void MainWindow::showControlsDialog() {
     QDialog dialog(this);
     dialog.setWindowTitle(QStringLiteral("Controls"));
     dialog.setModal(true);
-    dialog.resize(460, 560);
-    dialog.setMinimumSize(380, 420);
+    // Keep the two-column form and its action buttons fully visible. The
+    // narrower 460 px dialog caused the right-hand controls to be clipped
+    // because the scroll area intentionally disables horizontal scrolling.
+    QScreen* controlsScreen = dialog.screen();
+    const int availableWidth = controlsScreen
+        ? controlsScreen->availableGeometry().width() : 800;
+    const int controlsWidth = std::min(620, std::max(460, availableWidth - 40));
+    dialog.resize(controlsWidth, 560);
+    dialog.setMinimumSize(std::min(560, controlsWidth), 420);
     dialog.setSizeGripEnabled(true);
 
     auto* mainLayout = new QVBoxLayout(&dialog);
@@ -1475,6 +1625,23 @@ void MainWindow::showControlsDialog() {
     auto* mouseTouchpadHeading = new QLabel(QStringLiteral("Mouse / touchpad"), content);
     mouseTouchpadHeading->setStyleSheet(QStringLiteral("font-weight:600;"));
     form->insertRow(2, mouseTouchpadHeading);
+
+    auto* gamepadEnabled = new QCheckBox(QStringLiteral("Enable gamepad support"), &dialog);
+    gamepadEnabled->setChecked(m_gamepadController && m_gamepadController->isEnabled());
+    gamepadEnabled->setEnabled(m_gamepadController && m_gamepadController->isAvailable());
+    auto* gamepadSettings = new QPushButton(QStringLiteral("Configure gamepad…"), &dialog);
+    gamepadSettings->setEnabled(gamepadEnabled->isChecked());
+    connect(gamepadEnabled, &QCheckBox::toggled, &dialog, [this, gamepadSettings](bool checked) {
+        if (m_gamepadController) m_gamepadController->setEnabled(checked);
+        gamepadSettings->setEnabled(checked);
+    });
+    connect(gamepadSettings, &QPushButton::clicked, &dialog, [this] { showGamepadDialog(); });
+    auto* gamepadRow = new QWidget(&dialog);
+    auto* gamepadRowLayout = new QHBoxLayout(gamepadRow);
+    gamepadRowLayout->setContentsMargins(0, 0, 0, 0);
+    gamepadRowLayout->addWidget(gamepadEnabled, 1);
+    gamepadRowLayout->addWidget(gamepadSettings);
+    form->addRow(QStringLiteral("Gamepad"), gamepadRow);
 
     contentLayout->addLayout(form);
     contentLayout->addWidget(new QLabel(QStringLiteral("Keyboard shortcuts"), content));
@@ -1946,7 +2113,38 @@ void MainWindow::command(const char** args) {
         m_runtimeLogger->append(QStringLiteral("COMMAND submit FAILED: %1").arg(result));
     }
 }
-void MainWindow::togglePause() { const char* args[] = {"cycle", "pause", nullptr}; command(args); }
+void MainWindow::togglePause() {
+    if (!m_mpv) return;
+
+    // mpv becomes idle after Stop. Treat Play as reload of the last selected
+    // playlist item so the existing resume/start-over/ask preference is applied.
+    int idleActive = 0;
+    const bool isIdle = mpv_get_property(m_mpv, "idle-active", MPV_FORMAT_FLAG, &idleActive) >= 0 &&
+                        idleActive != 0;
+    if (isIdle) {
+        int index = m_playlistController ? m_playlistController->currentIndex() : -1;
+        if (index < 0 && m_playlistController && !m_pendingResumePath.isEmpty())
+            index = m_playlistController->indexOf(m_pendingResumePath);
+        if (index >= 0) {
+            playPlaylistIndex(index, true);
+            return;
+        }
+        if (!m_pendingResumePath.isEmpty() && QFileInfo::exists(m_pendingResumePath)) {
+            loadFile(m_pendingResumePath);
+            return;
+        }
+    }
+
+    const char* args[] = {"cycle", "pause", nullptr};
+    command(args);
+}
+
+void MainWindow::stopPlayback() {
+    if (!m_mpv) return;
+    saveCurrentPlaybackPosition();
+    const char* args[] = {"stop", nullptr};
+    command(args);
+}
 void MainWindow::seekBackward() { const QByteArray seconds = QByteArray::number(-m_seekDurationSeconds); const char* args[] = {"seek", seconds.constData(), "relative", "exact", nullptr}; command(args); }
 void MainWindow::seekForward() { const QByteArray seconds = QByteArray::number(m_seekDurationSeconds); const char* args[] = {"seek", seconds.constData(), "relative", "exact", nullptr}; command(args); }
 void MainWindow::seekTo(int value) { const double duration = getPropertyDouble("duration"); if (duration > 0) setPropertyDouble("time-pos", duration * value / 1000.0); }

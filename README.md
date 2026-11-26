@@ -5,6 +5,7 @@ MPV-Linux is a lightweight native Linux desktop media player built around **libm
 ## ✨ Features
 
 ### 🎬 Playback
+- 🎮 Optional USB / Bluetooth gamepad support with customizable button and stick mappings
 - ▶️ Play / Pause
 - ⏮️ Previous / Next media
 - ⏪ −10 sec and ⏩ +10 sec seek buttons
@@ -77,10 +78,10 @@ The timer normally shows **elapsed / total** time. Click the timer to switch to 
 
 ### Recommended: install the `.deb` package
 
-Download **`mpv-linux_5.0.1_amd64.deb`** from the GitHub Releases page, then open a terminal in the download directory and run:
+Download **`mpv-linux_7.0.1_amd64.deb`** from the GitHub Releases page, then open a terminal in the download directory and run:
 
 ```bash
-sudo apt install ./mpv-linux_5.0.1_amd64.deb
+sudo apt install ./mpv-linux_7.0.1_amd64.deb
 ```
 
 `apt` will install the required runtime dependencies automatically.
@@ -101,7 +102,7 @@ sudo apt remove mpv-linux
 
 The packaged application currently targets **64-bit x86 Ubuntu/Debian systems (amd64)**. The `.deb` package installs the application launcher and registers it in the desktop application menu.
 
-The package depends on Qt 6, libmpv and FFmpeg. FFmpeg is used for the A/B stream-copy cutting feature.
+The package depends on Qt 6, libmpv, SDL2 and FFmpeg. SDL2 provides cross-platform USB and Bluetooth gamepad input. FFmpeg is used for the A/B stream-copy cutting feature.
 
 ## 📦 Portable installation
 
@@ -123,7 +124,7 @@ On Ubuntu/Debian:
 
 ```bash
 sudo apt update
-sudo apt install build-essential cmake pkg-config qt6-base-dev libmpv-dev ffmpeg
+sudo apt install build-essential cmake pkg-config qt6-base-dev libmpv-dev libsdl2-dev ffmpeg
 
 cmake -S . -B build
 cmake --build build -j$(nproc)
