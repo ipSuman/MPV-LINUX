@@ -345,6 +345,15 @@ MainWindow::MainWindow(const QString& mediaPath, QWidget* parent)
         else if (action == "rotate") rotateVideo90();
         else if (action == "subtitle_up") increaseSubtitlePosition();
         else if (action == "subtitle_down") decreaseSubtitlePosition();
+        else if (action == "subtitle_size_up") increaseSubtitleSize();
+        else if (action == "subtitle_size_down") decreaseSubtitleSize();
+        else if (action == "tracks") showTracksMenu();
+        else if (action == "equalizer") showEqualizerDialog();
+        else if (action == "controls") toggleControls();
+        else if (action == "flip_horizontal") toggleFlipHorizontal();
+        else if (action == "flip_vertical") toggleFlipVertical();
+        else if (action == "display") showDisplayDialog();
+        else if (action == "crop") showCropDialog();
     });
     connect(m_gamepadController, &GamepadController::deviceChanged, this, [this](const QString& name) {
         if (m_runtimeLogger) m_runtimeLogger->append(QStringLiteral("GAMEPAD: %1").arg(name));
@@ -1292,7 +1301,11 @@ void MainWindow::showGamepadDialog() {
         {"loop_start", "Set loop A"}, {"loop_end", "Set loop B"}, {"loop_clear", "Clear loop"},
         {"zoom_in", "Zoom in"}, {"zoom_out", "Zoom out"}, {"zoom_reset", "Reset zoom / pan"},
         {"rotate", "Rotate video"}, {"subtitle_up", "Move subtitles up"},
-        {"subtitle_down", "Move subtitles down"}
+        {"subtitle_down", "Move subtitles down"}, {"subtitle_size_up", "Increase subtitle size"},
+        {"subtitle_size_down", "Decrease subtitle size"}, {"tracks", "Select audio / subtitle tracks"},
+        {"equalizer", "Open equalizer"}, {"controls", "Show / hide controls"},
+        {"flip_horizontal", "Flip video horizontally"}, {"flip_vertical", "Flip video vertically"},
+        {"display", "Display adjustments"}, {"crop", "Crop video"}
     };
     const QStringList actions = m_gamepadController->actions();
     QMap<QString, QLabel*> mappedValueLabels;
