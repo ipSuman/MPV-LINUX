@@ -1256,6 +1256,116 @@ void MainWindow::applyInterfaceFont(const QString& fontPath, const QString& font
             .arg(font.pointSizeF()));
 }
 
+
+void MainWindow::showGamepadDialog() {
+    if (!m_gamepadController) return;
+    QDialog dialog(this);
+    dialog.setWindowTitle(QStringLiteral("Gamepad"));
+    dialog.resize(500, 620);
+    auto* layout = new QVBoxLayout(&dialog);
+    auto* status = new QLabel(&dialog);
+    auto updateStatus = [this, status] {
+        const QString device = m_gamepadController->deviceName().isEmpty()
+            ? QStringLiteral("No controller detected") : m_gamepadController->deviceName();
+        status->setText(QStringLiteral("%1 — %2").arg(device,
+            m_gamepadController->isAvailable() ? QStringLiteral("SDL2 ready")
+                                                : QStringLiteral("SDL2 unavailable")));
+    };
+    updateStatus();
+    layout->addWidget(status);
+    auto* help = new QLabel(QStringLiteral("Choose Map and then press a gamepad button, D-pad direction or move a stick. Generic USB and Bluetooth controllers are supported; raw button, hat and axis inputs are shown when no standard mapping is available."), &dialog);
+    help->setWordWrap(true);
+    layout->addWidget(help);
+
+    auto* scroll = new QScrollArea(&dialog);
+    scroll->setWidgetResizable(true);
+    auto* rows = new QWidget(scroll);
+    auto* rowsLayout = new QVBoxLayout(rows);
+    const QMap<QString, QString> names = {
+        {"play_pause", "Play / Pause"}, {"stop", "Stop"}, {"previous", "Previous item"},
+        {"next", "Next item"}, {"seek_back", "Seek backward"}, {"seek_forward", "Seek forward"},
+        {"volume_up", "Volume up"}, {"volume_down", "Volume down"}, {"mute", "Mute"},
+        {"fullscreen", "Fullscreen"}, {"playlist", "Show / hide playlist"},
+        {"screenshot", "Screenshot"}, {"frame_back", "Previous frame"},
+        {"frame_forward", "Next frame"}, {"speed_up", "Increase speed"},
+        {"speed_down", "Decrease speed"}, {"subtitles", "Switch subtitles"},
+        {"loop_start", "Set loop A"}, {"loop_end", "Set loop B"}, {"loop_clear", "Clear loop"},
+        {"zoom_in", "Zoom in"}, {"zoom_out", "Zoom out"}, {"zoom_reset", "Reset zoom / pan"},
+        {"rotate", "Rotate video"}, {"subtitle_up", "Move subtitles up"},
+        {"subtitle_down", "Move subtitles down"}
+    };
+    const QStringList actions = m_gamepadController->actions();
+    for (const QString& action : actions) {
+        auto* row = new QWidget(rows);
+        auto* rowLayout = new QHBoxLayout(row);
+        rowLayout->setContentsMargins(0, 2, 0, 2);
+        auto* label = new QLabel(names.value(action, action), row);
+        auto* current = new QLabel(m_gamepadController->binding(action).isEmpty()
+            ? QStringLiteral("Not mapped") : m_gamepadController->binding(action), row);
+        current->setMinimumWidth(90);
+        auto* map = new QPushButton(QStringLiteral("Map"), row);
+        auto* clear = new QPushButton(QStringLiteral("Clear"), row);
+        rowLayout->addWidget(label, 1);
+        rowLayout->addWidget(current);
+        rowLayout->addWidget(map);
+        rowLayout->addWidget(clear);
+        rowsLayout->addWidget(row);
+        connect(map, &QPushButton::clicked, &dialog, [this, action, current, status] {
+            m_gamepadController->beginCapture(action);
+            current->setText(QStringLiteral("Press input…"));
+            status->setText(QStringLiteral("Waiting for controller input…"));
+        });
+        connect(clear, &QPushButton::clicked, &dialog, [this, action, current] {
+            m_gamepadController->clearBinding(action);
+            current->setText(QStringLiteral("Not mapped"));
+        });
+    }
+    rowsLayout->addStretch();
+    scroll->setWidget(rows);
+    layout->addWidget(scroll, 1);
+    connect(m_gamepadController, &GamepadController::captureFinished, &dialog,
+            [this, &dialog, rows](const QString& action, const QString& input) {
+        Q_UNUSED(dialog);
+        const auto labels = rows->findChildren<QLabel*>();
+        for (QLabel* label : labels) {
+            if (label->text() == QStringLiteral("Press input…")) {
+                label->setText(input);
+                break;
+            }
+        }
+        if (m_runtimeLogger)
+            m_runtimeLogger->append(QStringLiteral("GAMEPAD: mapped %1 to %2").arg(action, input));
+    });
+    connect(m_gamepadController, &GamepadController::deviceChanged, &dialog,
+            [updateStatus](const QString&) { updateStatus(); });
+    connect(m_gamepadController, &GamepadController::statusMessage, status, &QLabel::setText);
+    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Close, &dialog);
+    auto* reset = buttons->addButton(QStringLiteral("Reset mappings"), QDialogButtonBox::ResetRole);
+    connect(reset, &QPushButton::clicked, &dialog, [this, rows, names, actions] {
+        m_gamepadController->resetBindings();
+        const auto labels = rows->findChildren<QLabel*>();
+        int index = 0;
+        for (QLabel* label : labels) {
+            if (index >= actions.size()) break;
+            if (label->text() == names.value(actions[index])) {
+                ++index;
+                continue;
+            }
+        }
+        // Rebuild the displayed values without changing the row order.
+        const auto rowWidgets = rows->findChildren<QWidget*>();
+        Q_UNUSED(rowWidgets);
+        for (int i = 0; i < actions.size(); ++i) {
+            const QString oldValue = m_gamepadController->binding(actions[i]);
+            Q_UNUSED(oldValue);
+        }
+    });
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::accept);
+    layout->addWidget(buttons);
+    dialog.exec();
+    m_gamepadController->cancelCapture();
+}
+
 void MainWindow::showControlsDialog() {
     QDialog dialog(this);
     dialog.setWindowTitle(QStringLiteral("Controls"));
