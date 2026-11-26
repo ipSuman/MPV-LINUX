@@ -4,6 +4,7 @@
 #include <QMap>
 #include <QTimer>
 #include <QString>
+#include <QStringList>
 
 class GamepadController final : public QObject {
     Q_OBJECT
