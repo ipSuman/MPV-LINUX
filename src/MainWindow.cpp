@@ -1370,8 +1370,15 @@ void MainWindow::showControlsDialog() {
     QDialog dialog(this);
     dialog.setWindowTitle(QStringLiteral("Controls"));
     dialog.setModal(true);
-    dialog.resize(460, 560);
-    dialog.setMinimumSize(380, 420);
+    // Keep the two-column form and its action buttons fully visible. The
+    // narrower 460 px dialog caused the right-hand controls to be clipped
+    // because the scroll area intentionally disables horizontal scrolling.
+    QScreen* controlsScreen = dialog.screen();
+    const int availableWidth = controlsScreen
+        ? controlsScreen->availableGeometry().width() : 800;
+    const int controlsWidth = std::min(620, std::max(460, availableWidth - 40));
+    dialog.resize(controlsWidth, 560);
+    dialog.setMinimumSize(std::min(560, controlsWidth), 420);
     dialog.setSizeGripEnabled(true);
 
     auto* mainLayout = new QVBoxLayout(&dialog);
