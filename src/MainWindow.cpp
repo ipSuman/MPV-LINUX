@@ -77,7 +77,7 @@
 #include "ScreenshotController.h"
 #include "ControlSettings.h"
 #include "GamepadController.h"
-#ifndef Q_OS_WIN
+#ifdef Q_OS_LINUX
 #include "MprisController.h"
 #endif
 
@@ -457,7 +457,7 @@ MainWindow::MainWindow(const QString& mediaPath, QWidget* parent)
 
     if (!initializeMpv()) return;
 
-#ifndef Q_OS_WIN
+#ifdef Q_OS_LINUX
     // Publish the standard MPRIS interface so GNOME/KDE media-key services
     // can forward wired/Bluetooth earphone Play/Pause buttons even while
     // another application has focus.
