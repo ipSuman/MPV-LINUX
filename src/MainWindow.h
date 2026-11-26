@@ -39,7 +39,7 @@ class DisplayController;
 class ScreenshotController;
 class ControlSettings;
 class GamepadController;
-#ifndef Q_OS_WIN
+#ifdef Q_OS_LINUX
 class MprisController;
 #endif
 
@@ -198,7 +198,7 @@ private:
     ScreenshotController* m_screenshotController = nullptr;
     ControlSettings* m_controlSettings = nullptr;
     GamepadController* m_gamepadController = nullptr;
-#ifndef Q_OS_WIN
+#ifdef Q_OS_LINUX
     MprisController* m_mprisController = nullptr;
 #endif
     QFont m_defaultApplicationFont;
