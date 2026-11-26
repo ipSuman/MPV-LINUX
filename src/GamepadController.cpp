@@ -167,7 +167,7 @@ void GamepadController::handleInput(const QString& input) {
 void GamepadController::poll() {
     if (!m_sdlReady || !m_enabled) return;
     SDL_Event event;
-    while (SDL_PollEvent(&event)) {
+    while (SDL_PeepEvents(&event, 1, SDL_GETEVENT, SDL_JOYAXISMOTION, SDL_CONTROLLERDEVICEREMAPPED) > 0) {
         if (event.type == SDL_JOYDEVICEADDED || event.type == SDL_CONTROLLERDEVICEADDED) {
             if (!m_joystick) openFirstDevice();
         } else if (event.type == SDL_JOYDEVICEREMOVED || event.type == SDL_CONTROLLERDEVICEREMOVED) {
@@ -180,9 +180,9 @@ void GamepadController::poll() {
             handleInput(QStringLiteral("gc:%1").arg(static_cast<int>(event.cbutton.button)));
         } else if (event.type == SDL_JOYBUTTONDOWN) {
             if (!m_controller) handleInput(QStringLiteral("b:%1").arg(event.jbutton.button));
-        } else if (event.type == SDL_JOYHATMOTION && !m_controller && event.jhat.value) {
+        } else if (event.type == SDL_JOYHATMOTION && event.jhat.value) {
             handleInput(QStringLiteral("h:%1:%2").arg(event.jhat.hat).arg(event.jhat.value));
-        } else if (event.type == SDL_JOYAXISMOTION && !m_controller) {
+        } else if (event.type == SDL_JOYAXISMOTION) {
             const int value = event.jaxis.value;
             const QString base = QStringLiteral("a:%1").arg(event.jaxis.axis);
             const QString positive = base + QStringLiteral("+");
