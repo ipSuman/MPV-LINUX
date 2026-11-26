@@ -78,10 +78,10 @@ The timer normally shows **elapsed / total** time. Click the timer to switch to 
 
 ### Recommended: install the `.deb` package
 
-Download **`mpv-linux_5.0.1_amd64.deb`** from the GitHub Releases page, then open a terminal in the download directory and run:
+Download **`mpv-linux_7.0.1_amd64.deb`** from the GitHub Releases page, then open a terminal in the download directory and run:
 
 ```bash
-sudo apt install ./mpv-linux_5.0.1_amd64.deb
+sudo apt install ./mpv-linux_7.0.1_amd64.deb
 ```
 
 `apt` will install the required runtime dependencies automatically.
