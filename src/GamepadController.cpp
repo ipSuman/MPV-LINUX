@@ -41,10 +41,12 @@ GamepadController::GamepadController(QObject* parent) : QObject(parent) {
     for (auto it = saved.cbegin(); it != saved.cend(); ++it)
         m_bindings.insert(it.key(), it.value().toString());
     if (!hasSavedBindings) resetBindings();
-    if (m_enabled && m_sdlReady) openFirstDevice();
     m_timer.setInterval(8);
     connect(&m_timer, &QTimer::timeout, this, &GamepadController::poll);
-    if (m_sdlReady) m_timer.start();
+    if (m_enabled && m_sdlReady) {
+        openFirstDevice();
+        m_timer.start();
+    }
 }
 
 GamepadController::~GamepadController() {
@@ -64,7 +66,13 @@ void GamepadController::setEnabled(bool enabled) {
     m_enabled = enabled && m_sdlReady;
     QSettings settings(QStringLiteral("REX Player"), QStringLiteral("REX Player"));
     settings.setValue(QStringLiteral("gamepad/enabled"), m_enabled);
-    if (m_enabled) openFirstDevice(); else closeDevice();
+    if (m_enabled) {
+        openFirstDevice();
+        m_timer.start();
+    } else {
+        m_timer.stop();
+        closeDevice();
+    }
     emit statusMessage(m_sdlReady ? (m_enabled ? QStringLiteral("Gamepad support enabled") : QStringLiteral("Gamepad support disabled"))
                                   : QStringLiteral("Gamepad support is unavailable in this build"));
 }
