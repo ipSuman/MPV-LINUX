@@ -39,7 +39,6 @@ class DisplayController;
 class ScreenshotController;
 class ControlSettings;
 class GamepadController;
-class GamepadController;
 
 struct mpv_handle;
 
@@ -80,7 +79,6 @@ private slots:
     void togglePlaylist();
     void toggleHardwareDecoding();
     void showControlsDialog();
-    void showGamepadDialog();
     void showGamepadDialog();
     void playPrevious();
     void playNext();
@@ -192,7 +190,6 @@ private:
     DisplayController* m_displayController = nullptr;
     ScreenshotController* m_screenshotController = nullptr;
     ControlSettings* m_controlSettings = nullptr;
-    GamepadController* m_gamepadController = nullptr;
     GamepadController* m_gamepadController = nullptr;
     QFont m_defaultApplicationFont;
     std::atomic_bool m_mpvWakeQueued{false};
