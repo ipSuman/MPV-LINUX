@@ -77,6 +77,9 @@
 #include "ScreenshotController.h"
 #include "ControlSettings.h"
 #include "GamepadController.h"
+#ifndef Q_OS_WIN
+#include "MprisController.h"
+#endif
 
 #include <algorithm>
 #include <cmath>
@@ -84,6 +87,13 @@
 #include <cstdint>
 
 #include <mpv/client.h>
+
+#ifdef Q_OS_WIN
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
 
 
 namespace {
@@ -446,6 +456,30 @@ MainWindow::MainWindow(const QString& mediaPath, QWidget* parent)
     connect(this, &MainWindow::mpvWakeup, this, &MainWindow::pumpMpvEvents, Qt::QueuedConnection);
 
     if (!initializeMpv()) return;
+
+#ifndef Q_OS_WIN
+    // Publish the standard MPRIS interface so GNOME/KDE media-key services
+    // can forward wired/Bluetooth earphone Play/Pause buttons even while
+    // another application has focus.
+    m_mprisController = new MprisController(
+        [this] { togglePause(); },
+        [this] { playNext(); },
+        [this] { playPrevious(); },
+        [this] { stopPlayback(); },
+        [this] {
+            if (!m_mpv) return QStringLiteral("Stopped");
+            int idle = 0;
+            if (mpv_get_property(m_mpv, "idle-active", MPV_FORMAT_FLAG, &idle) >= 0 && idle)
+                return QStringLiteral("Stopped");
+            int paused = 0;
+            if (mpv_get_property(m_mpv, "pause", MPV_FORMAT_FLAG, &paused) >= 0 && paused)
+                return QStringLiteral("Paused");
+            return QStringLiteral("Playing");
+        },
+        this);
+    if (m_runtimeLogger)
+        m_runtimeLogger->append(QStringLiteral("MEDIA KEYS: Linux MPRIS integration initialized"));
+#endif
 
     // m_mpv must exist before VideoTransformer captures the handle.
     m_videoTransformer = new VideoTransformer(m_mpv, m_runtimeLogger, this);
@@ -4087,6 +4121,37 @@ bool MainWindow::keyMatches(QKeyEvent* event, const QKeySequence& sequence) cons
     const int combined = key | static_cast<int>(event->modifiers() & (Qt::ShiftModifier | Qt::ControlModifier | Qt::AltModifier | Qt::MetaModifier));
     return QKeySequence(combined).matches(sequence) == QKeySequence::ExactMatch;
 }
+
+#ifdef Q_OS_WIN
+bool MainWindow::nativeEvent(const QByteArray& eventType, void* message, qintptr* result) {
+    Q_UNUSED(eventType);
+    auto* msg = static_cast<MSG*>(message);
+    if (msg && msg->message == WM_APPCOMMAND) {
+        switch (GET_APPCOMMAND_LPARAM(msg->lParam)) {
+        case APPCOMMAND_MEDIA_PLAY_PAUSE:
+            togglePause();
+            if (result) *result = 1;
+            return true;
+        case APPCOMMAND_MEDIA_PLAY:
+            if (getPropertyDouble("pause") > 0.5 || getPropertyString("idle-active") == QStringLiteral("yes"))
+                togglePause();
+            if (result) *result = 1;
+            return true;
+        case APPCOMMAND_MEDIA_PAUSE:
+            if (getPropertyDouble("pause") < 0.5) togglePause();
+            if (result) *result = 1;
+            return true;
+        case APPCOMMAND_MEDIA_STOP:
+            stopPlayback();
+            if (result) *result = 1;
+            return true;
+        default:
+            break;
+        }
+    }
+    return QMainWindow::nativeEvent(eventType, message, result);
+}
+#endif
 
 void MainWindow::keyPressEvent(QKeyEvent* event) {
     if (event->key() == Qt::Key_Escape && event->modifiers() == Qt::NoModifier) {
