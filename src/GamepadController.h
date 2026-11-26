@@ -18,6 +18,7 @@ public:
     QString deviceName() const;
     QStringList actions() const;
     QString binding(const QString& action) const;
+    QString inputLabel(const QString& input) const;
     void setBinding(const QString& action, const QString& input);
     void clearBinding(const QString& action);
     void resetBindings();
@@ -38,7 +39,6 @@ private:
     void openFirstDevice();
     void closeDevice();
     void handleInput(const QString& input);
-    QString describeInput(const QString& input) const;
 
     QTimer m_timer;
     void* m_joystick = nullptr;
