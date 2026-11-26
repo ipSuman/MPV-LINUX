@@ -42,7 +42,7 @@ if(WIN32)
     )
 else()
     find_package(PkgConfig REQUIRED)
-    pkg_check_modules(LIBMPV REQUIRED IMPORTED_TARGET mpv)
+    pkg_check_modules(LIBMPV REQUIRED IMPORTED_TARGET mpv)\n    pkg_check_modules(SDL2 REQUIRED IMPORTED_TARGET sdl2)
     add_library(MPV::MPV ALIAS PkgConfig::LIBMPV)
 endif()
 
