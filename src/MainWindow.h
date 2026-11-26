@@ -37,7 +37,7 @@ class PlaybackInhibitor;
 class DiagnosticReporter;
 class DisplayController;
 class ScreenshotController;
-class ControlSettings;
+class ControlSettings;\nclass GamepadController;
 
 struct mpv_handle;
 
@@ -77,7 +77,7 @@ private slots:
     void toggleControls();
     void togglePlaylist();
     void toggleHardwareDecoding();
-    void showControlsDialog();
+    void showControlsDialog();\n    void showGamepadDialog();
     void playPrevious();
     void playNext();
     void showTracksMenu();
@@ -187,7 +187,7 @@ private:
     DiagnosticReporter* m_diagnosticReporter = nullptr;
     DisplayController* m_displayController = nullptr;
     ScreenshotController* m_screenshotController = nullptr;
-    ControlSettings* m_controlSettings = nullptr;
+    ControlSettings* m_controlSettings = nullptr;\n    GamepadController* m_gamepadController = nullptr;
     QFont m_defaultApplicationFont;
     std::atomic_bool m_mpvWakeQueued{false};
     QString m_cutOutputPath;
