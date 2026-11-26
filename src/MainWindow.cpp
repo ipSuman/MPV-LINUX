@@ -320,7 +320,7 @@ MainWindow::MainWindow(const QString& mediaPath, QWidget* parent)
     m_gamepadController = new GamepadController(this);
     connect(m_gamepadController, &GamepadController::actionTriggered, this, [this](const QString& action) {
         if (action == "play_pause") togglePause();
-        else if (action == "stop") { const char* args[] = {"stop", nullptr}; command(args); }
+        else if (action == "stop") stopPlayback();
         else if (action == "previous") playPrevious();
         else if (action == "next") playNext();
         else if (action == "seek_back") seekBackward();
@@ -335,6 +335,7 @@ MainWindow::MainWindow(const QString& mediaPath, QWidget* parent)
         else if (action == "frame_forward") stepFrame(true);
         else if (action == "speed_up") increasePlaybackSpeed();
         else if (action == "speed_down") decreasePlaybackSpeed();
+        else if (action == "reset_speed") { setPropertyDouble("speed", 1.0); if (m_runtimeLogger) m_runtimeLogger->append(QStringLiteral("PLAYBACK SPEED: reset to 1.00x (gamepad)")); }
         else if (action == "subtitles") cycleSubtitles();
         else if (action == "loop_start") setAbLoopStart();
         else if (action == "loop_end") setAbLoopEnd();
@@ -1297,7 +1298,7 @@ void MainWindow::showGamepadDialog() {
         {"fullscreen", "Fullscreen"}, {"playlist", "Show / hide playlist"},
         {"screenshot", "Screenshot"}, {"frame_back", "Previous frame"},
         {"frame_forward", "Next frame"}, {"speed_up", "Increase speed"},
-        {"speed_down", "Decrease speed"}, {"subtitles", "Switch subtitles"},
+        {"speed_down", "Decrease speed"}, {"reset_speed", "Reset playback speed"}, {"subtitles", "Switch subtitles"},
         {"loop_start", "Set loop A"}, {"loop_end", "Set loop B"}, {"loop_clear", "Clear loop"},
         {"zoom_in", "Zoom in"}, {"zoom_out", "Zoom out"}, {"zoom_reset", "Reset zoom / pan"},
         {"rotate", "Rotate video"}, {"subtitle_up", "Move subtitles up"},
@@ -2105,7 +2106,38 @@ void MainWindow::command(const char** args) {
         m_runtimeLogger->append(QStringLiteral("COMMAND submit FAILED: %1").arg(result));
     }
 }
-void MainWindow::togglePause() { const char* args[] = {"cycle", "pause", nullptr}; command(args); }
+void MainWindow::togglePause() {
+    if (!m_mpv) return;
+
+    // mpv becomes idle after Stop. Treat Play as reload of the last selected
+    // playlist item so the existing resume/start-over/ask preference is applied.
+    int idleActive = 0;
+    const bool isIdle = mpv_get_property(m_mpv, "idle-active", MPV_FORMAT_FLAG, &idleActive) >= 0 &&
+                        idleActive != 0;
+    if (isIdle) {
+        int index = m_playlistController ? m_playlistController->currentIndex() : -1;
+        if (index < 0 && m_playlistController && !m_pendingResumePath.isEmpty())
+            index = m_playlistController->indexOf(m_pendingResumePath);
+        if (index >= 0) {
+            playPlaylistIndex(index, true);
+            return;
+        }
+        if (!m_pendingResumePath.isEmpty() && QFileInfo::exists(m_pendingResumePath)) {
+            loadFile(m_pendingResumePath);
+            return;
+        }
+    }
+
+    const char* args[] = {"cycle", "pause", nullptr};
+    command(args);
+}
+
+void MainWindow::stopPlayback() {
+    if (!m_mpv) return;
+    saveCurrentPlaybackPosition();
+    const char* args[] = {"stop", nullptr};
+    command(args);
+}
 void MainWindow::seekBackward() { const QByteArray seconds = QByteArray::number(-m_seekDurationSeconds); const char* args[] = {"seek", seconds.constData(), "relative", "exact", nullptr}; command(args); }
 void MainWindow::seekForward() { const QByteArray seconds = QByteArray::number(m_seekDurationSeconds); const char* args[] = {"seek", seconds.constData(), "relative", "exact", nullptr}; command(args); }
 void MainWindow::seekTo(int value) { const double duration = getPropertyDouble("duration"); if (duration > 0) setPropertyDouble("time-pos", duration * value / 1000.0); }
