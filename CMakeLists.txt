@@ -77,6 +77,8 @@ add_executable(rex-player
     src/ControlSettings.h
     src/GamepadController.cpp
     src/GamepadController.h
+    src/MprisController.cpp
+    src/MprisController.h
     assets/rex-player.qrc
 )
 
