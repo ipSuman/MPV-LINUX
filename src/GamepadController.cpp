@@ -36,10 +36,11 @@ GamepadController::GamepadController(QObject* parent) : QObject(parent) {
     }
     QSettings settings(QStringLiteral("REX Player"), QStringLiteral("REX Player"));
     m_enabled = settings.value(QStringLiteral("gamepad/enabled"), false).toBool();
+    const bool hasSavedBindings = settings.contains(QStringLiteral("gamepad/bindings"));
     const auto saved = settings.value(QStringLiteral("gamepad/bindings")).toMap();
     for (auto it = saved.cbegin(); it != saved.cend(); ++it)
         m_bindings.insert(it.key(), it.value().toString());
-    if (m_bindings.isEmpty()) resetBindings();
+    if (!hasSavedBindings) resetBindings();
     if (m_enabled && m_sdlReady) openFirstDevice();
     m_timer.setInterval(8);
     connect(&m_timer, &QTimer::timeout, this, &GamepadController::poll);
