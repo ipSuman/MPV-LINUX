@@ -67,6 +67,7 @@ private slots:
     void clearPlaylist();
     void playlistActivated();
     void togglePause();
+    void stopPlayback();
     void seekBackward();
     void seekForward();
     void seekTo(int value);
