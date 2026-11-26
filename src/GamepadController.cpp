@@ -26,7 +26,7 @@ const QStringList kActions = {
 
 GamepadController::GamepadController(QObject* parent) : QObject(parent) {
     m_sdlReady = SDL_InitSubSystem(SDL_INIT_GAMECONTROLLER | SDL_INIT_JOYSTICK | SDL_INIT_EVENTS) == 0;
-    if (m_sdlReady) SDL_JoystickEventState(SDL_ENABLE);
+    if (m_sdlReady) {\n        SDL_JoystickEventState(SDL_ENABLE);\n        SDL_GameControllerEventState(SDL_ENABLE);\n    }
     QSettings settings(QStringLiteral("REX Player"), QStringLiteral("REX Player"));
     m_enabled = settings.value(QStringLiteral("gamepad/enabled"), false).toBool();
     const auto saved = settings.value(QStringLiteral("gamepad/bindings")).toMap();
@@ -84,7 +84,7 @@ void GamepadController::resetBindings() {
         {QStringLiteral("volume_up"), QStringLiteral("gc:11")},
         {QStringLiteral("volume_down"), QStringLiteral("gc:12")},
         {QStringLiteral("fullscreen"), QStringLiteral("gc:6")},
-        {QStringLiteral("playlist"), QStringLiteral("gc:4")}
+        {QStringLiteral("playlist"), QStringLiteral("gc:4")},\n        {QStringLiteral("mute"), QStringLiteral("gc:5")},\n        {QStringLiteral("frame_back"), QStringLiteral("gc:9")},\n        {QStringLiteral("frame_forward"), QStringLiteral("gc:10")},\n        {QStringLiteral("zoom_reset"), QStringLiteral("gc:7")},\n        {QStringLiteral("screenshot"), QStringLiteral("gc:8")}
     };
     for (const auto& item : defaults) m_bindings.insert(item.first, item.second);
     QSettings settings(QStringLiteral("REX Player"), QStringLiteral("REX Player"));
