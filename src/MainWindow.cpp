@@ -76,6 +76,7 @@
 #include "DisplayController.h"
 #include "ScreenshotController.h"
 #include "ControlSettings.h"
+#include "GamepadController.h"
 
 #include <algorithm>
 #include <cmath>
@@ -316,6 +317,38 @@ MainWindow::MainWindow(const QString& mediaPath, QWidget* parent)
     loadControlSettings();
     m_playlistController = new PlaylistController();
     buildUi();
+    m_gamepadController = new GamepadController(this);
+    connect(m_gamepadController, &GamepadController::actionTriggered, this, [this](const QString& action) {
+        if (action == "play_pause") togglePause();
+        else if (action == "stop") { const char* args[] = {"stop", nullptr}; command(args); }
+        else if (action == "previous") playPrevious();
+        else if (action == "next") playNext();
+        else if (action == "seek_back") seekBackward();
+        else if (action == "seek_forward") seekForward();
+        else if (action == "volume_up") volumeUp();
+        else if (action == "volume_down") volumeDown();
+        else if (action == "mute") toggleMute();
+        else if (action == "fullscreen") toggleFullscreen();
+        else if (action == "playlist") togglePlaylist();
+        else if (action == "screenshot") captureScreenshot();
+        else if (action == "frame_back") stepFrame(false);
+        else if (action == "frame_forward") stepFrame(true);
+        else if (action == "speed_up") increasePlaybackSpeed();
+        else if (action == "speed_down") decreasePlaybackSpeed();
+        else if (action == "subtitles") cycleSubtitles();
+        else if (action == "loop_start") setAbLoopStart();
+        else if (action == "loop_end") setAbLoopEnd();
+        else if (action == "loop_clear") clearAbLoop();
+        else if (action == "zoom_in") adjustVideoZoom(0.1);
+        else if (action == "zoom_out") adjustVideoZoom(-0.1);
+        else if (action == "zoom_reset") resetVideoTransform();
+        else if (action == "rotate") rotateVideo90();
+        else if (action == "subtitle_up") increaseSubtitlePosition();
+        else if (action == "subtitle_down") decreaseSubtitlePosition();
+    });
+    connect(m_gamepadController, &GamepadController::deviceChanged, this, [this](const QString& name) {
+        if (m_runtimeLogger) m_runtimeLogger->append(QStringLiteral("GAMEPAD: %1").arg(name));
+    });
 
     m_speedUpShortcut = new QShortcut(m_speedUpKey, this);
     m_speedUpShortcut->setContext(Qt::WindowShortcut);
@@ -1475,6 +1508,23 @@ void MainWindow::showControlsDialog() {
     auto* mouseTouchpadHeading = new QLabel(QStringLiteral("Mouse / touchpad"), content);
     mouseTouchpadHeading->setStyleSheet(QStringLiteral("font-weight:600;"));
     form->insertRow(2, mouseTouchpadHeading);
+
+    auto* gamepadEnabled = new QCheckBox(QStringLiteral("Enable gamepad support"), &dialog);
+    gamepadEnabled->setChecked(m_gamepadController && m_gamepadController->isEnabled());
+    gamepadEnabled->setEnabled(m_gamepadController && m_gamepadController->isAvailable());
+    auto* gamepadSettings = new QPushButton(QStringLiteral("Configure gamepad…"), &dialog);
+    gamepadSettings->setEnabled(gamepadEnabled->isChecked());
+    connect(gamepadEnabled, &QCheckBox::toggled, &dialog, [this, gamepadSettings](bool checked) {
+        if (m_gamepadController) m_gamepadController->setEnabled(checked);
+        gamepadSettings->setEnabled(checked);
+    });
+    connect(gamepadSettings, &QPushButton::clicked, &dialog, [this] { showGamepadDialog(); });
+    auto* gamepadRow = new QWidget(&dialog);
+    auto* gamepadRowLayout = new QHBoxLayout(gamepadRow);
+    gamepadRowLayout->setContentsMargins(0, 0, 0, 0);
+    gamepadRowLayout->addWidget(gamepadEnabled, 1);
+    gamepadRowLayout->addWidget(gamepadSettings);
+    form->addRow(QStringLiteral("Gamepad"), gamepadRow);
 
     contentLayout->addLayout(form);
     contentLayout->addWidget(new QLabel(QStringLiteral("Keyboard shortcuts"), content));
