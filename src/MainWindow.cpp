@@ -1339,15 +1339,9 @@ void MainWindow::showGamepadDialog() {
     scroll->setWidget(rows);
     layout->addWidget(scroll, 1);
     connect(m_gamepadController, &GamepadController::captureFinished, &dialog,
-            [this, &dialog, rows](const QString& action, const QString& input) {
-        Q_UNUSED(dialog);
-        const auto labels = rows->findChildren<QLabel*>();
-        for (QLabel* label : labels) {
-            if (label->text() == QStringLiteral("Press input…")) {
-                label->setText(input);
-                break;
-            }
-        }
+            [this, mappedValueLabels, status](const QString& action, const QString& input) {
+        if (QLabel* label = mappedValueLabels.value(action, nullptr)) label->setText(input);
+        status->setText(QStringLiteral("Mapped %1 to %2").arg(action, input));
         if (m_runtimeLogger)
             m_runtimeLogger->append(QStringLiteral("GAMEPAD: mapped %1 to %2").arg(action, input));
     });
