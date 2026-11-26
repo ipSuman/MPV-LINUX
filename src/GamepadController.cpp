@@ -81,8 +81,8 @@ void GamepadController::resetBindings() {
         {QStringLiteral("next"), QStringLiteral("gc:3")},
         {QStringLiteral("seek_back"), QStringLiteral("gc:13")},
         {QStringLiteral("seek_forward"), QStringLiteral("gc:14")},
-        {QStringLiteral("volume_down"), QStringLiteral("gc:11")},
-        {QStringLiteral("volume_up"), QStringLiteral("gc:12")},
+        {QStringLiteral("volume_up"), QStringLiteral("gc:11")},
+        {QStringLiteral("volume_down"), QStringLiteral("gc:12")},
         {QStringLiteral("fullscreen"), QStringLiteral("gc:6")},
         {QStringLiteral("playlist"), QStringLiteral("gc:4")}
     };
