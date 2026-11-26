@@ -20,7 +20,11 @@ const QStringList kActions = {
     QStringLiteral("loop_end"), QStringLiteral("loop_clear"),
     QStringLiteral("zoom_in"), QStringLiteral("zoom_out"),
     QStringLiteral("zoom_reset"), QStringLiteral("rotate"),
-    QStringLiteral("subtitle_up"), QStringLiteral("subtitle_down"),\n    QStringLiteral("subtitle_size_up"), QStringLiteral("subtitle_size_down"),\n    QStringLiteral("tracks"), QStringLiteral("equalizer"), QStringLiteral("controls"),\n    QStringLiteral("flip_horizontal"), QStringLiteral("flip_vertical"),\n    QStringLiteral("display"), QStringLiteral("crop")
+    QStringLiteral("subtitle_up"), QStringLiteral("subtitle_down"),
+    QStringLiteral("subtitle_size_up"), QStringLiteral("subtitle_size_down"),
+    QStringLiteral("tracks"), QStringLiteral("equalizer"), QStringLiteral("controls"),
+    QStringLiteral("flip_horizontal"), QStringLiteral("flip_vertical"),
+    QStringLiteral("display"), QStringLiteral("crop")
 };
 }
 
@@ -68,7 +72,9 @@ void GamepadController::setBinding(const QString& action, const QString& input) 
     if (!kActions.contains(action)) return;
     if (input.isEmpty()) m_bindings.remove(action); else m_bindings[action] = input;
     QSettings settings(QStringLiteral("REX Player"), QStringLiteral("REX Player"));
-    QVariantMap saved;\n    for (auto it = m_bindings.cbegin(); it != m_bindings.cend(); ++it) saved.insert(it.key(), it.value());\n    settings.setValue(QStringLiteral("gamepad/bindings"), saved);
+    QVariantMap saved;
+    for (auto it = m_bindings.cbegin(); it != m_bindings.cend(); ++it) saved.insert(it.key(), it.value());
+    settings.setValue(QStringLiteral("gamepad/bindings"), saved);
 }
 
 void GamepadController::clearBinding(const QString& action) { setBinding(action, QString()); }
