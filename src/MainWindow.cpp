@@ -4124,21 +4124,25 @@ bool MainWindow::keyMatches(QKeyEvent* event, const QKeySequence& sequence) cons
 
 #ifdef Q_OS_WIN
 bool MainWindow::nativeEvent(const QByteArray& eventType, void* message, qintptr* result) {
-    Q_UNUSED(eventType);
     auto* msg = static_cast<MSG*>(message);
     if (msg && msg->message == WM_APPCOMMAND) {
+        int paused = 0;
+        int idle = 0;
+        if (m_mpv) {
+            mpv_get_property(m_mpv, "pause", MPV_FORMAT_FLAG, &paused);
+            mpv_get_property(m_mpv, "idle-active", MPV_FORMAT_FLAG, &idle);
+        }
         switch (GET_APPCOMMAND_LPARAM(msg->lParam)) {
         case APPCOMMAND_MEDIA_PLAY_PAUSE:
             togglePause();
             if (result) *result = 1;
             return true;
         case APPCOMMAND_MEDIA_PLAY:
-            if (getPropertyDouble("pause") > 0.5 || getPropertyString("idle-active") == QStringLiteral("yes"))
-                togglePause();
+            if (paused || idle) togglePause();
             if (result) *result = 1;
             return true;
         case APPCOMMAND_MEDIA_PAUSE:
-            if (getPropertyDouble("pause") < 0.5) togglePause();
+            if (!paused && !idle) togglePause();
             if (result) *result = 1;
             return true;
         case APPCOMMAND_MEDIA_STOP:
