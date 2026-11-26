@@ -102,7 +102,9 @@ void GamepadController::resetBindings() {
     };
     for (const auto& item : defaults) m_bindings.insert(item.first, item.second);
     QSettings settings(QStringLiteral("REX Player"), QStringLiteral("REX Player"));
-    settings.setValue(QStringLiteral("gamepad/bindings"), QVariant::fromValue(m_bindings));
+    QVariantMap saved;
+    for (auto it = m_bindings.cbegin(); it != m_bindings.cend(); ++it) saved.insert(it.key(), it.value());
+    settings.setValue(QStringLiteral("gamepad/bindings"), saved);
 }
 
 void GamepadController::beginCapture(const QString& action) {
