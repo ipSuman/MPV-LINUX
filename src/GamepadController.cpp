@@ -15,7 +15,7 @@ const QStringList kActions = {
     QStringLiteral("mute"), QStringLiteral("fullscreen"),
     QStringLiteral("playlist"), QStringLiteral("screenshot"),
     QStringLiteral("frame_back"), QStringLiteral("frame_forward"),
-    QStringLiteral("speed_up"), QStringLiteral("speed_down"),
+    QStringLiteral("speed_up"), QStringLiteral("speed_down"), QStringLiteral("reset_speed"),
     QStringLiteral("subtitles"), QStringLiteral("loop_start"),
     QStringLiteral("loop_end"), QStringLiteral("loop_clear"),
     QStringLiteral("zoom_in"), QStringLiteral("zoom_out"),
