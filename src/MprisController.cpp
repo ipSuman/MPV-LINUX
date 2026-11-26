@@ -5,6 +5,9 @@
 #include <QDBusMessage>
 #include <QDBusMetaType>
 #include <QVariantMap>
+#include <QDBusObjectPath>
+#include <QWidget>
+#include <utility>
 
 namespace {
 constexpr auto kService = "org.mpris.MediaPlayer2.rexplayer";
