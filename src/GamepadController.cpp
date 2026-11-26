@@ -149,7 +149,7 @@ void GamepadController::closeDevice() {
     emit deviceChanged(QStringLiteral("No controller connected"));
 }
 
-QString GamepadController::describeInput(const QString& input) const {
+QString GamepadController::inputLabel(const QString& input) const {
     if (input.startsWith(QStringLiteral("gc:"))) {
         const int id = input.mid(3).toInt();
         static const QStringList names = {QStringLiteral("A"),QStringLiteral("B"),QStringLiteral("X"),QStringLiteral("Y"),
