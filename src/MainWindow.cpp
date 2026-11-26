@@ -1295,6 +1295,7 @@ void MainWindow::showGamepadDialog() {
         {"subtitle_down", "Move subtitles down"}
     };
     const QStringList actions = m_gamepadController->actions();
+    QMap<QString, QLabel*> mappedValueLabels;
     for (const QString& action : actions) {
         auto* row = new QWidget(rows);
         auto* rowLayout = new QHBoxLayout(row);
@@ -1302,6 +1303,7 @@ void MainWindow::showGamepadDialog() {
         auto* label = new QLabel(names.value(action, action), row);
         auto* current = new QLabel(m_gamepadController->binding(action).isEmpty()
             ? QStringLiteral("Not mapped") : m_gamepadController->binding(action), row);
+        mappedValueLabels.insert(action, current);
         current->setMinimumWidth(90);
         auto* map = new QPushButton(QStringLiteral("Map"), row);
         auto* clear = new QPushButton(QStringLiteral("Clear"), row);
@@ -1341,23 +1343,13 @@ void MainWindow::showGamepadDialog() {
     connect(m_gamepadController, &GamepadController::statusMessage, status, &QLabel::setText);
     auto* buttons = new QDialogButtonBox(QDialogButtonBox::Close, &dialog);
     auto* reset = buttons->addButton(QStringLiteral("Reset mappings"), QDialogButtonBox::ResetRole);
-    connect(reset, &QPushButton::clicked, &dialog, [this, rows, names, actions] {
+    connect(reset, &QPushButton::clicked, &dialog, [this, mappedValueLabels, actions] {
         m_gamepadController->resetBindings();
-        const auto labels = rows->findChildren<QLabel*>();
-        int index = 0;
-        for (QLabel* label : labels) {
-            if (index >= actions.size()) break;
-            if (label->text() == names.value(actions[index])) {
-                ++index;
-                continue;
-            }
-        }
-        // Rebuild the displayed values without changing the row order.
-        const auto rowWidgets = rows->findChildren<QWidget*>();
-        Q_UNUSED(rowWidgets);
-        for (int i = 0; i < actions.size(); ++i) {
-            const QString oldValue = m_gamepadController->binding(actions[i]);
-            Q_UNUSED(oldValue);
+        for (const QString& action : actions) {
+            QLabel* label = mappedValueLabels.value(action, nullptr);
+            if (!label) continue;
+            const QString value = m_gamepadController->binding(action);
+            label->setText(value.isEmpty() ? QStringLiteral("Not mapped") : value);
         }
     });
     connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::accept);
