@@ -42,7 +42,8 @@ if(WIN32)
     )
 else()
     find_package(PkgConfig REQUIRED)
-    pkg_check_modules(LIBMPV REQUIRED IMPORTED_TARGET mpv)\n    pkg_check_modules(SDL2 REQUIRED IMPORTED_TARGET sdl2)
+    pkg_check_modules(LIBMPV REQUIRED IMPORTED_TARGET mpv)
+    pkg_check_modules(SDL2 REQUIRED IMPORTED_TARGET sdl2)
     add_library(MPV::MPV ALIAS PkgConfig::LIBMPV)
 endif()
 
@@ -74,6 +75,8 @@ add_executable(rex-player
     src/ScreenshotController.h
     src/ControlSettings.cpp
     src/ControlSettings.h
+    src/GamepadController.cpp
+    src/GamepadController.h
     assets/rex-player.qrc
 )
 
@@ -111,7 +114,12 @@ target_link_libraries(rex-player PRIVATE
 )
 
 if(WIN32)
-    target_link_libraries(rex-player PRIVATE dwmapi)
+    find_path(SDL2_INCLUDE_DIR NAMES SDL.h PATHS ENV MINGW_PREFIX PATH_SUFFIXES include/SDL2 REQUIRED)
+    find_library(SDL2_LIBRARY NAMES SDL2 PATHS ENV MINGW_PREFIX PATH_SUFFIXES lib REQUIRED)
+    target_include_directories(rex-player PRIVATE ${SDL2_INCLUDE_DIR})
+    target_link_libraries(rex-player PRIVATE ${SDL2_LIBRARY} dwmapi)
+elseif(UNIX AND NOT APPLE)
+    target_link_libraries(rex-player PRIVATE PkgConfig::SDL2)
 elseif(UNIX AND NOT APPLE)
     target_link_libraries(rex-player PRIVATE Qt6::DBus)
 endif()
