@@ -161,9 +161,20 @@ QString GamepadController::inputLabel(const QString& input) const {
     if (input.startsWith(QStringLiteral("b:"))) return QStringLiteral("Button %1").arg(input.mid(2));
     if (input.startsWith(QStringLiteral("h:"))) {
         const QStringList p = input.split(':');
-        if (p.size() == 3) return QStringLiteral("Hat %1 direction %2").arg(p[1], p[2]);
+        if (p.size() == 3) {
+            static const QMap<QString, QString> directions = {
+                {"1", "Up"}, {"2", "Right"}, {"4", "Down"}, {"8", "Left"},
+                {"3", "Up-right"}, {"6", "Down-right"}, {"9", "Up-left"}, {"12", "Down-left"}
+            };
+            return QStringLiteral("Hat %1 %2").arg(p[1], directions.value(p[2], p[2]));
+        }
     }
-    if (input.startsWith(QStringLiteral("a:"))) return QStringLiteral("Axis %1 %2").arg(input.mid(2));
+    if (input.startsWith(QStringLiteral("a:"))) {
+        QString axis = input.mid(2);
+        const QString direction = axis.endsWith('+') ? QStringLiteral("positive") : QStringLiteral("negative");
+        if (!axis.isEmpty()) axis.chop(1);
+        return QStringLiteral("Axis %1 %2").arg(axis, direction);
+    }
     return input;
 }
 
