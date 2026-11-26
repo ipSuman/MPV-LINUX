@@ -1315,7 +1315,7 @@ void MainWindow::showGamepadDialog() {
         rowLayout->setContentsMargins(0, 2, 0, 2);
         auto* label = new QLabel(names.value(action, action), row);
         auto* current = new QLabel(m_gamepadController->binding(action).isEmpty()
-            ? QStringLiteral("Not mapped") : m_gamepadController->binding(action), row);
+            ? QStringLiteral("Not mapped") : m_gamepadController->inputLabel(m_gamepadController->binding(action)), row);
         mappedValueLabels.insert(action, current);
         current->setMinimumWidth(90);
         auto* map = new QPushButton(QStringLiteral("Map"), row);
@@ -1340,7 +1340,7 @@ void MainWindow::showGamepadDialog() {
     layout->addWidget(scroll, 1);
     connect(m_gamepadController, &GamepadController::captureFinished, &dialog,
             [this, mappedValueLabels, status](const QString& action, const QString& input) {
-        if (QLabel* label = mappedValueLabels.value(action, nullptr)) label->setText(input);
+        if (QLabel* label = mappedValueLabels.value(action, nullptr)) label->setText(m_gamepadController->inputLabel(input));
         status->setText(QStringLiteral("Mapped %1 to %2").arg(action, input));
         if (m_runtimeLogger)
             m_runtimeLogger->append(QStringLiteral("GAMEPAD: mapped %1 to %2").arg(action, input));
@@ -1356,7 +1356,7 @@ void MainWindow::showGamepadDialog() {
             QLabel* label = mappedValueLabels.value(action, nullptr);
             if (!label) continue;
             const QString value = m_gamepadController->binding(action);
-            label->setText(value.isEmpty() ? QStringLiteral("Not mapped") : value);
+            label->setText(value.isEmpty() ? QStringLiteral("Not mapped") : m_gamepadController->inputLabel(value));
         }
     });
     connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::accept);
