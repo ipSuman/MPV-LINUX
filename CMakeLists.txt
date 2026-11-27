@@ -119,6 +119,7 @@ if(WIN32)
     target_include_directories(rex-player PRIVATE ${SDL2_INCLUDE_DIR})
     target_link_libraries(rex-player PRIVATE ${SDL2_LIBRARY} dwmapi)
 elseif(UNIX AND NOT APPLE)
+    target_sources(rex-player PRIVATE src/MprisController.cpp src/MprisController.h)
     target_link_libraries(rex-player PRIVATE PkgConfig::SDL2 Qt6::DBus)
 endif()
 

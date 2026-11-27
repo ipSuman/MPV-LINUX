@@ -39,6 +39,9 @@ class DisplayController;
 class ScreenshotController;
 class ControlSettings;
 class GamepadController;
+#ifdef Q_OS_LINUX
+class MprisController;
+#endif
 
 struct mpv_handle;
 
@@ -56,6 +59,9 @@ protected:
     void keyPressEvent(QKeyEvent* event) override;
     void keyReleaseEvent(QKeyEvent* event) override;
     bool eventFilter(QObject* watched, QEvent* event) override;
+#ifdef Q_OS_WIN
+    bool nativeEvent(const QByteArray& eventType, void* message, qintptr* result) override;
+#endif
 
 private slots:
     void pumpMpvEvents();
@@ -192,6 +198,9 @@ private:
     ScreenshotController* m_screenshotController = nullptr;
     ControlSettings* m_controlSettings = nullptr;
     GamepadController* m_gamepadController = nullptr;
+#ifdef Q_OS_LINUX
+    MprisController* m_mprisController = nullptr;
+#endif
     QFont m_defaultApplicationFont;
     std::atomic_bool m_mpvWakeQueued{false};
     QString m_cutOutputPath;
