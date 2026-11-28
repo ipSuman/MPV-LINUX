@@ -1218,9 +1218,11 @@ void MainWindow::applyMainPanelButtonMode() {
         if (m_mainPanelIcons) {
             button->setText(QString());
             button->setIcon(makeMainPanelIcon(icon));
-            button->setIconSize(QSize(20, 20));
-            button->setMinimumSize(34, 30);
-            button->setMaximumSize(34, 30);
+            button->setIconSize(QSize(m_mainPanelIconSize, m_mainPanelIconSize));
+            const QSize iconButtonSize(m_mainPanelIconSize + 14,
+                                       std::max(30, m_mainPanelIconSize + 10));
+            button->setMinimumSize(iconButtonSize);
+            button->setMaximumSize(iconButtonSize);
             button->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
         } else {
             button->setIcon(QIcon());
@@ -1264,6 +1266,7 @@ void MainWindow::applyControlSettingsToRuntime() {
     m_volumeWheelMode = m_controlSettings->volumeWheelMode;
     m_timerBesideProgress = m_controlSettings->timerBesideProgress;
     m_mainPanelIcons = m_controlSettings->mainPanelIcons;
+    m_mainPanelIconSize = std::clamp(m_controlSettings->mainPanelIconSize, 12, 36);
     m_showVolumeOsd = m_controlSettings->showVolumeOsd;
     m_showSeekOsd = m_controlSettings->showSeekOsd;
     m_returnFocusToVideoAfterMouseAction = m_controlSettings->returnFocusToVideoAfterMouseAction;
@@ -1364,9 +1367,23 @@ void MainWindow::applyInterfaceFont(const QString& fontPath, const QString& font
 
 void MainWindow::showGamepadDialog() {
     if (!m_gamepadController) return;
-    QDialog dialog(this);
+    // Use an independent application-modal window so it can be moved
+    // separately from the player, and constrain it to the player's screen.
+    QDialog dialog(nullptr);
+    dialog.setWindowFlag(Qt::Dialog, true);
     dialog.setWindowTitle(QStringLiteral("Gamepad"));
-    dialog.resize(500, 620);
+    dialog.setWindowModality(Qt::ApplicationModal);
+    QScreen* gamepadScreen = screen();
+    const QRect availableGeometry = gamepadScreen
+        ? gamepadScreen->availableGeometry() : QRect(0, 0, 1024, 768);
+    const int fontPointSize = std::max(10, QApplication::font().pointSize());
+    const int preferredWidth = 760 + (fontPointSize - 10) * 5;
+    const int gamepadWidth = std::min(std::max(520, availableGeometry.width() - 40),
+                                      preferredWidth);
+    const int gamepadHeight = std::min(700, std::max(480, availableGeometry.height() - 40));
+    dialog.resize(gamepadWidth, gamepadHeight);
+    dialog.setMinimumSize(std::min(520, gamepadWidth), std::min(420, gamepadHeight));
+    dialog.setSizeGripEnabled(true);
     auto* layout = new QVBoxLayout(&dialog);
     auto* status = new QLabel(&dialog);
     auto updateStatus = [this, status] {
@@ -1384,6 +1401,7 @@ void MainWindow::showGamepadDialog() {
 
     auto* scroll = new QScrollArea(&dialog);
     scroll->setWidgetResizable(true);
+    scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
     auto* rows = new QWidget(scroll);
     auto* rowsLayout = new QVBoxLayout(rows);
     const QMap<QString, QString> names = {
@@ -1458,6 +1476,9 @@ void MainWindow::showGamepadDialog() {
     });
     connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::accept);
     layout->addWidget(buttons);
+    dialog.adjustSize();
+    dialog.resize(gamepadWidth, gamepadHeight);
+    dialog.move(frameGeometry().center() - dialog.rect().center());
     dialog.exec();
     m_gamepadController->cancelCapture();
 }
@@ -1600,6 +1621,19 @@ void MainWindow::showControlsDialog() {
     selectData(mainPanelStyle, m_mainPanelIcons);
     mainPanelStyle->setToolTip(QStringLiteral("Choose whether the main playback control buttons use monochrome icons or text labels."));
     form->addRow(QStringLiteral("Main panel buttons"), mainPanelStyle);
+
+    auto* mainPanelIconSize = new QSpinBox(&dialog);
+    mainPanelIconSize->setRange(12, 36);
+    mainPanelIconSize->setSingleStep(2);
+    mainPanelIconSize->setSuffix(QStringLiteral(" px"));
+    mainPanelIconSize->setValue(m_mainPanelIconSize);
+    mainPanelIconSize->setEnabled(m_mainPanelIcons);
+    mainPanelIconSize->setToolTip(QStringLiteral("Set the size of the main playback panel icons. This option is available when Icons mode is selected."));
+    form->addRow(QStringLiteral("Icon size"), mainPanelIconSize);
+    connect(mainPanelStyle, qOverload<int>(&QComboBox::currentIndexChanged),
+            mainPanelIconSize, [mainPanelStyle, mainPanelIconSize](int) {
+        mainPanelIconSize->setEnabled(mainPanelStyle->currentData().toBool());
+    });
     auto* mouseFocusMode = new QComboBox(&dialog);
     mouseFocusMode->addItem(QStringLiteral("Return focus to video"), true);
     mouseFocusMode->addItem(QStringLiteral("Keep focus on control"), false);
@@ -1968,6 +2002,8 @@ void MainWindow::showControlsDialog() {
             m_controlSettings->showVolumeOsd = m_showVolumeOsd;
             m_controlSettings->showSeekOsd = m_showSeekOsd;
             m_controlSettings->mainPanelIcons = m_mainPanelIcons;
+            m_controlSettings->mainPanelIconSize = std::clamp(mainPanelIconSize->value(), 12, 36);
+            m_mainPanelIconSize = m_controlSettings->mainPanelIconSize;
             m_controlSettings->returnFocusToVideoAfterMouseAction = m_returnFocusToVideoAfterMouseAction;
             m_controlSettings->verboseLogging = m_verboseLogging;
             m_controlSettings->panButton = m_panButton;
@@ -4030,8 +4066,9 @@ void MainWindow::updateVolumeMuteButton(bool muted) {
         m_volumeMuteButton->setText(QString());
         m_volumeMuteButton->setIcon(makeMainPanelIcon(
             muted ? MainPanelIcon::MutedSpeaker : MainPanelIcon::Speaker));
-        m_volumeMuteButton->setIconSize(QSize(20, 20));
-        m_volumeMuteButton->setFixedSize(34, 30);
+        m_volumeMuteButton->setIconSize(QSize(m_mainPanelIconSize, m_mainPanelIconSize));
+        m_volumeMuteButton->setFixedSize(m_mainPanelIconSize + 14,
+                                         std::max(30, m_mainPanelIconSize + 10));
     } else {
         m_volumeMuteButton->setIcon(QIcon());
         m_volumeMuteButton->setText(muted ? QStringLiteral("Muted")
