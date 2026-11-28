@@ -19,7 +19,6 @@ void ControlSettings::load() {
     timerBesideProgress = settings.value(QStringLiteral("controls/timerBesideProgress"), timerBesideProgress).toBool();
     mainPanelIcons = settings.value(QStringLiteral("controls/mainPanelIcons"), mainPanelIcons).toBool();
     mainPanelIconSize = std::clamp(settings.value(QStringLiteral("controls/mainPanelIconSize"), mainPanelIconSize).toInt(), 12, 36);
-    mainPanelIconSize = std::clamp(settings.value(QStringLiteral("controls/mainPanelIconSize"), mainPanelIconSize).toInt(), 12, 36);
     returnFocusToVideoAfterMouseAction = settings.value(QStringLiteral("controls/returnFocusToVideoAfterMouseAction"), returnFocusToVideoAfterMouseAction).toBool();
     verboseLogging = settings.value(QStringLiteral("controls/verboseLogging"), verboseLogging).toBool();
     showVolumeOsd = settings.value(QStringLiteral("controls/showVolumeOsd"), showVolumeOsd).toBool();
@@ -88,7 +87,6 @@ bool ControlSettings::saveToFile(const QString& filePath) const {
     settings.setValue(QStringLiteral("controls/timerBesideProgress"), timerBesideProgress);
     settings.setValue(QStringLiteral("controls/mainPanelIcons"), mainPanelIcons);
     settings.setValue(QStringLiteral("controls/mainPanelIconSize"), mainPanelIconSize);
-    settings.setValue(QStringLiteral("controls/mainPanelIconSize"), mainPanelIconSize);
     settings.setValue(QStringLiteral("controls/returnFocusToVideoAfterMouseAction"), returnFocusToVideoAfterMouseAction);
     settings.setValue(QStringLiteral("controls/verboseLogging"), verboseLogging);
     settings.setValue(QStringLiteral("controls/showVolumeOsd"), showVolumeOsd);
@@ -139,6 +137,7 @@ bool ControlSettings::loadFromFile(const QString& filePath) {
     volumeWheelMode = settings.value(QStringLiteral("controls/volumeWheel"), volumeWheelMode).toString();
     timerBesideProgress = settings.value(QStringLiteral("controls/timerBesideProgress"), timerBesideProgress).toBool();
     mainPanelIcons = settings.value(QStringLiteral("controls/mainPanelIcons"), mainPanelIcons).toBool();
+    mainPanelIconSize = std::clamp(settings.value(QStringLiteral("controls/mainPanelIconSize"), mainPanelIconSize).toInt(), 12, 36);
     verboseLogging = settings.value(QStringLiteral("controls/verboseLogging"), verboseLogging).toBool();
     showVolumeOsd = settings.value(QStringLiteral("controls/showVolumeOsd"), showVolumeOsd).toBool();
     showSeekOsd = settings.value(QStringLiteral("controls/showSeekOsd"), showSeekOsd).toBool();
@@ -192,6 +191,7 @@ void ControlSettings::save() const {
     settings.setValue(QStringLiteral("controls/volumeWheel"), volumeWheelMode);
     settings.setValue(QStringLiteral("controls/timerBesideProgress"), timerBesideProgress);
     settings.setValue(QStringLiteral("controls/mainPanelIcons"), mainPanelIcons);
+    settings.setValue(QStringLiteral("controls/mainPanelIconSize"), mainPanelIconSize);
     settings.setValue(QStringLiteral("controls/verboseLogging"), verboseLogging);
     settings.setValue(QStringLiteral("controls/showVolumeOsd"), showVolumeOsd);
     settings.setValue(QStringLiteral("controls/showSeekOsd"), showSeekOsd);
