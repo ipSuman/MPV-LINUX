@@ -381,6 +381,7 @@ MainWindow::MainWindow(const QString& mediaPath, QWidget* parent)
         else if (action == "display") showDisplayDialog();
         else if (action == "crop") showCropDialog();
         else if (action == "video_info") toggleControls();
+        else if (action == "exit") close();
     });
     connect(m_gamepadController, &GamepadController::deviceChanged, this, [this](const QString& name) {
         if (m_runtimeLogger) m_runtimeLogger->append(QStringLiteral("GAMEPAD: %1").arg(name));
@@ -1386,7 +1387,7 @@ void MainWindow::showGamepadDialog() {
         {"equalizer", "Open equalizer"}, {"controls", "Show / hide controls"},
         {"flip_horizontal", "Flip video horizontally"}, {"flip_vertical", "Flip video vertically"},
         {"display", "Display adjustments"}, {"crop", "Crop video"},
-        {"video_info", "Show / hide video information"}
+        {"video_info", "Show / hide video information"}, {"exit", "Exit REX Player"}
     };
     const QStringList actions = m_gamepadController->actions();
     QMap<QString, QLabel*> mappedValueLabels;
