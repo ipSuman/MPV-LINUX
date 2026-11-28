@@ -1478,7 +1478,16 @@ void MainWindow::showGamepadDialog() {
     layout->addWidget(buttons);
     dialog.adjustSize();
     dialog.resize(gamepadWidth, gamepadHeight);
-    dialog.move(frameGeometry().center() - dialog.rect().center());
+    QRect gamepadGeometry(QPoint(0, 0), dialog.size());
+    gamepadGeometry.moveCenter(frameGeometry().center());
+    const int maxX = std::max(availableGeometry.left(),
+                              availableGeometry.right() - gamepadGeometry.width() + 1);
+    const int maxY = std::max(availableGeometry.top(),
+                              availableGeometry.bottom() - gamepadGeometry.height() + 1);
+    gamepadGeometry.moveTopLeft(QPoint(
+        std::clamp(gamepadGeometry.left(), availableGeometry.left(), maxX),
+        std::clamp(gamepadGeometry.top(), availableGeometry.top(), maxY)));
+    dialog.move(gamepadGeometry.topLeft());
     dialog.exec();
     m_gamepadController->cancelCapture();
 }
