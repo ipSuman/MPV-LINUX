@@ -1473,7 +1473,7 @@ void MainWindow::showControlsDialog() {
 
     // Leave enough horizontal room for the shortcut editor and its clear (×)
     // button, scaling the initial width with the active interface font.
-    QScreen* controlsScreen = QGuiApplication::primaryScreen();
+    QScreen* controlsScreen = screen();
     const int availableWidth = controlsScreen
         ? controlsScreen->availableGeometry().width() : 800;
     const int fontPointSize = std::max(10, QApplication::font().pointSize());
@@ -2012,7 +2012,7 @@ void MainWindow::showControlsDialog() {
     dialog.adjustSize();
     dialog.resize(std::min(availableWidth - 40,
                            std::max(controlsWidth, dialog.sizeHint().width())),
-                  std::max(560, dialog.height()));
+                  560);
     dialog.move(frameGeometry().center() - dialog.rect().center());
     dialog.exec();
 }
