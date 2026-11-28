@@ -126,6 +126,7 @@ private:
     void setPropertyDouble(const char* name, double value);
     void updateHardwareButton();
     void updatePlayButton(bool paused);
+    void updateVolumeMuteButton(bool muted);
     void updateSeekButtonLabels();
     void adjustVideoZoom(double amount);
     void resetVideoTransform();
@@ -136,6 +137,8 @@ private:
     void stepFrame(bool forward);
     void showError(const QString& message);
     void showToast(const QString& message);
+    void showPlaybackOsd(const QString& message);
+    void showSeekPlaybackOsd(int seconds);
     QString formatTime(double seconds) const;
     void setControlsVisible(bool visible);
     void toggleFullscreen();
@@ -166,11 +169,13 @@ private:
     QListWidget* m_playlist = nullptr;
     QSlider* m_seekSlider = nullptr;
     QSlider* m_volumeSlider = nullptr;
+    QPushButton* m_volumeMuteButton = nullptr;
     QLabel* m_timeLabel = nullptr;
     QLabel* m_currentTimeLabel = nullptr;
     QLabel* m_progressTimeLabel = nullptr;
     QLabel* m_abLoopLabel = nullptr;
     QLabel* m_toastLabel = nullptr;
+    QLabel* m_playbackOsdLabel = nullptr;
     QPushButton* m_playButton = nullptr;
     QPushButton* m_hwButton = nullptr;
     QPushButton* m_previousButton = nullptr;
@@ -294,8 +299,14 @@ private:
     QTimer m_fullscreenHideTimer;
     QTimer m_cursorHideTimer;
     QTimer m_toastTimer;
+    QTimer m_playbackOsdTimer;
+    bool m_showVolumeOsd = true;
+    bool m_showSeekOsd = true;
+    bool m_seekOsdActive = false;
+    int m_seekOsdTotalSeconds = 0;
     bool m_playlistWasVisibleBeforeFullscreen = false;
     int m_lastPlaylistHighlightIndex = -2;
     int m_lastPausedState = -1;
+    int m_lastMutedState = -1;
     QString m_lastHardwareDecoder;
 };

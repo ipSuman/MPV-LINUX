@@ -11,11 +11,11 @@ BrandingText "REX Player"
 
 ; Embed publisher/product metadata in the installer file properties.
 ; A trusted publisher in the Windows UAC prompt still requires Authenticode signing.
-VIProductVersion "5.0.1.0"
+VIProductVersion "8.0.2.0"
 VIAddVersionKey /LANG=1033 "CompanyName" "ipSuman"
 VIAddVersionKey /LANG=1033 "FileDescription" "REX Player Setup"
 VIAddVersionKey /LANG=1033 "ProductName" "REX Player"
-VIAddVersionKey /LANG=1033 "ProductVersion" "5.0.1"
+VIAddVersionKey /LANG=1033 "ProductVersion" "8.0.2"
 VIAddVersionKey /LANG=1033 "OriginalFilename" "REX-Player-Windows-x64-setup.exe"
 
 !include "MUI2.nsh"
@@ -46,7 +46,7 @@ Section "REX Player" SecMain
   ; uninstall command to invoke from Settings or Control Panel.
   SetRegView 64
   WriteRegStr HKLM "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\REX Player" "DisplayName" "REX Player"
-  WriteRegStr HKLM "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\REX Player" "DisplayVersion" "5.0.1"
+  WriteRegStr HKLM "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\REX Player" "DisplayVersion" "8.0.2"
   WriteRegStr HKLM "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\REX Player" "Publisher" "ipSuman"
   WriteRegStr HKLM "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\REX Player" "InstallLocation" "$INSTDIR"
   WriteRegStr HKLM "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\REX Player" "DisplayIcon" "$INSTDIR\\rex-player.exe"

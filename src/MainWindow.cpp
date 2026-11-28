@@ -154,7 +154,7 @@ void selectData(QComboBox* combo, const QVariant& value) {
 enum class MainPanelIcon {
     Fullscreen, Open, Hardware, Cut, SaveAudio, Speed, Equalizer, Previous, SeekBack,
     Play, Pause, SeekForward, Next, Tracks, Playlist, Menu, Controls, Display,
-    Capture, Rotate, Crop, FlipH, FlipV, About
+    Capture, Rotate, Crop, FlipH, FlipV, About, Speaker, MutedSpeaker
 };
 
 QIcon makeMainPanelIcon(MainPanelIcon icon) {
@@ -268,6 +268,19 @@ QIcon makeMainPanelIcon(MainPanelIcon icon) {
         p.setPen(pen); p.setBrush(Qt::NoBrush); p.drawRect(5,4,14,16); p.drawLine(3,12,21,12); p.setPen(Qt::NoPen); p.drawPolygon(QPolygonF{QPointF(9,9),QPointF(12,4),QPointF(15,9)}); p.drawPolygon(QPolygonF{QPointF(9,15),QPointF(12,20),QPointF(15,15)}); break;
     case MainPanelIcon::About:
         p.setPen(pen); p.setBrush(Qt::NoBrush); p.drawEllipse(QPointF(12,12),9,9); p.setPen(Qt::NoPen); p.setBrush(QColor("#ffffff")); p.drawRect(11,10,2,7); p.drawRect(11,7,2,2); break;
+    case MainPanelIcon::Speaker:
+        p.setPen(Qt::NoPen); p.setBrush(QColor("#ffffff"));
+        p.drawPolygon(QPolygonF{QPointF(3,9),QPointF(7,9),QPointF(13,4),QPointF(13,20),QPointF(7,15),QPointF(3,15)});
+        p.setPen(pen); p.setBrush(Qt::NoBrush);
+        p.drawArc(10,6,10,12,-55*16,110*16);
+        p.drawArc(10,2,14,20,-55*16,110*16);
+        break;
+    case MainPanelIcon::MutedSpeaker:
+        p.setPen(Qt::NoPen); p.setBrush(QColor("#ffffff"));
+        p.drawPolygon(QPolygonF{QPointF(3,9),QPointF(7,9),QPointF(13,4),QPointF(13,20),QPointF(7,15),QPointF(3,15)});
+        p.setPen(pen); p.setBrush(Qt::NoBrush);
+        p.drawLine(16,8,22,16); p.drawLine(22,8,16,16);
+        break;
     }
     return QIcon(pixmap);
 }
@@ -298,6 +311,8 @@ QString mainPanelTextForIcon(MainPanelIcon icon) {
     case MainPanelIcon::FlipH: return QStringLiteral("Flip H");
     case MainPanelIcon::FlipV: return QStringLiteral("Flip V");
     case MainPanelIcon::About: return QStringLiteral("About");
+    case MainPanelIcon::Speaker: return QStringLiteral("Volume");
+    case MainPanelIcon::MutedSpeaker: return QStringLiteral("Muted");
     }
     return QString();
 }
@@ -365,6 +380,8 @@ MainWindow::MainWindow(const QString& mediaPath, QWidget* parent)
         else if (action == "flip_vertical") toggleFlipVertical();
         else if (action == "display") showDisplayDialog();
         else if (action == "crop") showCropDialog();
+        else if (action == "video_info") toggleControls();
+        else if (action == "exit") close();
     });
     connect(m_gamepadController, &GamepadController::deviceChanged, this, [this](const QString& name) {
         if (m_runtimeLogger) m_runtimeLogger->append(QStringLiteral("GAMEPAD: %1").arg(name));
@@ -391,6 +408,12 @@ MainWindow::MainWindow(const QString& mediaPath, QWidget* parent)
     m_toastTimer.setSingleShot(true);
     connect(&m_toastTimer, &QTimer::timeout, this, [this] {
         if (m_toastLabel) m_toastLabel->hide();
+    });
+    m_playbackOsdTimer.setSingleShot(true);
+    connect(&m_playbackOsdTimer, &QTimer::timeout, this, [this] {
+        if (m_playbackOsdLabel) m_playbackOsdLabel->hide();
+        m_seekOsdActive = false;
+        m_seekOsdTotalSeconds = 0;
     });
 
     m_runtimeLogger = new RuntimeLogger(this);
@@ -547,6 +570,16 @@ void MainWindow::buildUi() {
         "border-radius:6px;padding:7px 14px;font-weight:600;}"));
     m_toastLabel->setAttribute(Qt::WA_TransparentForMouseEvents);
     m_toastLabel->hide();
+
+    m_playbackOsdLabel = new QLabel(root);
+    m_playbackOsdLabel->setObjectName(QStringLiteral("playbackOsdLabel"));
+    m_playbackOsdLabel->setAlignment(Qt::AlignCenter);
+    m_playbackOsdLabel->setFont(QApplication::font());
+    m_playbackOsdLabel->setStyleSheet(QStringLiteral(
+        "QLabel#playbackOsdLabel{background:rgba(48,48,48,225);color:#00ff66;"
+        "border:0;border-radius:22px;padding:7px 18px;}"));
+    m_playbackOsdLabel->setAttribute(Qt::WA_TransparentForMouseEvents);
+    m_playbackOsdLabel->hide();
     auto* layout = new QVBoxLayout(root);
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(0);
@@ -674,6 +707,7 @@ void MainWindow::buildUi() {
     connect(m_seekBackButton, &QPushButton::clicked, this, [this] {
         const char* args[] = {"seek", "-10", "relative", "exact", nullptr};
         command(args);
+        if (m_showSeekOsd) showSeekPlaybackOsd(-10);
     });
     row1->addWidget(m_seekBackButton);
 
@@ -689,6 +723,7 @@ void MainWindow::buildUi() {
     connect(m_seekForwardButton, &QPushButton::clicked, this, [this] {
         const char* args[] = {"seek", "10", "relative", "exact", nullptr};
         command(args);
+        if (m_showSeekOsd) showSeekPlaybackOsd(10);
     });
     row1->addWidget(m_seekForwardButton);
 
@@ -701,7 +736,12 @@ void MainWindow::buildUi() {
 
     row1->addStretch(1);
 
-    row1->addWidget(new QLabel(QStringLiteral("Volume"), m_controls));
+    m_volumeMuteButton = new QPushButton(QStringLiteral("Volume"), m_controls);
+    m_volumeMuteButton->setToolTip(QStringLiteral("Mute playback"));
+    m_volumeMuteButton->setFlat(true);
+    m_volumeMuteButton->setCursor(Qt::PointingHandCursor);
+    connect(m_volumeMuteButton, &QPushButton::clicked, this, &MainWindow::toggleMute);
+    row1->addWidget(m_volumeMuteButton);
     m_volumeSlider = new QSlider(Qt::Horizontal, m_controls);
     m_volumeSlider->setRange(0, 100);
     m_volumeSlider->setValue(60);
@@ -811,7 +851,7 @@ void MainWindow::buildUi() {
         layout->setContentsMargins(20, 20, 20, 20);
         layout->setSpacing(12);
 
-        auto* title = new QLabel(QStringLiteral("<b>REX Player %1</b>").arg(QCoreApplication::applicationVersion()), &dialog);
+        auto* title = new QLabel(QStringLiteral("<b>REX Player v.%1</b>").arg(QCoreApplication::applicationVersion()), &dialog);
         title->setAlignment(Qt::AlignCenter);
         layout->addWidget(title);
 
@@ -837,7 +877,7 @@ void MainWindow::buildUi() {
 
             auto* heading = new QLabel(
                 QStringLiteral("<b>REX Player Changelog</b><br>"
-                               "<span style='color:#888;'>Current version: %1</span>")
+                               "<span style='color:#888;'>Current version: v.%1</span>")
                     .arg(QCoreApplication::applicationVersion()),
                 &changelogDialog);
             heading->setTextFormat(Qt::RichText);
@@ -852,8 +892,19 @@ void MainWindow::buildUi() {
             content->setWordWrap(true);
             content->setAlignment(Qt::AlignTop | Qt::AlignLeft);
             content->setText(QStringLiteral(
-                "<h2>REX Player %1 — Current</h2>"
-                "<p><b>New in the current release:</b></p>"
+                "<h2>REX Player v.%1 — Current</h2>"
+                "<p><b>New in v.8.0.2:</b></p>"
+                "<ul>"
+                "<li>🎮 <b>Configurable gamepad controls</b> with button, D-pad and stick mapping for playback, seeking, volume, subtitles, video transforms and display tools.</li>"
+                "<li>🚪 <b>Gamepad Exit action</b> can be mapped to a controller button and closes REX Player cleanly.</li>"
+                "<li>🔇 <b>Clickable volume mute control</b> beside the volume slider, with text and icon states that follow MPV's actual mute status.</li>"
+                "<li>ℹ️ <b>Gamepad video-information action</b> for showing or hiding video information from a controller.</li>"
+                "<li>🔊 <b>Optional on-video volume percentage</b> and <b>seek-duration overlays</b>, independently configurable in Control settings.</li>"
+                "<li>⏩ <b>Cumulative seek overlay</b> adds repeated forward/backward seeks during the display interval.</li>"
+                "<li>🎨 <b>Refined playback overlay</b> uses the application font, green text and a dark rounded background.</li>"
+                "</ul>"
+                "<h2>REX Player v7.0.1 — Previous release</h2>"
+                "<p><b>Major features introduced or improved in v7.0.1:</b></p>"
                 "<ul>"
                 "<li>🎚️ <b>5-band Sound Equalizer</b> with independent frequency-band control.</li>"
                 "<li>🔊 <b>Power Bar</b> volume boost up to 300%, with a warning before enabling boost above normal volume.</li>"
@@ -989,13 +1040,13 @@ void MainWindow::buildUi() {
                     pageReply->deleteLater();
 
                     QString tag = QRegularExpression(
-                        QStringLiteral(R"(/releases/tag/(v?\d+(?:\.\d+)+))"),
+                        QStringLiteral(R"(/releases/tag/(v\.?\d+(?:\.\d+)+))"),
                         QRegularExpression::CaseInsensitiveOption)
                         .match(finalUrl).captured(1);
                     if (tag.isEmpty()) {
                         const QString page = QString::fromUtf8(html);
                         auto match = QRegularExpression(
-                            QStringLiteral(R"((?:Release|REX Player)[^<]{0,80}?(v?\d+(?:\.\d+)+))"),
+                            QStringLiteral(R"((?:Release|REX Player)[^<]{0,80}?(v\.?\d+(?:\.\d+)+))"),
                             QRegularExpression::CaseInsensitiveOption).match(page);
                         if (match.hasMatch())
                             tag = match.captured(1);
@@ -1008,7 +1059,9 @@ void MainWindow::buildUi() {
                                 .arg(networkError));
                         return;
                     }
-                    if (tag.startsWith(QLatin1Char('v'), Qt::CaseInsensitive))
+                    if (tag.startsWith(QStringLiteral("v."), Qt::CaseInsensitive))
+                        tag.remove(0, 2);
+                    else if (tag.startsWith(QLatin1Char('v'), Qt::CaseInsensitive))
                         tag.remove(0, 1);
                     showVersionResult(tag, QStringLiteral("https://github.com/ipSuman/MPV-LINUX/releases/latest"));
                 });
@@ -1040,7 +1093,9 @@ void MainWindow::buildUi() {
 
                 const QJsonObject release = document.object();
                 QString latestVersion = release.value(QStringLiteral("tag_name")).toString().trimmed();
-                if (latestVersion.startsWith(QLatin1Char('v'), Qt::CaseInsensitive))
+                if (latestVersion.startsWith(QStringLiteral("v."), Qt::CaseInsensitive))
+                    latestVersion.remove(0, 2);
+                else if (latestVersion.startsWith(QLatin1Char('v'), Qt::CaseInsensitive))
                     latestVersion.remove(0, 1);
                 const QString releaseUrl = release.value(QStringLiteral("html_url")).toString().trimmed();
                 if (latestVersion.isEmpty()) {
@@ -1181,6 +1236,10 @@ void MainWindow::applyMainPanelButtonMode() {
     m_lastPausedState = -1;
     m_lastHardwareDecoder.clear();
     updatePlayButton(getPropertyDouble("pause") != 0.0);
+    m_lastMutedState = -1;
+    int muted = 0;
+    if (m_mpv) mpv_get_property(m_mpv, "mute", MPV_FORMAT_FLAG, &muted);
+    updateVolumeMuteButton(muted != 0);
     updateHardwareButton();
 }
  
@@ -1205,6 +1264,8 @@ void MainWindow::applyControlSettingsToRuntime() {
     m_volumeWheelMode = m_controlSettings->volumeWheelMode;
     m_timerBesideProgress = m_controlSettings->timerBesideProgress;
     m_mainPanelIcons = m_controlSettings->mainPanelIcons;
+    m_showVolumeOsd = m_controlSettings->showVolumeOsd;
+    m_showSeekOsd = m_controlSettings->showSeekOsd;
     m_returnFocusToVideoAfterMouseAction = m_controlSettings->returnFocusToVideoAfterMouseAction;
     m_verboseLogging = m_controlSettings->verboseLogging;
     if (m_mpv) {
@@ -1340,7 +1401,8 @@ void MainWindow::showGamepadDialog() {
         {"subtitle_size_down", "Decrease subtitle size"}, {"tracks", "Select audio / subtitle tracks"},
         {"equalizer", "Open equalizer"}, {"controls", "Show / hide controls"},
         {"flip_horizontal", "Flip video horizontally"}, {"flip_vertical", "Flip video vertically"},
-        {"display", "Display adjustments"}, {"crop", "Crop video"}
+        {"display", "Display adjustments"}, {"crop", "Crop video"},
+        {"video_info", "Show / hide video information"}, {"exit", "Exit REX Player"}
     };
     const QStringList actions = m_gamepadController->actions();
     QMap<QString, QLabel*> mappedValueLabels;
@@ -1515,6 +1577,16 @@ void MainWindow::showControlsDialog() {
         timerPositionButton->setText(checked ? QStringLiteral("Timer: Progress bar") : QStringLiteral("Timer: Controls"));
     });
     form->addRow(QStringLiteral("Timer position"), timerPositionButton);
+
+    auto* showVolumeOsd = new QCheckBox(QStringLiteral("Show volume percentage on video"), &dialog);
+    showVolumeOsd->setChecked(m_showVolumeOsd);
+    showVolumeOsd->setToolTip(QStringLiteral("Display the current volume percentage near the top of the video when volume changes."));
+    form->addRow(QStringLiteral("Volume feedback"), showVolumeOsd);
+    auto* showSeekOsd = new QCheckBox(QStringLiteral("Show seek duration on video"), &dialog);
+    showSeekOsd->setChecked(m_showSeekOsd);
+    showSeekOsd->setToolTip(QStringLiteral("Display the number of seconds skipped near the top of the video when seeking backward or forward."));
+    form->addRow(QStringLiteral("Seek feedback"), showSeekOsd);
+
     auto* mainPanelStyle = new QComboBox(&dialog);
     mainPanelStyle->addItem(QStringLiteral("Icons"), true);
     mainPanelStyle->addItem(QStringLiteral("Text"), false);
@@ -1553,7 +1625,7 @@ void MainWindow::showControlsDialog() {
     connect(saveSettingsButton, &QPushButton::clicked, &dialog, [this, &dialog] {
         if (!m_controlSettings) return;
         const QString version = QCoreApplication::applicationVersion().isEmpty()
-            ? QStringLiteral("5.0.1") : QCoreApplication::applicationVersion();
+            ? QStringLiteral("8.0.2") : QCoreApplication::applicationVersion();
         const QString defaultName = QStringLiteral("RexPlayer_%1_%2.ini")
             .arg(version, QDateTime::currentDateTime().toString(QStringLiteral("yyyy-MM-dd_HH-mm-ss")));
         const QString path = QFileDialog::getSaveFileName(
@@ -1780,6 +1852,8 @@ void MainWindow::showControlsDialog() {
         selectData(zoomWheel, QStringLiteral("alt-wheel"));
         selectData(volumeWheel, QStringLiteral("ctrl-wheel"));
         timerPositionButton->setChecked(true);
+        showVolumeOsd->setChecked(true);
+        showSeekOsd->setChecked(true);
         selectData(mainPanelStyle, true);
         selectData(mouseFocusMode, true);
         verboseLoggingButton->setChecked(false);
@@ -1831,6 +1905,8 @@ void MainWindow::showControlsDialog() {
         m_zoomWheelMode = zoomWheel->currentData().toString();
         m_volumeWheelMode = volumeWheel->currentData().toString();
         m_timerBesideProgress = timerPositionButton->isChecked();
+        m_showVolumeOsd = showVolumeOsd->isChecked();
+        m_showSeekOsd = showSeekOsd->isChecked();
         m_mainPanelIcons = mainPanelStyle->currentData().toBool();
         m_returnFocusToVideoAfterMouseAction = mouseFocusMode->currentData().toBool();
         applyControlFocusPolicy();
@@ -1882,6 +1958,8 @@ void MainWindow::showControlsDialog() {
             m_controlSettings->zoomWheelMode = m_zoomWheelMode;
             m_controlSettings->volumeWheelMode = m_volumeWheelMode;
             m_controlSettings->timerBesideProgress = m_timerBesideProgress;
+            m_controlSettings->showVolumeOsd = m_showVolumeOsd;
+            m_controlSettings->showSeekOsd = m_showSeekOsd;
             m_controlSettings->mainPanelIcons = m_mainPanelIcons;
             m_controlSettings->returnFocusToVideoAfterMouseAction = m_returnFocusToVideoAfterMouseAction;
             m_controlSettings->verboseLogging = m_verboseLogging;
@@ -2179,10 +2257,23 @@ void MainWindow::stopPlayback() {
     const char* args[] = {"stop", nullptr};
     command(args);
 }
-void MainWindow::seekBackward() { const QByteArray seconds = QByteArray::number(-m_seekDurationSeconds); const char* args[] = {"seek", seconds.constData(), "relative", "exact", nullptr}; command(args); }
-void MainWindow::seekForward() { const QByteArray seconds = QByteArray::number(m_seekDurationSeconds); const char* args[] = {"seek", seconds.constData(), "relative", "exact", nullptr}; command(args); }
+void MainWindow::seekBackward() {
+    const QByteArray seconds = QByteArray::number(-m_seekDurationSeconds);
+    const char* args[] = {"seek", seconds.constData(), "relative", "exact", nullptr};
+    command(args);
+    if (m_showSeekOsd) showSeekPlaybackOsd(-m_seekDurationSeconds);
+}
+void MainWindow::seekForward() {
+    const QByteArray seconds = QByteArray::number(m_seekDurationSeconds);
+    const char* args[] = {"seek", seconds.constData(), "relative", "exact", nullptr};
+    command(args);
+    if (m_showSeekOsd) showSeekPlaybackOsd(m_seekDurationSeconds);
+}
 void MainWindow::seekTo(int value) { const double duration = getPropertyDouble("duration"); if (duration > 0) setPropertyDouble("time-pos", duration * value / 1000.0); }
-void MainWindow::setVolume(int value) { setPropertyDouble("volume", value); }
+void MainWindow::setVolume(int value) {
+    setPropertyDouble("volume", value);
+    if (m_showVolumeOsd) showPlaybackOsd(QStringLiteral("Volume %1%").arg(value));
+}
 void MainWindow::volumeUp() { m_volumeSlider->setValue(std::clamp(m_volumeSlider->value() + 5, 0, 100)); }
 void MainWindow::volumeDown() { m_volumeSlider->setValue(std::clamp(m_volumeSlider->value() - 5, 0, 100)); }
 void MainWindow::toggleMute() { const char* args[] = {"cycle", "mute", nullptr}; command(args); }
@@ -3875,6 +3966,9 @@ void MainWindow::updatePlaybackUi() {
     m_currentTimeLabel->setVisible(m_timerBesideProgress);
     m_progressTimeLabel->setVisible(m_timerBesideProgress);
     updatePlayButton(paused != 0);
+    int muted = 0;
+    if (mpv_get_property(m_mpv, "mute", MPV_FORMAT_FLAG, &muted) < 0) muted = 0;
+    updateVolumeMuteButton(muted != 0);
 
     // hwdec-current is a synchronous libmpv query. It changes rarely, so do
     // not poll it on every UI tick during normal playback.
@@ -3908,6 +4002,29 @@ void MainWindow::updatePlayButton(bool paused) {
     } else {
         m_playButton->setIcon(QIcon());
         m_playButton->setText(paused ? QStringLiteral("▶") : QStringLiteral("Ⅱ"));
+    }
+}
+
+void MainWindow::updateVolumeMuteButton(bool muted) {
+    if (!m_volumeMuteButton) return;
+    const int state = muted ? 1 : 0;
+    if (m_lastMutedState == state) return;
+    m_lastMutedState = state;
+    m_volumeMuteButton->setToolTip(muted ? QStringLiteral("Unmute playback")
+                                         : QStringLiteral("Mute playback"));
+    if (m_mainPanelIcons) {
+        m_volumeMuteButton->setText(QString());
+        m_volumeMuteButton->setIcon(makeMainPanelIcon(
+            muted ? MainPanelIcon::MutedSpeaker : MainPanelIcon::Speaker));
+        m_volumeMuteButton->setIconSize(QSize(20, 20));
+        m_volumeMuteButton->setFixedSize(34, 30);
+    } else {
+        m_volumeMuteButton->setIcon(QIcon());
+        m_volumeMuteButton->setText(muted ? QStringLiteral("Muted")
+                                          : QStringLiteral("Volume"));
+        m_volumeMuteButton->setMinimumSize(0, 30);
+        m_volumeMuteButton->setMaximumSize(QWIDGETSIZE_MAX, 30);
+        m_volumeMuteButton->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
     }
 }
 void MainWindow::increaseSubtitlePosition() {
@@ -4639,6 +4756,38 @@ void MainWindow::showToast(const QString& message) {
     m_toastLabel->raise();
     m_toastLabel->show();
     m_toastTimer.start(1800);
+}
+
+void MainWindow::showPlaybackOsd(const QString& message) {
+    if (!m_playbackOsdLabel || !m_rootWidget) return;
+    m_seekOsdActive = false;
+    m_seekOsdTotalSeconds = 0;
+    m_playbackOsdLabel->setFont(QApplication::font());
+    m_playbackOsdLabel->setText(message);
+    m_playbackOsdLabel->adjustSize();
+    const int x = std::max(0, (m_rootWidget->width() - m_playbackOsdLabel->width()) / 2);
+    m_playbackOsdLabel->move(x, 24);
+    m_playbackOsdLabel->raise();
+    m_playbackOsdLabel->show();
+    m_playbackOsdTimer.start(1200);
+}
+
+void MainWindow::showSeekPlaybackOsd(int seconds) {
+    if (!m_playbackOsdLabel || !m_rootWidget) return;
+    if (m_playbackOsdTimer.isActive() && m_seekOsdActive)
+        m_seekOsdTotalSeconds += seconds;
+    else
+        m_seekOsdTotalSeconds = seconds;
+    m_seekOsdActive = true;
+    const QString sign = m_seekOsdTotalSeconds > 0 ? QStringLiteral("+") : QString();
+    m_playbackOsdLabel->setFont(QApplication::font());
+    m_playbackOsdLabel->setText(QStringLiteral("%1%2 seconds").arg(sign).arg(m_seekOsdTotalSeconds));
+    m_playbackOsdLabel->adjustSize();
+    const int x = std::max(0, (m_rootWidget->width() - m_playbackOsdLabel->width()) / 2);
+    m_playbackOsdLabel->move(x, 24);
+    m_playbackOsdLabel->raise();
+    m_playbackOsdLabel->show();
+    m_playbackOsdTimer.start(1200);
 }
 
 void MainWindow::showError(const QString& message) { setWindowTitle(QStringLiteral("REX Player — %1").arg(message)); }

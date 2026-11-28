@@ -13,6 +13,8 @@ public:
     bool mainPanelIcons = true;
     bool returnFocusToVideoAfterMouseAction = true;
     bool verboseLogging = false;
+    bool showVolumeOsd = true;
+    bool showSeekOsd = true;
     Qt::MouseButton panButton = Qt::MiddleButton;
     Qt::MouseButton doubleClickButton = Qt::LeftButton;
     int seekDurationSeconds = 60;
