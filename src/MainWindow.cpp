@@ -1463,16 +1463,23 @@ void MainWindow::showGamepadDialog() {
 }
 
 void MainWindow::showControlsDialog() {
-    QDialog dialog(this);
+    // Keep this settings window independent from the player window. A
+    // parentless application-modal dialog can be moved without dragging the
+    // video/player window with it (notably on Wayland desktops).
+    QDialog dialog(nullptr);
+    dialog.setWindowFlag(Qt::Dialog, true);
     dialog.setWindowTitle(QStringLiteral("Controls"));
-    dialog.setModal(true);
-    // Keep the two-column form and its action buttons fully visible. The
-    // narrower 460 px dialog caused the right-hand controls to be clipped
-    // because the scroll area intentionally disables horizontal scrolling.
-    QScreen* controlsScreen = dialog.screen();
+    dialog.setWindowModality(Qt::ApplicationModal);
+
+    // Leave enough horizontal room for the shortcut editor and its clear (×)
+    // button, scaling the initial width with the active interface font.
+    QScreen* controlsScreen = QGuiApplication::primaryScreen();
     const int availableWidth = controlsScreen
         ? controlsScreen->availableGeometry().width() : 800;
-    const int controlsWidth = std::min(620, std::max(460, availableWidth - 40));
+    const int fontPointSize = std::max(10, QApplication::font().pointSize());
+    const int preferredWidth = 680 + (fontPointSize - 10) * 6;
+    const int controlsWidth = std::min(std::max(460, availableWidth - 40),
+                                       preferredWidth);
     dialog.resize(controlsWidth, 560);
     dialog.setMinimumSize(std::min(560, controlsWidth), 420);
     dialog.setSizeGripEnabled(true);
@@ -1480,7 +1487,7 @@ void MainWindow::showControlsDialog() {
     auto* mainLayout = new QVBoxLayout(&dialog);
     auto* scrollArea = new QScrollArea(&dialog);
     scrollArea->setWidgetResizable(true);
-    scrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    scrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
     auto* content = new QWidget(scrollArea);
     auto* contentLayout = new QVBoxLayout(content);
     contentLayout->setContentsMargins(8, 8, 8, 8);
@@ -2000,6 +2007,13 @@ void MainWindow::showControlsDialog() {
     });
     connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
 
+    // Keep the complete shortcut rows visible at larger font sizes whenever
+    // the screen has room, and open the independent window near the player.
+    dialog.adjustSize();
+    dialog.resize(std::min(availableWidth - 40,
+                           std::max(controlsWidth, dialog.sizeHint().width())),
+                  std::max(560, dialog.height()));
+    dialog.move(frameGeometry().center() - dialog.rect().center());
     dialog.exec();
 }
 
@@ -2123,14 +2137,6 @@ void MainWindow::addToPlaylist(const QString& path) {
     rowLayout->setContentsMargins(6, 2, 4, 2);
     rowLayout->setSpacing(4);
 
-    auto* fileLabel = new QLabel(QFileInfo(absolute).fileName(), rowWidget);
-    fileLabel->setToolTip(absolute);
-    fileLabel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-    fileLabel->setTextInteractionFlags(Qt::NoTextInteraction);
-    fileLabel->setProperty("playlist-path", absolute);
-    fileLabel->installEventFilter(this);
-    rowLayout->addWidget(fileLabel, 1);
-
     auto* removeButton = new QPushButton(QStringLiteral("x"), rowWidget);
     removeButton->setFixedSize(24, 24);
     removeButton->setToolTip(QStringLiteral("Remove this file from the playlist"));
@@ -2141,6 +2147,14 @@ void MainWindow::addToPlaylist(const QString& path) {
         if (m_playlist) removePlaylistItem(m_playlist->row(item));
     });
     rowLayout->addWidget(removeButton);
+
+    auto* fileLabel = new QLabel(QFileInfo(absolute).fileName(), rowWidget);
+    fileLabel->setToolTip(absolute);
+    fileLabel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    fileLabel->setTextInteractionFlags(Qt::NoTextInteraction);
+    fileLabel->setProperty("playlist-path", absolute);
+    fileLabel->installEventFilter(this);
+    rowLayout->addWidget(fileLabel, 1);
 
     m_playlist->setItemWidget(item, rowWidget);
     item->setSizeHint(rowWidget->sizeHint());
