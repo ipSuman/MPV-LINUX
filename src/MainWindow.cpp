@@ -380,6 +380,7 @@ MainWindow::MainWindow(const QString& mediaPath, QWidget* parent)
         else if (action == "flip_vertical") toggleFlipVertical();
         else if (action == "display") showDisplayDialog();
         else if (action == "crop") showCropDialog();
+        else if (action == "video_info") toggleControls();
     });
     connect(m_gamepadController, &GamepadController::deviceChanged, this, [this](const QString& name) {
         if (m_runtimeLogger) m_runtimeLogger->append(QStringLiteral("GAMEPAD: %1").arg(name));
@@ -406,6 +407,10 @@ MainWindow::MainWindow(const QString& mediaPath, QWidget* parent)
     m_toastTimer.setSingleShot(true);
     connect(&m_toastTimer, &QTimer::timeout, this, [this] {
         if (m_toastLabel) m_toastLabel->hide();
+    });
+    m_playbackOsdTimer.setSingleShot(true);
+    connect(&m_playbackOsdTimer, &QTimer::timeout, this, [this] {
+        if (m_playbackOsdLabel) m_playbackOsdLabel->hide();
     });
 
     m_runtimeLogger = new RuntimeLogger(this);
@@ -562,6 +567,16 @@ void MainWindow::buildUi() {
         "border-radius:6px;padding:7px 14px;font-weight:600;}"));
     m_toastLabel->setAttribute(Qt::WA_TransparentForMouseEvents);
     m_toastLabel->hide();
+
+    m_playbackOsdLabel = new QLabel(root);
+    m_playbackOsdLabel->setObjectName(QStringLiteral("playbackOsdLabel"));
+    m_playbackOsdLabel->setAlignment(Qt::AlignCenter);
+    m_playbackOsdLabel->setStyleSheet(QStringLiteral(
+        "QLabel#playbackOsdLabel{background:rgba(20,20,20,220);color:#fff;"
+        "border:1px solid #666;border-radius:8px;padding:9px 18px;"
+        "font-size:18px;font-weight:700;}"));
+    m_playbackOsdLabel->setAttribute(Qt::WA_TransparentForMouseEvents);
+    m_playbackOsdLabel->hide();
     auto* layout = new QVBoxLayout(root);
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(0);
@@ -1229,6 +1244,8 @@ void MainWindow::applyControlSettingsToRuntime() {
     m_volumeWheelMode = m_controlSettings->volumeWheelMode;
     m_timerBesideProgress = m_controlSettings->timerBesideProgress;
     m_mainPanelIcons = m_controlSettings->mainPanelIcons;
+    m_showVolumeOsd = m_controlSettings->showVolumeOsd;
+    m_showSeekOsd = m_controlSettings->showSeekOsd;
     m_returnFocusToVideoAfterMouseAction = m_controlSettings->returnFocusToVideoAfterMouseAction;
     m_verboseLogging = m_controlSettings->verboseLogging;
     if (m_mpv) {
@@ -1364,7 +1381,8 @@ void MainWindow::showGamepadDialog() {
         {"subtitle_size_down", "Decrease subtitle size"}, {"tracks", "Select audio / subtitle tracks"},
         {"equalizer", "Open equalizer"}, {"controls", "Show / hide controls"},
         {"flip_horizontal", "Flip video horizontally"}, {"flip_vertical", "Flip video vertically"},
-        {"display", "Display adjustments"}, {"crop", "Crop video"}
+        {"display", "Display adjustments"}, {"crop", "Crop video"},
+        {"video_info", "Show / hide video information"}
     };
     const QStringList actions = m_gamepadController->actions();
     QMap<QString, QLabel*> mappedValueLabels;
@@ -1539,6 +1557,16 @@ void MainWindow::showControlsDialog() {
         timerPositionButton->setText(checked ? QStringLiteral("Timer: Progress bar") : QStringLiteral("Timer: Controls"));
     });
     form->addRow(QStringLiteral("Timer position"), timerPositionButton);
+
+    auto* showVolumeOsd = new QCheckBox(QStringLiteral("Show volume percentage on video"), &dialog);
+    showVolumeOsd->setChecked(m_showVolumeOsd);
+    showVolumeOsd->setToolTip(QStringLiteral("Display the current volume percentage near the top of the video when volume changes."));
+    form->addRow(QStringLiteral("Volume feedback"), showVolumeOsd);
+    auto* showSeekOsd = new QCheckBox(QStringLiteral("Show seek duration on video"), &dialog);
+    showSeekOsd->setChecked(m_showSeekOsd);
+    showSeekOsd->setToolTip(QStringLiteral("Display the number of seconds skipped near the top of the video when seeking backward or forward."));
+    form->addRow(QStringLiteral("Seek feedback"), showSeekOsd);
+
     auto* mainPanelStyle = new QComboBox(&dialog);
     mainPanelStyle->addItem(QStringLiteral("Icons"), true);
     mainPanelStyle->addItem(QStringLiteral("Text"), false);
@@ -1804,6 +1832,8 @@ void MainWindow::showControlsDialog() {
         selectData(zoomWheel, QStringLiteral("alt-wheel"));
         selectData(volumeWheel, QStringLiteral("ctrl-wheel"));
         timerPositionButton->setChecked(true);
+        showVolumeOsd->setChecked(true);
+        showSeekOsd->setChecked(true);
         selectData(mainPanelStyle, true);
         selectData(mouseFocusMode, true);
         verboseLoggingButton->setChecked(false);
@@ -1855,6 +1885,8 @@ void MainWindow::showControlsDialog() {
         m_zoomWheelMode = zoomWheel->currentData().toString();
         m_volumeWheelMode = volumeWheel->currentData().toString();
         m_timerBesideProgress = timerPositionButton->isChecked();
+        m_showVolumeOsd = showVolumeOsd->isChecked();
+        m_showSeekOsd = showSeekOsd->isChecked();
         m_mainPanelIcons = mainPanelStyle->currentData().toBool();
         m_returnFocusToVideoAfterMouseAction = mouseFocusMode->currentData().toBool();
         applyControlFocusPolicy();
@@ -1906,6 +1938,8 @@ void MainWindow::showControlsDialog() {
             m_controlSettings->zoomWheelMode = m_zoomWheelMode;
             m_controlSettings->volumeWheelMode = m_volumeWheelMode;
             m_controlSettings->timerBesideProgress = m_timerBesideProgress;
+            m_controlSettings->showVolumeOsd = m_showVolumeOsd;
+            m_controlSettings->showSeekOsd = m_showSeekOsd;
             m_controlSettings->mainPanelIcons = m_mainPanelIcons;
             m_controlSettings->returnFocusToVideoAfterMouseAction = m_returnFocusToVideoAfterMouseAction;
             m_controlSettings->verboseLogging = m_verboseLogging;
@@ -2203,10 +2237,23 @@ void MainWindow::stopPlayback() {
     const char* args[] = {"stop", nullptr};
     command(args);
 }
-void MainWindow::seekBackward() { const QByteArray seconds = QByteArray::number(-m_seekDurationSeconds); const char* args[] = {"seek", seconds.constData(), "relative", "exact", nullptr}; command(args); }
-void MainWindow::seekForward() { const QByteArray seconds = QByteArray::number(m_seekDurationSeconds); const char* args[] = {"seek", seconds.constData(), "relative", "exact", nullptr}; command(args); }
+void MainWindow::seekBackward() {
+    const QByteArray seconds = QByteArray::number(-m_seekDurationSeconds);
+    const char* args[] = {"seek", seconds.constData(), "relative", "exact", nullptr};
+    command(args);
+    if (m_showSeekOsd) showPlaybackOsd(QStringLiteral("−%1 seconds").arg(m_seekDurationSeconds));
+}
+void MainWindow::seekForward() {
+    const QByteArray seconds = QByteArray::number(m_seekDurationSeconds);
+    const char* args[] = {"seek", seconds.constData(), "relative", "exact", nullptr};
+    command(args);
+    if (m_showSeekOsd) showPlaybackOsd(QStringLiteral("+%1 seconds").arg(m_seekDurationSeconds));
+}
 void MainWindow::seekTo(int value) { const double duration = getPropertyDouble("duration"); if (duration > 0) setPropertyDouble("time-pos", duration * value / 1000.0); }
-void MainWindow::setVolume(int value) { setPropertyDouble("volume", value); }
+void MainWindow::setVolume(int value) {
+    setPropertyDouble("volume", value);
+    if (m_showVolumeOsd) showPlaybackOsd(QStringLiteral("Volume %1%").arg(value));
+}
 void MainWindow::volumeUp() { m_volumeSlider->setValue(std::clamp(m_volumeSlider->value() + 5, 0, 100)); }
 void MainWindow::volumeDown() { m_volumeSlider->setValue(std::clamp(m_volumeSlider->value() - 5, 0, 100)); }
 void MainWindow::toggleMute() { const char* args[] = {"cycle", "mute", nullptr}; command(args); }
@@ -4689,6 +4736,17 @@ void MainWindow::showToast(const QString& message) {
     m_toastLabel->raise();
     m_toastLabel->show();
     m_toastTimer.start(1800);
+}
+
+void MainWindow::showPlaybackOsd(const QString& message) {
+    if (!m_playbackOsdLabel || !m_rootWidget) return;
+    m_playbackOsdLabel->setText(message);
+    m_playbackOsdLabel->adjustSize();
+    const int x = std::max(0, (m_rootWidget->width() - m_playbackOsdLabel->width()) / 2);
+    m_playbackOsdLabel->move(x, 24);
+    m_playbackOsdLabel->raise();
+    m_playbackOsdLabel->show();
+    m_playbackOsdTimer.start(1200);
 }
 
 void MainWindow::showError(const QString& message) { setWindowTitle(QStringLiteral("REX Player — %1").arg(message)); }
