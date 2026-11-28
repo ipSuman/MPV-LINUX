@@ -411,6 +411,8 @@ MainWindow::MainWindow(const QString& mediaPath, QWidget* parent)
     m_playbackOsdTimer.setSingleShot(true);
     connect(&m_playbackOsdTimer, &QTimer::timeout, this, [this] {
         if (m_playbackOsdLabel) m_playbackOsdLabel->hide();
+        m_seekOsdActive = false;
+        m_seekOsdTotalSeconds = 0;
     });
 
     m_runtimeLogger = new RuntimeLogger(this);
@@ -571,10 +573,10 @@ void MainWindow::buildUi() {
     m_playbackOsdLabel = new QLabel(root);
     m_playbackOsdLabel->setObjectName(QStringLiteral("playbackOsdLabel"));
     m_playbackOsdLabel->setAlignment(Qt::AlignCenter);
+    m_playbackOsdLabel->setFont(QApplication::font());
     m_playbackOsdLabel->setStyleSheet(QStringLiteral(
-        "QLabel#playbackOsdLabel{background:rgba(20,20,20,220);color:#fff;"
-        "border:1px solid #666;border-radius:8px;padding:9px 18px;"
-        "font-size:18px;font-weight:700;}"));
+        "QLabel#playbackOsdLabel{background:rgba(48,48,48,225);color:#00ff66;"
+        "border:0;border-radius:22px;padding:7px 18px;}"));
     m_playbackOsdLabel->setAttribute(Qt::WA_TransparentForMouseEvents);
     m_playbackOsdLabel->hide();
     auto* layout = new QVBoxLayout(root);
@@ -2241,13 +2243,13 @@ void MainWindow::seekBackward() {
     const QByteArray seconds = QByteArray::number(-m_seekDurationSeconds);
     const char* args[] = {"seek", seconds.constData(), "relative", "exact", nullptr};
     command(args);
-    if (m_showSeekOsd) showPlaybackOsd(QStringLiteral("−%1 seconds").arg(m_seekDurationSeconds));
+    if (m_showSeekOsd) showSeekPlaybackOsd(-m_seekDurationSeconds);
 }
 void MainWindow::seekForward() {
     const QByteArray seconds = QByteArray::number(m_seekDurationSeconds);
     const char* args[] = {"seek", seconds.constData(), "relative", "exact", nullptr};
     command(args);
-    if (m_showSeekOsd) showPlaybackOsd(QStringLiteral("+%1 seconds").arg(m_seekDurationSeconds));
+    if (m_showSeekOsd) showSeekPlaybackOsd(m_seekDurationSeconds);
 }
 void MainWindow::seekTo(int value) { const double duration = getPropertyDouble("duration"); if (duration > 0) setPropertyDouble("time-pos", duration * value / 1000.0); }
 void MainWindow::setVolume(int value) {
@@ -4740,7 +4742,28 @@ void MainWindow::showToast(const QString& message) {
 
 void MainWindow::showPlaybackOsd(const QString& message) {
     if (!m_playbackOsdLabel || !m_rootWidget) return;
+    m_seekOsdActive = false;
+    m_seekOsdTotalSeconds = 0;
+    m_playbackOsdLabel->setFont(QApplication::font());
     m_playbackOsdLabel->setText(message);
+    m_playbackOsdLabel->adjustSize();
+    const int x = std::max(0, (m_rootWidget->width() - m_playbackOsdLabel->width()) / 2);
+    m_playbackOsdLabel->move(x, 24);
+    m_playbackOsdLabel->raise();
+    m_playbackOsdLabel->show();
+    m_playbackOsdTimer.start(1200);
+}
+
+void MainWindow::showSeekPlaybackOsd(int seconds) {
+    if (!m_playbackOsdLabel || !m_rootWidget) return;
+    if (m_playbackOsdTimer.isActive() && m_seekOsdActive)
+        m_seekOsdTotalSeconds += seconds;
+    else
+        m_seekOsdTotalSeconds = seconds;
+    m_seekOsdActive = true;
+    const QString sign = m_seekOsdTotalSeconds > 0 ? QStringLiteral("+") : QString();
+    m_playbackOsdLabel->setFont(QApplication::font());
+    m_playbackOsdLabel->setText(QStringLiteral("%1%2 seconds").arg(sign).arg(m_seekOsdTotalSeconds));
     m_playbackOsdLabel->adjustSize();
     const int x = std::max(0, (m_rootWidget->width() - m_playbackOsdLabel->width()) / 2);
     m_playbackOsdLabel->move(x, 24);
