@@ -126,6 +126,7 @@ private:
     void setPropertyDouble(const char* name, double value);
     void updateHardwareButton();
     void updatePlayButton(bool paused);
+    void updateVolumeMuteButton(bool muted);
     void updateSeekButtonLabels();
     void adjustVideoZoom(double amount);
     void resetVideoTransform();
@@ -166,6 +167,7 @@ private:
     QListWidget* m_playlist = nullptr;
     QSlider* m_seekSlider = nullptr;
     QSlider* m_volumeSlider = nullptr;
+    QPushButton* m_volumeMuteButton = nullptr;
     QLabel* m_timeLabel = nullptr;
     QLabel* m_currentTimeLabel = nullptr;
     QLabel* m_progressTimeLabel = nullptr;
@@ -297,5 +299,6 @@ private:
     bool m_playlistWasVisibleBeforeFullscreen = false;
     int m_lastPlaylistHighlightIndex = -2;
     int m_lastPausedState = -1;
+    int m_lastMutedState = -1;
     QString m_lastHardwareDecoder;
 };
