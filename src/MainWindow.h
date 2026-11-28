@@ -138,6 +138,7 @@ private:
     void showError(const QString& message);
     void showToast(const QString& message);
     void showPlaybackOsd(const QString& message);
+    void showSeekPlaybackOsd(int seconds);
     QString formatTime(double seconds) const;
     void setControlsVisible(bool visible);
     void toggleFullscreen();
@@ -301,6 +302,8 @@ private:
     QTimer m_playbackOsdTimer;
     bool m_showVolumeOsd = true;
     bool m_showSeekOsd = true;
+    bool m_seekOsdActive = false;
+    int m_seekOsdTotalSeconds = 0;
     bool m_playlistWasVisibleBeforeFullscreen = false;
     int m_lastPlaylistHighlightIndex = -2;
     int m_lastPausedState = -1;
