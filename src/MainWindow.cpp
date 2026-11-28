@@ -154,7 +154,7 @@ void selectData(QComboBox* combo, const QVariant& value) {
 enum class MainPanelIcon {
     Fullscreen, Open, Hardware, Cut, SaveAudio, Speed, Equalizer, Previous, SeekBack,
     Play, Pause, SeekForward, Next, Tracks, Playlist, Menu, Controls, Display,
-    Capture, Rotate, Crop, FlipH, FlipV, About
+    Capture, Rotate, Crop, FlipH, FlipV, About, Speaker, MutedSpeaker
 };
 
 QIcon makeMainPanelIcon(MainPanelIcon icon) {
@@ -268,6 +268,19 @@ QIcon makeMainPanelIcon(MainPanelIcon icon) {
         p.setPen(pen); p.setBrush(Qt::NoBrush); p.drawRect(5,4,14,16); p.drawLine(3,12,21,12); p.setPen(Qt::NoPen); p.drawPolygon(QPolygonF{QPointF(9,9),QPointF(12,4),QPointF(15,9)}); p.drawPolygon(QPolygonF{QPointF(9,15),QPointF(12,20),QPointF(15,15)}); break;
     case MainPanelIcon::About:
         p.setPen(pen); p.setBrush(Qt::NoBrush); p.drawEllipse(QPointF(12,12),9,9); p.setPen(Qt::NoPen); p.setBrush(QColor("#ffffff")); p.drawRect(11,10,2,7); p.drawRect(11,7,2,2); break;
+    case MainPanelIcon::Speaker:
+        p.setPen(Qt::NoPen); p.setBrush(QColor("#ffffff"));
+        p.drawPolygon(QPolygonF{QPointF(3,9),QPointF(7,9),QPointF(13,4),QPointF(13,20),QPointF(7,15),QPointF(3,15)});
+        p.setPen(pen); p.setBrush(Qt::NoBrush);
+        p.drawArc(10,6,10,12,-55*16,110*16);
+        p.drawArc(10,2,14,20,-55*16,110*16);
+        break;
+    case MainPanelIcon::MutedSpeaker:
+        p.setPen(Qt::NoPen); p.setBrush(QColor("#ffffff"));
+        p.drawPolygon(QPolygonF{QPointF(3,9),QPointF(7,9),QPointF(13,4),QPointF(13,20),QPointF(7,15),QPointF(3,15)});
+        p.setPen(pen); p.setBrush(Qt::NoBrush);
+        p.drawLine(16,8,22,16); p.drawLine(22,8,16,16);
+        break;
     }
     return QIcon(pixmap);
 }
@@ -298,6 +311,8 @@ QString mainPanelTextForIcon(MainPanelIcon icon) {
     case MainPanelIcon::FlipH: return QStringLiteral("Flip H");
     case MainPanelIcon::FlipV: return QStringLiteral("Flip V");
     case MainPanelIcon::About: return QStringLiteral("About");
+    case MainPanelIcon::Speaker: return QStringLiteral("Volume");
+    case MainPanelIcon::MutedSpeaker: return QStringLiteral("Muted");
     }
     return QString();
 }
@@ -701,7 +716,12 @@ void MainWindow::buildUi() {
 
     row1->addStretch(1);
 
-    row1->addWidget(new QLabel(QStringLiteral("Volume"), m_controls));
+    m_volumeMuteButton = new QPushButton(QStringLiteral("Volume"), m_controls);
+    m_volumeMuteButton->setToolTip(QStringLiteral("Mute playback"));
+    m_volumeMuteButton->setFlat(true);
+    m_volumeMuteButton->setCursor(Qt::PointingHandCursor);
+    connect(m_volumeMuteButton, &QPushButton::clicked, this, &MainWindow::toggleMute);
+    row1->addWidget(m_volumeMuteButton);
     m_volumeSlider = new QSlider(Qt::Horizontal, m_controls);
     m_volumeSlider->setRange(0, 100);
     m_volumeSlider->setValue(60);
@@ -1181,6 +1201,10 @@ void MainWindow::applyMainPanelButtonMode() {
     m_lastPausedState = -1;
     m_lastHardwareDecoder.clear();
     updatePlayButton(getPropertyDouble("pause") != 0.0);
+    m_lastMutedState = -1;
+    int muted = 0;
+    if (m_mpv) mpv_get_property(m_mpv, "mute", MPV_FORMAT_FLAG, &muted);
+    updateVolumeMuteButton(muted != 0);
     updateHardwareButton();
 }
  
@@ -3875,6 +3899,9 @@ void MainWindow::updatePlaybackUi() {
     m_currentTimeLabel->setVisible(m_timerBesideProgress);
     m_progressTimeLabel->setVisible(m_timerBesideProgress);
     updatePlayButton(paused != 0);
+    int muted = 0;
+    if (mpv_get_property(m_mpv, "mute", MPV_FORMAT_FLAG, &muted) < 0) muted = 0;
+    updateVolumeMuteButton(muted != 0);
 
     // hwdec-current is a synchronous libmpv query. It changes rarely, so do
     // not poll it on every UI tick during normal playback.
@@ -3908,6 +3935,29 @@ void MainWindow::updatePlayButton(bool paused) {
     } else {
         m_playButton->setIcon(QIcon());
         m_playButton->setText(paused ? QStringLiteral("▶") : QStringLiteral("Ⅱ"));
+    }
+}
+
+void MainWindow::updateVolumeMuteButton(bool muted) {
+    if (!m_volumeMuteButton) return;
+    const int state = muted ? 1 : 0;
+    if (m_lastMutedState == state) return;
+    m_lastMutedState = state;
+    m_volumeMuteButton->setToolTip(muted ? QStringLiteral("Unmute playback")
+                                         : QStringLiteral("Mute playback"));
+    if (m_mainPanelIcons) {
+        m_volumeMuteButton->setText(QString());
+        m_volumeMuteButton->setIcon(makeMainPanelIcon(
+            muted ? MainPanelIcon::MutedSpeaker : MainPanelIcon::Speaker));
+        m_volumeMuteButton->setIconSize(QSize(20, 20));
+        m_volumeMuteButton->setFixedSize(34, 30);
+    } else {
+        m_volumeMuteButton->setIcon(QIcon());
+        m_volumeMuteButton->setText(muted ? QStringLiteral("Muted")
+                                          : QStringLiteral("Volume"));
+        m_volumeMuteButton->setMinimumSize(0, 30);
+        m_volumeMuteButton->setMaximumSize(QWIDGETSIZE_MAX, 30);
+        m_volumeMuteButton->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
     }
 }
 void MainWindow::increaseSubtitlePosition() {
