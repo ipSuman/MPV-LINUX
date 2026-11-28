@@ -137,6 +137,7 @@ private:
     void stepFrame(bool forward);
     void showError(const QString& message);
     void showToast(const QString& message);
+    void showPlaybackOsd(const QString& message);
     QString formatTime(double seconds) const;
     void setControlsVisible(bool visible);
     void toggleFullscreen();
@@ -173,6 +174,7 @@ private:
     QLabel* m_progressTimeLabel = nullptr;
     QLabel* m_abLoopLabel = nullptr;
     QLabel* m_toastLabel = nullptr;
+    QLabel* m_playbackOsdLabel = nullptr;
     QPushButton* m_playButton = nullptr;
     QPushButton* m_hwButton = nullptr;
     QPushButton* m_previousButton = nullptr;
@@ -296,6 +298,9 @@ private:
     QTimer m_fullscreenHideTimer;
     QTimer m_cursorHideTimer;
     QTimer m_toastTimer;
+    QTimer m_playbackOsdTimer;
+    bool m_showVolumeOsd = true;
+    bool m_showSeekOsd = true;
     bool m_playlistWasVisibleBeforeFullscreen = false;
     int m_lastPlaylistHighlightIndex = -2;
     int m_lastPausedState = -1;
