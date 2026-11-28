@@ -24,9 +24,11 @@ jobs:
 
       - name: Record selected source
         id: source
+        env:
+          BUILD_REF: ${{ inputs.ref }}
         run: |
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-          echo "ref=${{ inputs.ref }}" >> "$GITHUB_OUTPUT"
+          echo "ref=$BUILD_REF" >> "$GITHUB_OUTPUT"
 
       - name: Install Flatpak tooling
         run: |
@@ -62,7 +64,7 @@ jobs:
           {
             echo "## REX Player Flatpak build"
             echo ""
-            echo "- Requested ref: ` ${{ steps.source.outputs.ref }} `"
-            echo "- Built commit: ` ${{ steps.source.outputs.sha }} `"
+            echo "- Requested ref: ${{ steps.source.outputs.ref }}"
+            echo "- Built commit: ${{ steps.source.outputs.sha }}"
             echo "- Artifact: `REX-Player.flatpak`"
           } >> "$GITHUB_STEP_SUMMARY"
