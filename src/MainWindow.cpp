@@ -706,6 +706,7 @@ void MainWindow::buildUi() {
     connect(m_seekBackButton, &QPushButton::clicked, this, [this] {
         const char* args[] = {"seek", "-10", "relative", "exact", nullptr};
         command(args);
+        if (m_showSeekOsd) showSeekPlaybackOsd(-10);
     });
     row1->addWidget(m_seekBackButton);
 
@@ -721,6 +722,7 @@ void MainWindow::buildUi() {
     connect(m_seekForwardButton, &QPushButton::clicked, this, [this] {
         const char* args[] = {"seek", "10", "relative", "exact", nullptr};
         command(args);
+        if (m_showSeekOsd) showSeekPlaybackOsd(10);
     });
     row1->addWidget(m_seekForwardButton);
 
