@@ -11,6 +11,7 @@ public:
     QString volumeWheelMode = QStringLiteral("ctrl-wheel");
     bool timerBesideProgress = true;
     bool mainPanelIcons = true;
+    int mainPanelIconSize = 20;
     bool returnFocusToVideoAfterMouseAction = true;
     bool verboseLogging = false;
     bool showVolumeOsd = true;
