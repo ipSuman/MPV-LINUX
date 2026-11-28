@@ -24,7 +24,7 @@ const QStringList kActions = {
     QStringLiteral("subtitle_size_up"), QStringLiteral("subtitle_size_down"),
     QStringLiteral("tracks"), QStringLiteral("equalizer"), QStringLiteral("controls"),
     QStringLiteral("flip_horizontal"), QStringLiteral("flip_vertical"),
-    QStringLiteral("display"), QStringLiteral("crop")
+    QStringLiteral("display"), QStringLiteral("crop"), QStringLiteral("video_info")
 };
 }
 
