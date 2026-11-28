@@ -851,7 +851,7 @@ void MainWindow::buildUi() {
         layout->setContentsMargins(20, 20, 20, 20);
         layout->setSpacing(12);
 
-        auto* title = new QLabel(QStringLiteral("<b>REX Player %1</b>").arg(QCoreApplication::applicationVersion()), &dialog);
+        auto* title = new QLabel(QStringLiteral("<b>REX Player v.%1</b>").arg(QCoreApplication::applicationVersion()), &dialog);
         title->setAlignment(Qt::AlignCenter);
         layout->addWidget(title);
 
@@ -877,7 +877,7 @@ void MainWindow::buildUi() {
 
             auto* heading = new QLabel(
                 QStringLiteral("<b>REX Player Changelog</b><br>"
-                               "<span style='color:#888;'>Current version: %1</span>")
+                               "<span style='color:#888;'>Current version: v.%1</span>")
                     .arg(QCoreApplication::applicationVersion()),
                 &changelogDialog);
             heading->setTextFormat(Qt::RichText);
@@ -892,8 +892,19 @@ void MainWindow::buildUi() {
             content->setWordWrap(true);
             content->setAlignment(Qt::AlignTop | Qt::AlignLeft);
             content->setText(QStringLiteral(
-                "<h2>REX Player %1 — Current</h2>"
-                "<p><b>New in the current release:</b></p>"
+                "<h2>REX Player v.%1 — Current</h2>"
+                "<p><b>New in v.8.0.2:</b></p>"
+                "<ul>"
+                "<li>🎮 <b>Configurable gamepad controls</b> with button, D-pad and stick mapping for playback, seeking, volume, subtitles, video transforms and display tools.</li>"
+                "<li>🚪 <b>Gamepad Exit action</b> can be mapped to a controller button and closes REX Player cleanly.</li>"
+                "<li>🔇 <b>Clickable volume mute control</b> beside the volume slider, with text and icon states that follow MPV's actual mute status.</li>"
+                "<li>ℹ️ <b>Gamepad video-information action</b> for showing or hiding video information from a controller.</li>"
+                "<li>🔊 <b>Optional on-video volume percentage</b> and <b>seek-duration overlays</b>, independently configurable in Control settings.</li>"
+                "<li>⏩ <b>Cumulative seek overlay</b> adds repeated forward/backward seeks during the display interval.</li>"
+                "<li>🎨 <b>Refined playback overlay</b> uses the application font, green text and a dark rounded background.</li>"
+                "</ul>"
+                "<h2>REX Player v7.0.1 — Previous release</h2>"
+                "<p><b>Major features introduced or improved in v7.0.1:</b></p>"
                 "<ul>"
                 "<li>🎚️ <b>5-band Sound Equalizer</b> with independent frequency-band control.</li>"
                 "<li>🔊 <b>Power Bar</b> volume boost up to 300%, with a warning before enabling boost above normal volume.</li>"
@@ -1029,13 +1040,13 @@ void MainWindow::buildUi() {
                     pageReply->deleteLater();
 
                     QString tag = QRegularExpression(
-                        QStringLiteral(R"(/releases/tag/(v?\d+(?:\.\d+)+))"),
+                        QStringLiteral(R"(/releases/tag/(v\.?\d+(?:\.\d+)+))"),
                         QRegularExpression::CaseInsensitiveOption)
                         .match(finalUrl).captured(1);
                     if (tag.isEmpty()) {
                         const QString page = QString::fromUtf8(html);
                         auto match = QRegularExpression(
-                            QStringLiteral(R"((?:Release|REX Player)[^<]{0,80}?(v?\d+(?:\.\d+)+))"),
+                            QStringLiteral(R"((?:Release|REX Player)[^<]{0,80}?(v\.?\d+(?:\.\d+)+))"),
                             QRegularExpression::CaseInsensitiveOption).match(page);
                         if (match.hasMatch())
                             tag = match.captured(1);
@@ -1048,7 +1059,9 @@ void MainWindow::buildUi() {
                                 .arg(networkError));
                         return;
                     }
-                    if (tag.startsWith(QLatin1Char('v'), Qt::CaseInsensitive))
+                    if (tag.startsWith(QStringLiteral("v."), Qt::CaseInsensitive))
+                        tag.remove(0, 2);
+                    else if (tag.startsWith(QLatin1Char('v'), Qt::CaseInsensitive))
                         tag.remove(0, 1);
                     showVersionResult(tag, QStringLiteral("https://github.com/ipSuman/MPV-LINUX/releases/latest"));
                 });
@@ -1080,7 +1093,9 @@ void MainWindow::buildUi() {
 
                 const QJsonObject release = document.object();
                 QString latestVersion = release.value(QStringLiteral("tag_name")).toString().trimmed();
-                if (latestVersion.startsWith(QLatin1Char('v'), Qt::CaseInsensitive))
+                if (latestVersion.startsWith(QStringLiteral("v."), Qt::CaseInsensitive))
+                    latestVersion.remove(0, 2);
+                else if (latestVersion.startsWith(QLatin1Char('v'), Qt::CaseInsensitive))
                     latestVersion.remove(0, 1);
                 const QString releaseUrl = release.value(QStringLiteral("html_url")).toString().trimmed();
                 if (latestVersion.isEmpty()) {
@@ -1610,7 +1625,7 @@ void MainWindow::showControlsDialog() {
     connect(saveSettingsButton, &QPushButton::clicked, &dialog, [this, &dialog] {
         if (!m_controlSettings) return;
         const QString version = QCoreApplication::applicationVersion().isEmpty()
-            ? QStringLiteral("5.0.1") : QCoreApplication::applicationVersion();
+            ? QStringLiteral("8.0.2") : QCoreApplication::applicationVersion();
         const QString defaultName = QStringLiteral("RexPlayer_%1_%2.ini")
             .arg(version, QDateTime::currentDateTime().toString(QStringLiteral("yyyy-MM-dd_HH-mm-ss")));
         const QString path = QFileDialog::getSaveFileName(
