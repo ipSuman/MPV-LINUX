@@ -1,0 +1,68 @@
+name: Build REX Player Flatpak
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Branch, tag, or commit to build (for example: main or v.8.0.2)"
+        required: true
+        default: main
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build-flatpak:
+    name: Build Flatpak (${{ inputs.ref }})
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out selected version
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Record selected source
+        id: source
+        run: |
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "ref=${{ inputs.ref }}" >> "$GITHUB_OUTPUT"
+
+      - name: Install Flatpak tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flatpak flatpak-builder
+
+      - name: Install KDE runtime and SDK
+        run: |
+          sudo flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+          sudo flatpak install -y flathub org.kde.Platform//6.9 org.kde.Sdk//6.9
+
+      - name: Build Flatpak
+        run: |
+          flatpak-builder --force-clean --disable-rofiles-fuse --repo=repo build-dir flatpak/io.github.ipsuman.RexPlayer.yml
+
+      - name: Create single-file Flatpak bundle
+        run: |
+          mkdir -p dist
+          flatpak build-bundle repo dist/REX-Player.flatpak io.github.ipsuman.RexPlayer --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo
+          test -s dist/REX-Player.flatpak
+          file dist/REX-Player.flatpak
+
+      - name: Upload Flatpak artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: REX-Player-Flatpak-${{ github.run_number }}
+          path: dist/REX-Player.flatpak
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Build summary
+        run: |
+          {
+            echo "## REX Player Flatpak build"
+            echo ""
+            echo "- Requested ref: ` ${{ steps.source.outputs.ref }} `"
+            echo "- Built commit: ` ${{ steps.source.outputs.sha }} `"
+            echo "- Artifact: `REX-Player.flatpak`"
+          } >> "$GITHUB_STEP_SUMMARY"
