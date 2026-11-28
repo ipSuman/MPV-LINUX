@@ -238,6 +238,7 @@ private:
     bool m_showRemainingTime = false;
     bool m_timerBesideProgress = false;
     bool m_mainPanelIcons = true;
+    int m_mainPanelIconSize = 20;
     bool m_returnFocusToVideoAfterMouseAction = true;
     bool m_verboseLogging = false;
     bool m_cutWithZoom = false;
